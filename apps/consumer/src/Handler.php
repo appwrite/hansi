@@ -70,7 +70,10 @@ final class Handler
                     }
                     // Out of attempts but still owed one, to record the failure, or stopping: the job
                     // goes back as a new message with attempts of its own.
-                    $this->publisher->publish($this->queue, $payload);
+                    // Refused, the delivery stays the broker's rather than be committed with the job lost.
+                    if (!$this->publisher->publish($this->queue, $payload)) {
+                        throw new \RuntimeException('The job could not go back on the queue');
+                    }
 
                     return;
             }

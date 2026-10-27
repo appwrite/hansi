@@ -38,8 +38,13 @@ final class MemoryPublisher implements Synchronous
     /** @var list<array<mixed>> */
     public array $published = [];
 
+    public bool $refuses = false;
+
     public function publish(Queue $queue, array $payload): bool
     {
+        if ($this->refuses) {
+            return false;
+        }
         $this->published[] = $payload;
 
         return true;
@@ -195,5 +200,14 @@ final class HandlerTest extends TestCase
 
         $this->assertCount(1, $engine->runs);
         $this->assertSame([self::PAYLOAD], $this->publisher->published);
+    }
+
+    public function testKeepsTheDeliveryWhenTheJobCannotGoBack(): void
+    {
+        $this->publisher->refuses = true;
+
+        $this->expectException(\RuntimeException::class);
+
+        $this->handler(new ScriptedEngine([Outcome::Retry]))($this->nats(2));
     }
 }
