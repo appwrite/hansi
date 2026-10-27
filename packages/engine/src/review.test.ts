@@ -179,6 +179,41 @@ describe('runReview', () => {
 		expect(result.findings.map((f) => f.title)).toEqual(['Bug']);
 	});
 
+	test('findings over the comment limit still block', async () => {
+		const reviewer = scriptedModel([
+			{
+				calls: [
+					{ tool: 'submit_review', input: { summary: 'x', findings: [finding('Bug')], tier: 'S' } }
+				]
+			}
+		]);
+		const verifier = scriptedModel([
+			{
+				calls: [
+					{
+						tool: 'submit_verdicts',
+						input: { verdicts: [{ id: 'f1', keep: true, reason: 'Real.' }] }
+					}
+				]
+			}
+		]);
+		const config = { ...defaultConfig, reviews: { ...defaultConfig.reviews, maxComments: 0 } };
+		const result = await runReview(input({ config }), { reviewer, verifier });
+		expect(result.findings).toEqual([]);
+		expect(result.dropped.map((f) => f.reason)).toEqual(['Over the comment limit']);
+		expect(result).toMatchObject({ tier: 'B', verdict: 'request_changes' });
+	});
+
+	test('does not approve when changed files were skipped unread', async () => {
+		const lockfile: FileDiff = { ...files[0]!, path: 'bun.lock' };
+		const reviewer = scriptedModel([
+			{ calls: [{ tool: 'submit_review', input: { summary: 'x', findings: [], tier: 'S' } }] }
+		]);
+		const result = await runReview(input({ files: [...files, lockfile] }), { reviewer });
+		expect(result).toMatchObject({ partial: true, verdict: 'comment' });
+		expect(result.notShown).toEqual([{ path: 'bun.lock', reason: 'ignored' }]);
+	});
+
 	test('fails when the reviewer never submits', async () => {
 		const reviewer = scriptedModel([{ text: 'Done.' }, { text: 'Done.' }, { text: 'Done.' }]);
 		await expect(runReview(input(), { reviewer })).rejects.toThrow('did not submit');

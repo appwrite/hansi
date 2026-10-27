@@ -87,4 +87,21 @@ describe('runToSubmission', () => {
 		]);
 		expect(await runToSubmission({ ...base, model, maxSteps: 5 })).toBeNull();
 	});
+
+	test('recovers when the provider ignores the forced submit tool', async () => {
+		const events: string[] = [];
+		const model = scriptedModel([
+			{ text: 'Ignoring the forced tool.' },
+			{ calls: [{ tool: 'submit', input: { answer: 'ok' } }] }
+		]);
+		const result = await runToSubmission({
+			...base,
+			model,
+			maxSteps: 1,
+			emit: (type) => events.push(type)
+		});
+		expect(result).toEqual({ answer: 'ok' });
+		expect(events).toContain('test.nudge');
+		expect(JSON.stringify(model.doGenerateCalls[1]!.prompt)).toContain('What is x?');
+	});
 });

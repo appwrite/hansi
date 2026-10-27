@@ -52,6 +52,8 @@ export async function runToSubmission<S extends z.ZodType>(
 		activeTools: [submit.name]
 	};
 
+	// What the latest step was sent, so a run that throws can still be continued from it.
+	let sent: ModelMessage[] = [];
 	const call = (messages: ModelMessage[], maxSteps: number) =>
 		generateText({
 			model: options.model,
@@ -59,7 +61,10 @@ export async function runToSubmission<S extends z.ZodType>(
 			messages,
 			tools,
 			stopWhen: [hasToolCall(submit.name), isStepCount(maxSteps)],
-			prepareStep: ({ stepNumber }) => (stepNumber >= maxSteps - 1 ? forced : {}),
+			prepareStep: ({ stepNumber, messages }) => {
+				sent = messages;
+				return stepNumber >= maxSteps - 1 ? forced : {};
+			},
 			abortSignal: options.signal,
 			onStepEnd: (step) =>
 				emit(`${role}.step`, {
@@ -80,15 +85,23 @@ export async function runToSubmission<S extends z.ZodType>(
 		});
 
 	const messages: ModelMessage[] = [{ role: 'user', content: options.prompt }];
-	const result = await call(messages, options.maxSteps);
+	let history: ModelMessage[];
+	try {
+		const result = await call(messages, options.maxSteps);
+		history = [...messages, ...result.response.messages];
+	} catch (error) {
+		// The provider ignored the forced submit tool on the last step.
+		if (!ToolChoiceViolationError.isInstance(error)) throw error;
+		emit(`${role}.tool_choice_violation`, { attempt: -1 });
+		history = sent;
+	}
 	if (submitted !== null) return submitted;
 
 	// The model stopped early or sent an invalid submission. One forced call, retried once when
 	// the provider ignores the forced tool choice.
 	emit(`${role}.nudge`, {});
 	const nudge: ModelMessage[] = [
-		...messages,
-		...result.response.messages,
+		...history,
 		{
 			role: 'user',
 			content: `You have not called ${submit.name} with a valid input yet. Call it now with what you found.`

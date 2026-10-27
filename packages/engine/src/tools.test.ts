@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { git } from './git';
@@ -58,6 +58,19 @@ describe('resolveRepoPath', () => {
 		expect(() => resolveRepoPath('/repo', '../etc/passwd')).toThrow();
 		expect(() => resolveRepoPath('/repo', '.git/config')).toThrow();
 		expect(() => resolveRepoPath('/repo', '.git')).toThrow();
+	});
+});
+
+describe('symlinks', () => {
+	test('a link out of the checkout or into .git is refused', async () => {
+		await symlink('/etc/passwd', join(repo, 'outside'));
+		await symlink(join(repo, '.git', 'config'), join(repo, 'gitconfig'));
+		await symlink(join(repo, 'src', 'math.ts'), join(repo, 'inside'));
+		expect(() => resolveRepoPath(repo, 'outside')).toThrow('outside the repository');
+		expect(() => resolveRepoPath(repo, 'gitconfig')).toThrow('outside the repository');
+		expect(resolveRepoPath(repo, 'inside')).toBe(join(repo, 'inside'));
+		const tools = createRepoTools(repo);
+		expect(await run(tools.read_file, { path: 'gitconfig' })).toStartWith('Error:');
 	});
 });
 
@@ -124,5 +137,9 @@ describe('loadGuidelines', () => {
 	test('reads guideline files from the base, not the pull request', async () => {
 		const guidelines = await loadGuidelines(repo, baseSha);
 		expect(guidelines).toEqual([{ path: 'AGENTS.md', content: '# Rules\nNo globals.\n' }]);
+	});
+
+	test('fails when the base cannot be read, instead of dropping the rules', async () => {
+		await expect(loadGuidelines(repo, 'not-a-commit')).rejects.toThrow('git show');
 	});
 });

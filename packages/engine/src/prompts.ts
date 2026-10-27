@@ -120,6 +120,40 @@ export interface PromptInput {
 	}[];
 }
 
+/** The tags the prompts are built from. */
+const SECTION_TAGS = [
+	'pull_request',
+	'title',
+	'description',
+	'repository_guidelines',
+	'file',
+	'review_instructions',
+	'path_instructions',
+	'files_not_shown',
+	'already_reported',
+	'open_findings',
+	'findings',
+	'finding',
+	'body',
+	'code',
+	'diff',
+	'suggestion'
+];
+const SECTION_TAG = new RegExp(`<(?=/?(?:${SECTION_TAGS.join('|')})[\\s/>])`, 'gi');
+
+/**
+ * Author-controlled text, made safe to put inside a section: a `</description>` or
+ * `<review_instructions>` in it would otherwise close the section and open a trusted one.
+ */
+export function untrusted(text: string): string {
+	return text.replace(SECTION_TAG, '&lt;');
+}
+
+/** Author-controlled text inside an attribute value. */
+export function attribute(text: string): string {
+	return text.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
 /** The trusted sections: rules from the base branch and the project's settings. */
 export function rulesSections(
 	input: Pick<PromptInput, 'config' | 'guidelines' | 'pathInstructions'>
@@ -145,13 +179,13 @@ export function rulesSections(
 }
 
 export function pullRequestSection(pr: PromptInput['pullRequest']): string {
-	return `<pull_request author="${pr.author}">\n<title>${pr.title}</title>\n<description>\n${pr.body || '(none)'}\n</description>\n</pull_request>`;
+	return `<pull_request author="${attribute(pr.author)}">\n<title>${untrusted(pr.title)}</title>\n<description>\n${untrusted(pr.body) || '(none)'}\n</description>\n</pull_request>`;
 }
 
 export function reviewPrompt(input: PromptInput): string {
 	const parts = [pullRequestSection(input.pullRequest), ...rulesSections(input)];
 	if (input.notShown.length) {
-		const list = input.notShown.map((f) => `- ${f.path} (${f.reason})`).join('\n');
+		const list = input.notShown.map((f) => `- ${untrusted(f.path)} (${f.reason})`).join('\n');
 		const deleted = input.notShown.some((f) => f.reason === 'deleted')
 			? '\nDeleted files may still be used elsewhere: grep for them.'
 			: '';
@@ -161,7 +195,7 @@ export function reviewPrompt(input: PromptInput): string {
 	}
 	if (input.alreadyReported.length) {
 		const list = input.alreadyReported
-			.map((f) => `- ${f.path}:${f.startLine}-${f.endLine} ${f.title}`)
+			.map((f) => `- ${untrusted(f.path)}:${f.startLine}-${f.endLine} ${untrusted(f.title)}`)
 			.join('\n');
 		parts.push(
 			`<already_reported>\nReported in earlier reviews. Do not report these again.\n${list}\n</already_reported>`
@@ -171,7 +205,7 @@ export function reviewPrompt(input: PromptInput): string {
 		const list = input.openFindings
 			.map(
 				(f) =>
-					`<finding id="${f.id}" path="${f.path}" lines="${f.startLine}-${f.endLine}">\n${f.title}\n${f.body}\n</finding>`
+					`<finding id="${attribute(f.id)}" path="${attribute(f.path)}" lines="${f.startLine}-${f.endLine}">\n${untrusted(f.title)}\n${untrusted(f.body)}\n</finding>`
 			)
 			.join('\n');
 		parts.push(
@@ -184,7 +218,7 @@ export function reviewPrompt(input: PromptInput): string {
 		);
 	}
 	parts.push(
-		`<diff>\nEach line: new-file line number, marker (+ added, - removed, space unchanged), content.\n\n${input.diff}\n</diff>`
+		`<diff>\nEach line: new-file line number, marker (+ added, - removed, space unchanged), content.\n\n${untrusted(input.diff)}\n</diff>`
 	);
 	return parts.join('\n\n');
 }

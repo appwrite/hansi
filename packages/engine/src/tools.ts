@@ -1,5 +1,6 @@
+import { realpathSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { isAbsolute, relative, resolve } from 'node:path';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
 import { git, GitError } from './git';
@@ -16,15 +17,34 @@ const MAX_LISTED_FILES = 300;
 const MAX_HISTORY_COMMITS = 20;
 const MAX_HISTORY_CHARS = 20_000;
 
+function inside(root: string, absolute: string): boolean {
+	const rel = relative(root, absolute);
+	if (rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return false;
+	return rel !== '.git' && !rel.startsWith(`.git${sep}`);
+}
+
 /** Resolves a path the model passed. Throws for anything outside the checkout or inside `.git`. */
 export function resolveRepoPath(repoDir: string, path: string): string {
 	// Models often write repository paths with a leading slash.
 	const absolute = resolve(repoDir, path.replace(/^\/+/, ''));
-	const rel = relative(repoDir, absolute);
-	if (rel.startsWith('..') || isAbsolute(rel) || rel === '.git' || rel.startsWith(`.git/`)) {
+	if (!inside(repoDir, absolute)) throw new Error(`Path is outside the repository: ${path}`);
+	// The pull request can add symlinks, so what the path points to must be inside too.
+	let target: string;
+	try {
+		target = realpathSync(absolute);
+	} catch {
+		return absolute; // Missing: reading it fails on its own.
+	}
+	if (!inside(realpathSync(repoDir), target)) {
 		throw new Error(`Path is outside the repository: ${path}`);
 	}
 	return absolute;
+}
+
+/** git's error for a path that is not in a commit. */
+function isMissingPath(error: unknown): boolean {
+	// "does not exist in", or "exists on disk, but not in" when the working tree has it.
+	return error instanceof GitError && /does not exist|but not in/.test(error.stderr);
 }
 
 function numbered(lines: string[], first: number): string {
@@ -53,8 +73,7 @@ export function createRepoTools(repoDir: string, options: RepoToolsOptions = {})
 		try {
 			return await git(['show', `${options.baseSha}:${file}`], gitOptions);
 		} catch (error) {
-			// git words it "does not exist in", or "exists on disk, but not in" when the head has it.
-			if (error instanceof GitError && /does not exist|but not in/.test(error.stderr)) {
+			if (isMissingPath(error)) {
 				throw new Error(`${path} does not exist at the base: the pull request adds it`, {
 					cause: error
 				});
@@ -198,8 +217,12 @@ export async function loadGuidelines(
 ): Promise<{ path: string; content: string }[]> {
 	const found: { path: string; content: string }[] = [];
 	for (const path of GUIDELINE_FILES) {
+		// Only a missing file is skipped: a failed fetch must not drop the rules silently.
 		const content = await git(['show', `${ref}:${path}`], { cwd: repoDir, token }).catch(
-			() => null
+			(error: unknown) => {
+				if (isMissingPath(error)) return null;
+				throw error;
+			}
 		);
 		if (!content?.trim() || content.includes('\0')) continue;
 		found.push({

@@ -25,10 +25,12 @@ import {
 	type Verdict
 } from './grading';
 import {
+	attribute,
 	pullRequestSection,
 	reviewerInstructions,
 	reviewPrompt,
 	rulesSections,
+	untrusted,
 	verifierInstructions
 } from './prompts';
 import type { ModelUsage } from './results';
@@ -148,7 +150,9 @@ export async function runReview(input: ReviewInput, options: ReviewOptions): Pro
 		...excluded,
 		...over.map((file) => ({ path: file.path, reason: 'too large for this review' }))
 	];
-	const partial = over.length > 0;
+	// Changed files skipped by the default filters (lockfiles, generated code, build output) or
+	// over the budget went unread, so they cannot count as reviewed.
+	const partial = over.length > 0 || excluded.some((file) => file.reason === 'ignored');
 	const pathInstructions = config.pathInstructions
 		.filter((rule) => {
 			const glob = new Bun.Glob(rule.path);
@@ -200,20 +204,24 @@ export async function runReview(input: ReviewInput, options: ReviewOptions): Pro
 		} else candidates.push(placed);
 	}
 
-	const verified = await verify(dedupe(candidates, dropped), input, included, guidelines, {
+	const verified = await verify(dedupe(candidates, dropped), input, included, {
+		guidelines,
+		pathInstructions,
 		...options,
 		emit
 	});
-	const kept = verified.kept.sort(bySeverity);
+	const confirmed = verified.kept.sort(bySeverity);
 	dropped.push(...verified.dropped);
-	for (const finding of kept.splice(config.reviews.maxComments)) {
+	// The comment limit only limits what is posted: findings over it still grade the pull request.
+	const kept = confirmed.slice(0, config.reviews.maxComments);
+	for (const finding of confirmed.slice(config.reviews.maxComments)) {
 		dropped.push({ ...finding, reason: 'Over the comment limit' });
 	}
 
 	const openIds = new Set(input.openFindings.map((f) => f.id));
 	const resolved = [...new Set(submission.resolved ?? [])].filter((id) => openIds.has(id));
 	const stillOpen = input.openFindings.filter((f) => !resolved.includes(f.id));
-	const graded = [...kept, ...stillOpen];
+	const graded = [...confirmed, ...stillOpen];
 	const tier = finalTier(
 		submission.tier,
 		graded.map((f) => f.severity)
@@ -221,7 +229,7 @@ export async function runReview(input: ReviewInput, options: ReviewOptions): Pro
 	const tierReason =
 		tier === submission.tier ? (submission.tier_reason ?? '') : standing(graded).reason;
 	const verdict = decideVerdict({
-		posted: kept,
+		posted: confirmed,
 		open: stillOpen,
 		config,
 		trustedAuthor: input.trustedAuthor,
@@ -262,8 +270,11 @@ async function verify(
 	findings: ReviewFinding[],
 	input: ReviewInput,
 	files: FileDiff[],
-	guidelines: { path: string; content: string }[],
-	options: ReviewOptions & { emit: Emit }
+	options: ReviewOptions & {
+		emit: Emit;
+		guidelines: { path: string; content: string }[];
+		pathInstructions: string[];
+	}
 ): Promise<{ kept: ReviewFinding[]; dropped: Dropped[] }> {
 	if (!findings.length) return { kept: [], dropped: [] };
 	const { emit } = options;
@@ -273,12 +284,14 @@ async function verify(
 			const file = files.find((f) => f.path === finding.path);
 			const excerpt = file ? renderExcerpt(file, finding.startLine, finding.endLine) : null;
 			return [
-				`<finding id="f${index + 1}" path="${finding.path}" lines="${finding.startLine}-${finding.endLine}" severity="${finding.severity}" category="${finding.category}">`,
-				`<title>${finding.title}</title>`,
-				`<body>\n${finding.body}\n</body>`,
-				`<code>\n${await currentCode(input.repoDir, finding)}\n</code>`,
-				...(excerpt ? [`<diff>\n${excerpt}\n</diff>`] : []),
-				...(finding.suggestion ? [`<suggestion>\n${finding.suggestion}\n</suggestion>`] : []),
+				`<finding id="f${index + 1}" path="${attribute(finding.path)}" lines="${finding.startLine}-${finding.endLine}" severity="${finding.severity}" category="${finding.category}">`,
+				`<title>${untrusted(finding.title)}</title>`,
+				`<body>\n${untrusted(finding.body)}\n</body>`,
+				`<code>\n${untrusted(await currentCode(input.repoDir, finding))}\n</code>`,
+				...(excerpt ? [`<diff>\n${untrusted(excerpt)}\n</diff>`] : []),
+				...(finding.suggestion
+					? [`<suggestion>\n${untrusted(finding.suggestion)}\n</suggestion>`]
+					: []),
 				'</finding>'
 			].join('\n');
 		})
@@ -287,8 +300,8 @@ async function verify(
 		pullRequestSection(input.pullRequest),
 		...rulesSections({
 			config: input.config,
-			guidelines,
-			pathInstructions: []
+			guidelines: options.guidelines,
+			pathInstructions: options.pathInstructions
 		}),
 		`<findings>\n${blocks.join('\n\n')}\n</findings>`
 	].join('\n\n');
