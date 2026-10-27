@@ -1,0 +1,20 @@
+{
+	"name": "@hansi/appwrite",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts"
+	},
+	"scripts": {
+		"check": "tsc -p ."
+	},
+	"dependencies": {
+		"@hansi/engine": "workspace:*",
+		"@hansi/github": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	}
+}

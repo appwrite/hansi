@@ -1,0 +1,27 @@
+import { REVIEWS_QUEUE } from '@hansi/appwrite';
+import { z } from 'zod';
+
+const schema = z.object({
+	HANSI_PORT: z.coerce.number().int().positive().default(8080),
+	HANSI_LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+	/** Jobs one process runs at once. Each review holds a checkout and a sandbox. */
+	HANSI_CONCURRENCY: z.coerce.number().int().positive().default(4),
+
+	HANSI_APPWRITE_ENDPOINT: z.url(),
+	HANSI_APPWRITE_SECRET: z.string().min(1),
+	HANSI_APPWRITE_QUEUE: z.string().min(1).default(REVIEWS_QUEUE),
+
+	HANSI_ORCHESTRATOR_ENDPOINT: z.url(),
+	HANSI_ORCHESTRATOR_KEY: z.string().min(1).optional(),
+	HANSI_SANDBOX_IMAGE: z.string().min(1)
+});
+
+export type Env = z.infer<typeof schema>;
+
+export function parseEnv(source: Record<string, string | undefined>): Env {
+	const result = schema.safeParse(source);
+	if (!result.success) {
+		throw new Error(`invalid environment:\n${z.prettifyError(result.error)}`);
+	}
+	return result.data;
+}
