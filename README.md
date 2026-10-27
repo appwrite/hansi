@@ -47,7 +47,7 @@ Without an orchestrator, as on a self-hosted Appwrite, reviews read the code wit
 
 ## Deployment
 
-The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite-labs/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version.
+The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version, each for amd64 and arm64.
 
 On a self-hosted Appwrite, Hansi is an optional service: Appwrite publishes review jobs only when reviews are turned on, and the container runs next to Appwrite's own on its Redis, without an orchestrator.
 
