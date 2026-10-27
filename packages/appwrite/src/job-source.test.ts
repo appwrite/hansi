@@ -147,7 +147,7 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 		expect(dead?.json<{ payload: unknown }>().payload).toEqual(review);
 	});
 
-	test('dead-letters a job on its last attempt even when asked to retry', async () => {
+	test('requeues a job asked to retry on its last attempt, with fresh attempts', async () => {
 		await provision();
 		await publish(review);
 		const jobs = source();
@@ -160,8 +160,11 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 		expect(lease?.attempts).toBe(2);
 		await lease!.nack({ retry: true });
 
+		const again = await jobs.next(soon());
+		expect(again?.attempts).toBe(0);
+		await again!.ack();
 		expect(await messages(names.workStream, 0)).toBe(0);
-		expect(await messages(names.deadStream, 1)).toBe(1);
+		expect(await messages(names.deadStream, 0)).toBe(0);
 	});
 
 	test('keeps a long job from being delivered again', async () => {

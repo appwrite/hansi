@@ -153,9 +153,10 @@ class Connection {
 	}
 
 	/**
-	 * Hand back a message no handler has seen, as a new message rather than a NAK, which would
-	 * spend an attempt on work that never ran. As the broker does on a stopping worker: only on
-	 * a stream that cannot evict another job to take the copy, and NAK'd otherwise.
+	 * Put a message back as a new message, with attempts of its own, rather than NAK it: for one no
+	 * handler has seen, or one out of attempts that is still owed one. As the broker releases on
+	 * a stopping worker: only on a stream that cannot evict another job to take the copy, and
+	 * NAK'd otherwise.
 	 */
 	async release(msg: JsMsg, pid: string): Promise<void> {
 		const { config } = await (await this.js.streams.get(this.names.workStream)).info();
@@ -289,11 +290,15 @@ export class AppwriteJobSource implements JobSource {
 				}),
 			nack: ({ retry }) =>
 				settle(async () => {
-					if (retry && delivery < maxDeliver) {
+					if (!retry) {
+						await connection.deadLetter(msg, envelope.pid);
+						msg.term('permanent failure');
+					} else if (delivery < maxDeliver) {
 						msg.nak(connection.backoffFor(delivery));
 					} else {
-						await connection.deadLetter(msg, envelope.pid);
-						msg.term(retry ? 'max deliveries exceeded' : 'permanent failure');
+						// Out of attempts but still owed one, e.g. to report the failure: it goes back
+						// as a new message with attempts of its own.
+						await connection.release(msg, envelope.pid);
 					}
 					await connection.nc.flush();
 				})
