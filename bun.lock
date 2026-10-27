@@ -43,6 +43,9 @@
     },
     "packages/engine": {
       "name": "@hansi/engine",
+      "dependencies": {
+        "zod": "catalog:",
+      },
       "devDependencies": {
         "@types/bun": "catalog:",
         "typescript": "catalog:",
