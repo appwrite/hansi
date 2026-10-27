@@ -87,7 +87,7 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 	}
 
 	function source(onDiscard?: (reason: string) => void) {
-		const created = new AppwriteJobSource({ url: url!, name: queue }, { pollMs: 200, onDiscard });
+		const created = new AppwriteJobSource({ url: url!, name: queue }, { pollMs: 1_000, onDiscard });
 		sources.push(created);
 		return created;
 	}
@@ -101,7 +101,7 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 		}
 		return stored;
 	}
-	const soon = () => AbortSignal.timeout(3_000);
+	const soon = () => AbortSignal.timeout(4_000);
 
 	test('refuses a queue Appwrite has not provisioned', async () => {
 		await expect(source().next(soon())).rejects.toThrow(/is not provisioned/);

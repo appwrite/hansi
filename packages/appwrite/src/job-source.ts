@@ -36,7 +36,7 @@ export interface QueueConfig {
 export interface JobSourceOptions {
 	/** A message no worker can use, which went to the dead stream instead of a handler. */
 	onDiscard?: (reason: string, details: Record<string, unknown>) => void;
-	/** How long one pull waits for a message before it looks at the signal again. */
+	/** How long one pull waits for a message before it looks at the signal again. At least a second. */
 	pollMs?: number;
 }
 
@@ -176,7 +176,9 @@ export class AppwriteJobSource implements JobSource {
 	async next(signal: AbortSignal): Promise<Lease | null> {
 		while (!signal.aborted) {
 			const connection = await this.open();
-			const msg = await connection.consumer.next({ expires: this.options.pollMs ?? 5_000 });
+			// The client refuses a pull that expires in under a second.
+			const expires = Math.max(1_000, this.options.pollMs ?? 5_000);
+			const msg = await connection.consumer.next({ expires });
 			if (!msg) continue;
 			const lease = await this.lease(connection, msg);
 			if (lease) return lease;
