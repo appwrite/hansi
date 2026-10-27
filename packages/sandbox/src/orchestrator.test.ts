@@ -57,7 +57,7 @@ describe('OrchestratorSandboxClient', () => {
 			runtimeClass: 'gvisor',
 			artifacts: [
 				{ type: 'download', in: 'https://example.test/pr.tar.gz' },
-				{ type: 'unarchive', depends: 'archive' }
+				{ type: 'unarchive', strip: true, depends: 'archive' }
 			]
 		});
 		expect(requests[1]?.body).toEqual({ command: 'echo 4', timeoutSeconds: 30 });

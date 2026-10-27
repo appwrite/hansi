@@ -70,11 +70,12 @@ export const repoConfigSchema = z.object({
 	language: z.string().default('en').describe('Language of review comments.'),
 	sandbox: z
 		.object({
-			setup: z.string().default('').describe('Shell command run before the review, e.g. "npm ci".'),
-			network: z
-				.enum(['public', 'none'])
-				.default('public')
-				.describe('public reaches public hosts over HTTP(S); none has no network.')
+			setup: z
+				.string()
+				.default('')
+				.describe(
+					'Shell command run when the review first runs a command, e.g. "npm ci". The sandbox reaches public hosts.'
+				)
 		})
 		.prefault({})
 });

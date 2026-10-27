@@ -13,7 +13,7 @@ GitHub ─► Appwrite (webhooks, Reviews module) ─► queue ─► hansi serv
 
 ## Status
 
-Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass, and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. The other Appwrite adapters (results, installation tokens) are stubs until the Reviews module lands in appwrite/appwrite; chat and the sandbox tool follow in later changes.
+Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. The other Appwrite adapters (results, installation tokens) are stubs until the Reviews module lands in appwrite/appwrite; chat follows in a later change.
 
 ## Development
 

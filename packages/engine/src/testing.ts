@@ -15,6 +15,7 @@ import type {
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
 import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from './results';
+import type { CommandResult, Sandbox, SandboxClient, SandboxSpec } from './sandbox';
 
 export type Settlement = { job: Job; result: 'ack' } | { job: Job; result: 'nack'; retry: boolean };
 
@@ -228,5 +229,40 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 
 	async updateCheckRun(id: number, run: Partial<CheckRun>): Promise<void> {
 		Object.assign(this.checkRuns[id]!, run);
+	}
+}
+
+/** Answers one command in a `MemorySandboxes` sandbox. */
+export type CommandHandler = (command: string) => CommandResult | Promise<CommandResult>;
+
+/** Sandboxes that answer commands with `handler` and record what they were asked. */
+export class MemorySandboxes implements SandboxClient {
+	readonly created: SandboxSpec[] = [];
+	readonly commands: string[] = [];
+	closed = 0;
+
+	constructor(
+		private readonly handler: CommandHandler = () => ({
+			exitCode: 0,
+			stdout: '',
+			stderr: '',
+			timedOut: false,
+			truncated: false
+		})
+	) {}
+
+	async create(spec: SandboxSpec): Promise<Sandbox> {
+		this.created.push(spec);
+		const id = `sandbox-${this.created.length}`;
+		return {
+			id,
+			run: async (command) => {
+				this.commands.push(command);
+				return this.handler(command);
+			},
+			close: async () => {
+				this.closed++;
+			}
+		};
 	}
 }
