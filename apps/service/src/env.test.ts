@@ -23,6 +23,7 @@ describe('parseEnv', () => {
 		expect(() => parseEnv({ ...required, HANSI_QUEUE_URL: 'redis://redis:6379' })).toThrow(
 			/HANSI_QUEUE_URL/
 		);
+		expect(() => parseEnv({ ...required, HANSI_QUEUE_URL: 'nats:///' })).toThrow(/HANSI_QUEUE_URL/);
 	});
 
 	test('names every missing variable', () => {

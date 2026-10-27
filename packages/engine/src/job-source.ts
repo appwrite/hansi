@@ -12,7 +12,10 @@ export interface Lease {
 	maxAttempts: number;
 	/** The job is done, whatever its outcome on GitHub. */
 	ack(): Promise<void>;
-	/** The job failed. With `retry`, it is delivered again later; without, it is dropped. */
+	/**
+	 * The job failed. With `retry` and attempts left, it is delivered again later. Otherwise the
+	 * queue keeps it with its dead letters, which only an operator re-drives.
+	 */
 	nack(options: { retry: boolean }): Promise<void>;
 }
 

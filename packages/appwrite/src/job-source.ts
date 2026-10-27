@@ -1,4 +1,5 @@
 import {
+	DiscardPolicy,
 	JetStreamApiCodes,
 	JetStreamApiError,
 	jetstream,
@@ -75,6 +76,7 @@ class Connection {
 	static async open(config: QueueConfig): Promise<Connection> {
 		const url = new URL(config.url);
 		if (url.protocol !== 'nats:') throw new Error(`Not a NATS queue: ${url.protocol}//`);
+		if (!url.hostname) throw new Error('The NATS queue URL has no host');
 		const nc = await connect({
 			servers: `${url.hostname}:${url.port || '4222'}`,
 			user: url.username ? decodeURIComponent(url.username) : undefined,
@@ -124,7 +126,8 @@ class Connection {
 		const subject = `${this.names.deadSubject}.${await xxhash128(keyed)}`;
 		const meta = headers();
 		meta.set(WORK_SEQUENCE, String(msg.info.streamSequence));
-		meta.set(WORK_TIME, String(msg.info.timestampNanos));
+		// Exact: the broker matches it against the stored message, and a Number rounds it.
+		meta.set(WORK_TIME, msg.timestampNanos.toString());
 		try {
 			// Stored once per subject, so a second copy of the same delivery is refused.
 			await this.js.publish(subject, msg.data, {
@@ -147,6 +150,29 @@ class Connection {
 		if (contentType) meta.set(CONTENT_TYPE, contentType);
 		await this.js.publish(this.names.deadSubject, msg.data, { headers: meta });
 		msg.term(reason);
+	}
+
+	/**
+	 * Hand back a message no handler has seen, as a new message rather than a NAK, which would
+	 * spend an attempt on work that never ran. As the broker does on a stopping worker: only on
+	 * a stream that cannot evict another job to take the copy, and NAK'd otherwise.
+	 */
+	async release(msg: JsMsg, pid: string): Promise<void> {
+		const { config } = await (await this.js.streams.get(this.names.workStream)).info();
+		const unbounded =
+			config.max_msgs === -1 && config.max_bytes === -1 && config.max_msgs_per_subject === -1;
+		if (config.discard !== DiscardPolicy.New && !unbounded) {
+			msg.nak();
+			return;
+		}
+		const meta = headers();
+		const contentType = msg.headers?.get(CONTENT_TYPE);
+		if (contentType) meta.set(CONTENT_TYPE, contentType);
+		await this.js.publish(this.names.workSubject, msg.data, {
+			headers: meta,
+			msgID: `${pid}.released.${msg.info.streamSequence}`
+		});
+		await msg.ackAck();
 	}
 
 	/** The broker's backoff for a delivery: 1-based, the last entry repeats. */
@@ -180,6 +206,14 @@ export class AppwriteJobSource implements JobSource {
 			const expires = Math.max(1_000, this.options.pollMs ?? 5_000);
 			const msg = await connection.consumer.next({ expires });
 			if (!msg) continue;
+			if (signal.aborted) {
+				// Arrived after shutdown began: it goes back for another worker.
+				const envelope = decodeEnvelope(msg.data, msg.headers?.get(CONTENT_TYPE) || undefined);
+				if (envelope) {
+					await connection.release(msg, envelope.pid);
+					return null;
+				}
+			}
 			const lease = await this.lease(connection, msg);
 			if (lease) return lease;
 		}
@@ -228,8 +262,12 @@ export class AppwriteJobSource implements JobSource {
 		}
 
 		// A review outlasts the ack wait, so the delivery is kept alive until it is settled.
+		// Once the connection is closed the delivery is the server's again, as if this worker died.
 		const keepalive = setInterval(
-			() => msg.working(),
+			() => {
+				if (connection.nc.isClosed() || connection.nc.isDraining()) clearInterval(keepalive);
+				else msg.working();
+			},
 			Math.max(100, connection.settings.ackWaitMs / 3)
 		);
 		let settled = false;

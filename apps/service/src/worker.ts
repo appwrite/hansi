@@ -78,7 +78,8 @@ async function runJob(options: WorkerOptions, lease: Lease): Promise<void> {
 				FAILURE_REASON
 			);
 		} catch (sinkError) {
-			// Dropping the job now would leave the review in progress forever.
+			// Kept for another delivery to mark it. Out of attempts, it waits in the queue's dead
+			// letters, where Appwrite's queue retry re-drives it.
 			logger.error('could not mark review failed', { err: sinkError });
 			retry = true;
 		}

@@ -205,6 +205,43 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 		expect(parked?.header.get('Content-Type')).toBe('application/vnd.php.igbinary');
 	});
 
+	test('dead-letters a job whose every worker died, on the spare delivery', async () => {
+		await provision(500);
+		await publish(review);
+
+		// Each worker takes the job and goes away without settling it.
+		for (let attempt = 0; attempt < 3; attempt++) {
+			const dying = source();
+			expect((await dying.next(soon()))?.attempts).toBe(attempt);
+			await dying.close();
+		}
+		const discarded: string[] = [];
+		const lease = await source((reason) => discarded.push(reason)).next(AbortSignal.timeout(2_500));
+
+		expect(lease).toBeNull();
+		expect(discarded).toEqual(['max deliveries exceeded']);
+		expect(await messages(names.workStream, 0)).toBe(0);
+		expect((await jsm.streams.getMessage(names.deadStream, { seq: 1 }))?.subject).toBe(
+			names.deadSubject
+		);
+	}, 15_000);
+
+	test('hands back a job that arrives once shutdown began, without spending an attempt', async () => {
+		await provision();
+		const controller = new AbortController();
+		const stopping = source();
+
+		const next = stopping.next(controller.signal);
+		await Bun.sleep(300);
+		controller.abort();
+		await publish(review);
+
+		expect(await next).toBeNull();
+		const lease = await source().next(soon());
+		expect(lease?.attempts).toBe(0);
+		await lease!.ack();
+	});
+
 	test('stops waiting once the signal aborts', async () => {
 		await provision();
 		const controller = new AbortController();
