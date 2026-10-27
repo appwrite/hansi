@@ -1,15 +1,14 @@
 // Where review outcomes go. Appwrite stores them in the project's database and the Console
 // reads them from there; GitHub gets its own copy through the GitHubClient.
 
-export type Verdict = 'approve' | 'request_changes' | 'comment';
-export type Tier = 'S' | 'A' | 'B' | 'C' | 'D' | 'F';
-export type Severity = 'critical' | 'major' | 'minor' | 'nit';
+import type { Category, Severity, Tier, Verdict } from './grading';
 
 export interface Finding {
 	path: string;
-	startLine?: number;
-	line: number;
+	startLine: number;
+	endLine: number;
 	severity: Severity;
+	category: Category;
 	title: string;
 	body: string;
 	/** The inline comment it was posted as, once posted. */
