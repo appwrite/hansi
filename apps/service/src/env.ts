@@ -1,4 +1,3 @@
-import { REVIEWS_QUEUE } from '@hansi/appwrite';
 import { z } from 'zod';
 
 const schema = z
@@ -11,9 +10,16 @@ const schema = z
 		HANSI_APPWRITE_ENDPOINT: z.url(),
 		HANSI_APPWRITE_SECRET: z.string().min(1),
 
-		/** Appwrite's queue: NATS on Cloud (`nats://user:pass@host:4222`), Redis self-hosted (`redis://host:6379`). */
-		HANSI_QUEUE_URL: z.url({ protocol: /^(nats|rediss?)$/, hostname: /./ }),
-		HANSI_QUEUE_NAME: z.string().min(1).default(REVIEWS_QUEUE),
+		/**
+		 * Where the queue consumer hands over jobs, on loopback. The consumer reads `HANSI_QUEUE_*`
+		 * itself (`apps/consumer`).
+		 */
+		HANSI_JOBS_PORT: z.coerce.number().int().positive().default(8081),
+		/**
+		 * Starts the queue consumer as a child of this process, e.g. `php apps/consumer/consumer.php`.
+		 * The image sets it; unset, jobs only arrive from whoever calls the jobs port.
+		 */
+		HANSI_CONSUMER_COMMAND: z.string().min(1).optional(),
 
 		/** The orchestrator's sandboxes, for the agents' commands. Without it, reviews only read. */
 		HANSI_ORCHESTRATOR_ENDPOINT: z.url().optional(),

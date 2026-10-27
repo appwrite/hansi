@@ -14,8 +14,6 @@ import type {
 	ReviewComment,
 	SubmittedReview
 } from './github';
-import type { Job } from './jobs';
-import type { JobSource, Lease } from './job-source';
 import type {
 	ChatRef,
 	ModelUsage,
@@ -25,55 +23,6 @@ import type {
 	TraceEvent
 } from './results';
 import type { CommandResult, Sandbox, SandboxClient, SandboxSpec } from './sandbox';
-
-export type Settlement = { job: Job; result: 'ack' } | { job: Job; result: 'nack'; retry: boolean };
-
-export class MemoryJobSource implements JobSource {
-	readonly settled: Settlement[] = [];
-	private readonly pending: Job[] = [];
-	private readonly waiters: Array<(job: Job) => void> = [];
-
-	push(...jobs: Job[]): void {
-		for (const job of jobs) {
-			const waiter = this.waiters.shift();
-			if (waiter) waiter(job);
-			else this.pending.push(job);
-		}
-	}
-
-	async next(signal: AbortSignal): Promise<Lease | null> {
-		if (signal.aborted) return null;
-		const queued = this.pending.shift();
-		if (queued) return this.lease(queued);
-
-		return new Promise((resolve) => {
-			const waiter = (job: Job) => {
-				signal.removeEventListener('abort', onAbort);
-				resolve(this.lease(job));
-			};
-			const onAbort = () => {
-				this.waiters.splice(this.waiters.indexOf(waiter), 1);
-				resolve(null);
-			};
-			this.waiters.push(waiter);
-			signal.addEventListener('abort', onAbort, { once: true });
-		});
-	}
-
-	private lease(job: Job): Lease {
-		return {
-			job,
-			attempts: 0,
-			maxAttempts: 3,
-			ack: async () => {
-				this.settled.push({ job, result: 'ack' });
-			},
-			nack: async ({ retry }) => {
-				this.settled.push({ job, result: 'nack', retry });
-			}
-		};
-	}
-}
 
 export type SinkCall =
 	| { method: 'startReview'; review: ReviewRef; headSha: string; baseSha: string }

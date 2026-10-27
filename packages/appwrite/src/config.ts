@@ -6,6 +6,3 @@ export interface AppwriteConfig {
 	secret: string;
 	fetch?: typeof fetch;
 }
-
-/** The queue the Reviews module publishes to. */
-export const REVIEWS_QUEUE = 'v1-reviews';

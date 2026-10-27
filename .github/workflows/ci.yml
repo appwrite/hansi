@@ -20,16 +20,29 @@ jobs:
           bun-version: 1.4.4
       # The engine's grep tool runs ripgrep.
       - run: sudo apt-get update && sudo apt-get install -y ripgrep
-      # The job sources' tests run against a real NATS server with JetStream, and a real Redis.
-      - run: docker run -d --name nats -p 4222:4222 nats:2.11 -js
-      - run: docker run -d --name redis -p 6379:6379 redis:7.4-alpine
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run check
       - run: bun run test
-        env:
-          HANSI_TEST_NATS_URL: nats://127.0.0.1:4222
-          HANSI_TEST_REDIS_URL: redis://127.0.0.1:6379
+
+  consumer:
+    # gcrunner refuses jobs from forks, so fork pull requests run on a GitHub-hosted runner.
+    runs-on: >-
+      ${{ (github.event_name != 'pull_request'
+      || github.event.pull_request.head.repo.full_name == github.repository)
+      && format('gcrunner={0}-consumer/runner=standard', github.run_id)
+      || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v5
+      # In the image the consumer runs on, with PHP 8.5 and Swoole.
+      - run: |
+          docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.7 sh -ec '
+            curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+            composer validate --strict
+            composer install --no-interaction --no-progress --prefer-dist
+            for file in consumer.php src/*.php src/*/*.php tests/*.php; do php -l "$file"; done
+            vendor/bin/phpunit tests
+          '
 
   image:
     # gcrunner refuses jobs from forks, so fork pull requests run on a GitHub-hosted runner.
@@ -47,16 +60,22 @@ jobs:
           push: false
           load: true
           tags: hansi:ci
-      # The image starts, answers its health checks and drains on SIGTERM.
+      # The image starts with its consumer on a real queue, answers its health checks and drains
+      # on SIGTERM.
       - run: |
-          docker run -d --name hansi -p 8080:8080 \
+          docker network create ci
+          docker run -d --name redis --network ci redis:7.4-alpine
+          docker run -d --name hansi --network ci -p 8080:8080 \
             -e HANSI_APPWRITE_ENDPOINT=http://127.0.0.1:9/v1 -e HANSI_APPWRITE_SECRET=ci \
-            -e HANSI_QUEUE_URL=nats://127.0.0.1:4222 -e HANSI_ORCHESTRATOR_ENDPOINT=http://127.0.0.1:9 \
+            -e HANSI_QUEUE_URL=redis://redis:6379 -e HANSI_ORCHESTRATOR_ENDPOINT=http://127.0.0.1:9 \
             -e HANSI_SANDBOX_IMAGE=ci -e HANSI_REVIEW_MODEL=ci/model hansi:ci
           for i in $(seq 1 30); do curl -fsS localhost:8080/readyz && break; sleep 1; done
           # The loop does not fail on its own: a pod that never becomes ready must.
           curl -fsS localhost:8080/readyz
           curl -fsS localhost:8080/healthz
-          docker exec hansi sh -c 'git --version && rg --version'
+          docker exec hansi sh -c 'git --version && rg --version && php --version'
+          for i in $(seq 1 30); do docker logs hansi | grep -q 'queue consumer started' && break; sleep 1; done
+          docker logs hansi | grep -q 'queue consumer started'
           docker stop -t 30 hansi
+          docker logs hansi
           test "$(docker inspect hansi --format '{{.State.ExitCode}}')" = 0

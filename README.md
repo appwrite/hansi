@@ -32,26 +32,33 @@ The service reads its configuration from the environment:
 | `HANSI_APPWRITE_SECRET`       |              | `_APP_REVIEWS_SECRET` for that API           |
 | `HANSI_QUEUE_URL`             |              | Appwrite's queue, `nats://` or `redis://`    |
 | `HANSI_QUEUE_NAME`            | `v1-reviews` | Queue the Reviews module publishes to        |
+| `HANSI_QUEUE_USER`            |              | Queue user, instead of in the URL            |
+| `HANSI_QUEUE_PASSWORD`        |              | Queue password, instead of in the URL        |
 | `HANSI_ORCHESTRATOR_ENDPOINT` | none         | open-runtimes orchestrator API, for commands |
 | `HANSI_ORCHESTRATOR_KEY`      |              | Orchestrator API key, when it has one        |
 | `HANSI_SANDBOX_IMAGE`         |              | Toolchain image, with the orchestrator       |
 | `HANSI_REVIEW_MODEL`          |              | AI SDK model id for the reviewer             |
 | `HANSI_VERIFY_MODEL`          | review model | AI SDK model id for the verifier             |
-| `HANSI_CONCURRENCY`           | `4`          | Jobs one process runs at once                |
+| `HANSI_CONCURRENCY`           | `4`          | Jobs one container runs at once              |
 | `HANSI_PORT`                  | `8080`       | `/healthz` and `/readyz`                     |
+| `HANSI_JOBS_PORT`             | `8081`       | Where the consumer hands over jobs, loopback |
+| `HANSI_SHUTDOWN_TIMEOUT`      | `3600`       | Seconds a stopping consumer waits for jobs   |
+| `HANSI_CONSUMER_COMMAND`      | none         | Starts the consumer; the image sets it       |
 | `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn`, `error`             |
 
 Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise, which reads `AI_GATEWAY_API_KEY`. This is a stopgap until Appwrite serves the keys and models.
+
+The queue is read by the consumer in `apps/consumer`, a PHP process on Appwrite's own queue library (utopia-php/queue), which the service starts as its child. It hands each delivery to the service on the jobs port and settles it by the answer, so attempts, backoff and dead letters work as on any Appwrite worker. On NATS the attempts and backoff are the ones Appwrite provisioned on the queue's work consumer; on Redis, which counts no deliveries, a job gets 3 attempts, 10 s, 60 s and 5 min apart. `HANSI_CONSUMER_COMMAND` starts it (the image sets it); without it, as in development, the service only takes jobs from whoever calls the jobs port.
 
 Without an orchestrator, as on a self-hosted Appwrite, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`.
 
 ## Deployment
 
-The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version, each for amd64 and arm64.
+The `Dockerfile` builds the service image on `appwrite/base` (PHP 8.5 and Swoole, for the consumer): Bun running the sources and starting the consumer, with `git` and `ripgrep` for the review's tools, as the unprivileged `hansi` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version, each for amd64 and arm64.
 
 On a self-hosted Appwrite, Hansi is an optional service: Appwrite publishes review jobs only when reviews are turned on, and the container runs next to Appwrite's own on its Redis, without an orchestrator.
 
-The cluster deployment lives with the cluster's other services, not here. What it needs from this image: the environment above (credentials from a Secret), a writable `/tmp` for checkouts (the image runs with a read-only root filesystem), probes on `/healthz` and `/readyz` (port 8080), no Service, and a termination grace period long enough for running jobs to finish (a repository's setup command alone may take 15 minutes).
+The cluster deployment lives with the cluster's other services, not here. What it needs from this image: the environment above (credentials from a Secret), a writable `/tmp` for checkouts (the image runs with a read-only root filesystem), probes on `/healthz` and `/readyz` (port 8080), no Service, and a termination grace period long enough for running jobs to finish (a repository's setup command alone may take 15 minutes), with `HANSI_SHUTDOWN_TIMEOUT` below it.
 
 ## License
 
