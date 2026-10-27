@@ -53,14 +53,16 @@ export class InstallationGitHubClientFactory implements GitHubClientFactory {
 	) {}
 
 	async forRepository(repository: {
-		providerInstallationId: string;
+		projectId: string;
+		repositoryId: string;
 		owner: string;
 		name: string;
 	}): Promise<GitHubClient> {
 		let current: InstallationToken | null = null;
 		const token = async () => {
 			if (!current || current.expiresAt.getTime() - Date.now() < TOKEN_MARGIN_MS) {
-				current = await this.tokens.get(repository.providerInstallationId);
+				const { projectId, repositoryId } = repository;
+				current = await this.tokens.get({ projectId, repositoryId });
 			}
 			return current.token;
 		};

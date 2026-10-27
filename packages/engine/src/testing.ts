@@ -76,9 +76,12 @@ export type SinkCall =
 
 export class MemoryResultsSink implements ResultsSink {
 	readonly calls: SinkCall[] = [];
+	/** Set to answer `startReview` as for a review that already ended. */
+	ended = false;
 
 	async startReview(review: ReviewRef, input: { headSha: string; baseSha: string }) {
 		this.calls.push({ method: 'startReview', review, ...input });
+		return !this.ended;
 	}
 
 	async recordEvents(review: ReviewRef, events: TraceEvent[]) {

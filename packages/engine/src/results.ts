@@ -50,8 +50,11 @@ export interface ReviewRef {
 }
 
 export interface ResultsSink {
-	/** The review started working on `headSha` (which may be newer than the queued one). */
-	startReview(review: ReviewRef, input: { headSha: string; baseSha: string }): Promise<void>;
+	/**
+	 * The review started working on `headSha` (which may be newer than the queued one). False when
+	 * the review already ended, e.g. on a redelivery after it completed: the job stops there.
+	 */
+	startReview(review: ReviewRef, input: { headSha: string; baseSha: string }): Promise<boolean>;
 	recordEvents(review: ReviewRef, events: TraceEvent[]): Promise<void>;
 	recordUsage(review: ReviewRef, usage: ModelUsage[]): Promise<void>;
 	completeReview(review: ReviewRef, outcome: ReviewOutcome): Promise<void>;

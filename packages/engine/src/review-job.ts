@@ -16,6 +16,9 @@ import type { Verdict } from './grading';
 // Appwrite. Every skip and failure is reported to the results sink, so a review never stays
 // in progress.
 
+/** Starts the marker every review body carries, `<!-- hansi:review <reviewId> -->`. */
+const MARKER = '<!-- hansi:review ';
+
 /** The check run the review reports on the commit. */
 export const CHECK_NAME = 'Hansi';
 
@@ -42,8 +45,6 @@ export function skipReason(
 ): string | null {
 	const asked = job.trigger.kind === 'mention' || job.trigger.kind === 'retry';
 	if (pr.state === 'closed') return 'The pull request is closed.';
-	// A push queued a newer review. A mention or retry reviews whatever the head is now.
-	if (!asked && pr.head.sha !== job.headSha) return 'A newer commit was pushed.';
 	if (!config) return null;
 	if (!config.reviews.enabled) return 'Reviews are turned off for this repository.';
 	if (!asked && !config.reviews.auto) return 'Automatic reviews are turned off.';
@@ -83,6 +84,18 @@ export async function runReviewJob(
 
 	const early = skipReason(job, pr, null);
 	if (early) return context.results.skipReview(ref, early);
+	// The marker finds this review again when a retry runs after it was posted.
+	const marker = `<!-- hansi:review ${job.reviewId} -->`;
+	const reviews = await github.listReviews(pr.number);
+	// Another review job already covered this head, e.g. one queued for an earlier push that ran
+	// after this push landed. A mention or retry asks for a fresh look.
+	const asked = job.trigger.kind === 'mention' || job.trigger.kind === 'retry';
+	const covered = reviews.some(
+		(r) => r.commitId === pr.head.sha && r.body.includes(MARKER) && !r.body.includes(marker)
+	);
+	if (!asked && covered) {
+		return context.results.skipReview(ref, 'This commit was already reviewed.');
+	}
 
 	const remote = await github.gitRemote();
 	const tree = await checkout(
@@ -102,7 +115,12 @@ export async function runReviewJob(
 		const skip = skipReason(job, pr, config);
 		if (skip) return await context.results.skipReview(ref, skip);
 
-		await context.results.startReview(ref, { headSha: pr.head.sha, baseSha: pr.base.sha });
+		const started = await context.results.startReview(ref, {
+			headSha: pr.head.sha,
+			baseSha: pr.base.sha
+		});
+		// A redelivery of a review that already ended.
+		if (!started) return;
 		checkRun = await startCheck(github, pr.head.sha, events);
 
 		// The diff comes from the checkout, not GitHub's file list: a push while the job runs
@@ -152,10 +170,8 @@ export async function runReviewJob(
 			}
 		);
 
-		// The marker finds this review again when a retry runs after it was posted.
-		const marker = `<!-- hansi:review ${job.reviewId} -->`;
 		const body = `${renderReviewBody(result, { config, configErrors: errors })}\n\n${marker}`;
-		const earlier = (await github.listReviews(pr.number)).find((r) => r.body.includes(marker));
+		const earlier = reviews.find((r) => r.body.includes(marker));
 		const posted =
 			earlier ??
 			(await github.createReview(pr.number, {

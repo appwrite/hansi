@@ -109,10 +109,11 @@ export interface GitHubClient {
 	updateCheckRun(id: number, run: Partial<CheckRun>): Promise<void>;
 }
 
-/** Opens a client for one repository, through the installation it is reviewed by. */
+/** Opens a client for one repository, with tokens scoped to it. */
 export interface GitHubClientFactory {
 	forRepository(repository: {
-		providerInstallationId: string;
+		projectId: string;
+		repositoryId: string;
 		owner: string;
 		name: string;
 	}): Promise<GitHubClient>;

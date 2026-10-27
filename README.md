@@ -13,7 +13,7 @@ GitHub ─► Appwrite (webhooks, Reviews module) ─► queue ─► hansi serv
 
 ## Status
 
-Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. The other Appwrite adapters (results, installation tokens) are stubs until the Reviews module lands in appwrite/appwrite; chat follows in a later change.
+Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. Results and repository-scoped installation tokens go through Appwrite's internal Reviews API (the Reviews module in appwrite/appwrite); chat follows in a later change.
 
 ## Development
 
@@ -27,7 +27,7 @@ The service reads its configuration from the environment:
 | Variable                      | Default      |                                               |
 | ----------------------------- | ------------ | --------------------------------------------- |
 | `HANSI_APPWRITE_ENDPOINT`     |              | Appwrite internal API                         |
-| `HANSI_APPWRITE_SECRET`       |              | Shared secret for that API                    |
+| `HANSI_APPWRITE_SECRET`       |              | `_APP_REVIEWS_SECRET` for that API            |
 | `HANSI_QUEUE_URL`             |              | Appwrite's NATS, `nats://user:pass@host:4222` |
 | `HANSI_QUEUE_NAME`            | `v1-reviews` | Queue the Reviews module publishes to         |
 | `HANSI_ORCHESTRATOR_ENDPOINT` |              | open-runtimes orchestrator API                |

@@ -34,10 +34,10 @@ afterEach(async () => {
 function tokens(expiresInMs = 3_600_000) {
 	let minted = 0;
 	const source: InstallationTokens = {
-		async get(installation) {
+		async get({ repositoryId }) {
 			minted++;
 			return {
-				token: `${installation}-token-${minted}`,
+				token: `${repositoryId}-token-${minted}`,
 				expiresAt: new Date(Date.now() + expiresInMs)
 			};
 		}
@@ -45,7 +45,7 @@ function tokens(expiresInMs = 3_600_000) {
 	return { source, minted: () => minted };
 }
 
-const repository = { providerInstallationId: '42', owner: 'acme', name: 'app' };
+const repository = { projectId: 'project-1', repositoryId: '42', owner: 'acme', name: 'app' };
 
 async function client(apiUrl: string, expiresInMs?: number) {
 	const t = tokens(expiresInMs);
