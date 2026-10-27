@@ -5,6 +5,7 @@ import type {
 	GitHubClientFactory,
 	GitRemote,
 	InlineComment,
+	IssueComment,
 	PullRequest,
 	PullRequestFile,
 	Reaction,
@@ -72,6 +73,7 @@ export class InstallationGitHubClientFactory implements GitHubClientFactory {
 
 interface RawUser {
 	login: string;
+	type?: string;
 }
 
 interface RawPullRequest {
@@ -100,6 +102,7 @@ interface RawFile {
 
 interface RawReviewComment {
 	id: number;
+	pull_request_review_id?: number | null;
 	path: string;
 	line?: number | null;
 	body: string;
@@ -109,10 +112,17 @@ interface RawReviewComment {
 	pull_request_url: string;
 }
 
+interface RawIssueComment {
+	id: number;
+	body?: string | null;
+	user: RawUser | null;
+	html_url: string;
+}
+
 interface RawReview {
 	id: number;
 	body: string | null;
-	user: (RawUser & { type?: string }) | null;
+	user: RawUser | null;
 	commit_id: string;
 	html_url: string;
 }
@@ -281,10 +291,12 @@ export class RestGitHubClient implements GitHubClient {
 		);
 		return comments.map((comment) => ({
 			id: comment.id,
+			reviewId: comment.pull_request_review_id ?? undefined,
 			path: comment.path,
 			line: comment.line ?? undefined,
 			body: comment.body,
 			author: comment.user?.login ?? 'ghost',
+			bot: comment.user?.type === 'Bot',
 			inReplyToId: comment.in_reply_to_id,
 			url: comment.html_url
 		}));
@@ -357,6 +369,19 @@ export class RestGitHubClient implements GitHubClient {
 			cursor = threads.pageInfo.endCursor;
 		}
 		throw new Error(`No review thread holds comment ${commentId}`);
+	}
+
+	async listIssueComments(issueNumber: number): Promise<IssueComment[]> {
+		const comments = await this.paginate<RawIssueComment>(
+			`${this.repo}/issues/${issueNumber}/comments`
+		);
+		return comments.map((comment) => ({
+			id: comment.id,
+			body: comment.body ?? '',
+			author: comment.user?.login ?? 'ghost',
+			bot: comment.user?.type === 'Bot',
+			url: comment.html_url
+		}));
 	}
 
 	async createIssueComment(

@@ -7,8 +7,10 @@ import type {
 	GitHubClient,
 	GitHubClientFactory,
 	GitRemote,
+	IssueComment,
 	PullRequest,
 	PullRequestFile,
+	Reaction,
 	ReviewComment,
 	SubmittedReview
 } from './github';
@@ -155,9 +157,16 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		review: Parameters<GitHubClient['createReview']>[1];
 		bot?: boolean;
 	}[] = [];
+	/** Review comments, replies included. Add a person's with `bot: false`. */
+	readonly reviewComments: ReviewComment[] = [];
+	/** Comments on the conversation. Add a person's with `bot: false`. */
+	readonly issueComments: IssueComment[] = [];
+	readonly reactions: { comment: { id: number; kind: 'issue' | 'review' }; reaction: Reaction }[] =
+		[];
 	readonly checkRuns: CheckRun[] = [];
 	/** Set to make check runs fail, as for an installation without the permission. */
 	checksForbidden = false;
+	private nextCommentId = 1000;
 
 	constructor(
 		public pullRequest: PullRequest,
@@ -200,7 +209,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	}
 
 	async listReviewComments(): Promise<ReviewComment[]> {
-		return [];
+		return this.reviewComments.map((comment) => ({ ...comment }));
 	}
 
 	async createReview(
@@ -211,23 +220,55 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return { id: this.reviews.length, url: `memory://review/${this.reviews.length}` };
 	}
 
-	async replyToReviewComment(): Promise<{ id: number }> {
-		throw new Error('MemoryGitHub.replyToReviewComment is not implemented');
+	async replyToReviewComment(
+		_pullNumber: number,
+		commentId: number,
+		body: string
+	): Promise<{ id: number }> {
+		const root = this.reviewComments.find((comment) => comment.id === commentId);
+		if (!root) throw new Error(`No review comment ${commentId}`);
+		const id = this.nextCommentId++;
+		this.reviewComments.push({
+			id,
+			path: root.path,
+			line: root.line,
+			body,
+			author: 'hansi[bot]',
+			bot: true,
+			inReplyToId: root.inReplyToId ?? root.id,
+			url: `memory://comment/${id}`
+		});
+		return { id };
 	}
 
 	async resolveThread(): Promise<void> {
 		throw new Error('MemoryGitHub.resolveThread is not implemented');
 	}
 
-	async createIssueComment(): Promise<{ id: number; url: string }> {
-		throw new Error('MemoryGitHub.createIssueComment is not implemented');
+	async listIssueComments(): Promise<IssueComment[]> {
+		return this.issueComments.map((comment) => ({ ...comment }));
+	}
+
+	async createIssueComment(
+		_issueNumber: number,
+		body: string
+	): Promise<{ id: number; url: string }> {
+		const id = this.nextCommentId++;
+		const url = `memory://comment/${id}`;
+		this.issueComments.push({ id, body, author: 'hansi[bot]', bot: true, url });
+		return { id, url };
 	}
 
 	async updateIssueComment(): Promise<void> {
 		throw new Error('MemoryGitHub.updateIssueComment is not implemented');
 	}
 
-	async addReaction(): Promise<void> {}
+	async addReaction(
+		comment: { id: number; kind: 'issue' | 'review' },
+		reaction: Reaction
+	): Promise<void> {
+		this.reactions.push({ comment, reaction });
+	}
 
 	async createCheckRun(run: CheckRun): Promise<{ id: number }> {
 		if (this.checksForbidden) throw new Error('Resource not accessible by integration');

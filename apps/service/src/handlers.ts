@@ -1,5 +1,5 @@
 import {
-	NotImplementedError,
+	runChatJob,
 	runReviewJob,
 	type ChatJob,
 	type EngineContext,
@@ -17,12 +17,9 @@ export interface Models {
 	verifier?: LanguageModel;
 }
 
-/** Chat is ported in a follow-up change; until then chat jobs fail permanently. */
 export function createHandlers(context: EngineContext, models: Models): Handlers {
 	return {
 		review: (job, signal) => runReviewJob(job, context, { ...models, signal }),
-		async chat() {
-			throw new NotImplementedError('chat engine');
-		}
+		chat: (job, signal) => runChatJob(job, context, { model: models.reviewer, signal })
 	};
 }

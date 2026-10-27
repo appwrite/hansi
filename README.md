@@ -13,7 +13,9 @@ GitHub ─► Appwrite (webhooks, Reviews module) ─► queue ─► hansi serv
 
 ## Status
 
-Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. Results and repository-scoped installation tokens go through Appwrite's internal Reviews API (the Reviews module in appwrite/appwrite); chat follows in a later change.
+Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. Results and repository-scoped installation tokens go through Appwrite's internal Reviews API (the Reviews module in appwrite/appwrite), and calls that hit Appwrite's abuse limit are sent again once it resets.
+
+A chat job answers one comment on a pull request: a mention on the conversation or in a review thread, or a reply without a mention in a thread on one of Hansi's own findings. It answers people with write access and the pull request's author, never another app, reads the code with the same read-only tools as a review (no sandbox), and replies once: the reply carries a marker that a redelivery finds. Chat follows the base branch's `reviews.enabled`.
 
 ## Development
 

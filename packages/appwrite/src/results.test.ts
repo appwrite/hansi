@@ -112,6 +112,27 @@ describe('AppwriteResultsSink', () => {
 		expect(sent.filter((event) => event.data.i === 100)).toHaveLength(2);
 	});
 
+	test('waits out the abuse limit and sends the call again', async () => {
+		let calls = 0;
+		const sink = new AppwriteResultsSink(
+			serve(() =>
+				++calls === 1
+					? Response.json(
+							{ message: 'Too many.', code: 429, type: 'general_rate_limit_exceeded' },
+							{
+								status: 429,
+								headers: { 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000)) }
+							}
+						)
+					: new Response(null, { status: 204 })
+			)
+		);
+
+		await sink.failReview(review, 'Broke.');
+
+		expect(requests).toHaveLength(2);
+	});
+
 	test('treats a review that already ended as done', async () => {
 		const sink = new AppwriteResultsSink(serve(invalidStatus));
 
