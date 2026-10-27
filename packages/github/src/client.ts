@@ -112,6 +112,7 @@ interface RawReviewComment {
 interface RawReview {
 	id: number;
 	body: string | null;
+	user: (RawUser & { type?: string }) | null;
 	commit_id: string;
 	html_url: string;
 }
@@ -269,7 +270,8 @@ export class RestGitHubClient implements GitHubClient {
 			id: review.id,
 			body: review.body ?? '',
 			commitId: review.commit_id,
-			url: review.html_url
+			url: review.html_url,
+			bot: review.user?.type === 'Bot'
 		}));
 	}
 

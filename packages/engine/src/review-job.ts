@@ -90,8 +90,10 @@ export async function runReviewJob(
 	// Another review job already covered this head, e.g. one queued for an earlier push that ran
 	// after this push landed. A mention or retry asks for a fresh look.
 	const asked = job.trigger.kind === 'mention' || job.trigger.kind === 'retry';
+	// Only an app's review counts: anyone can write the marker into a review of their own.
 	const covered = reviews.some(
-		(r) => r.commitId === pr.head.sha && r.body.includes(MARKER) && !r.body.includes(marker)
+		(r) =>
+			r.bot && r.commitId === pr.head.sha && r.body.includes(MARKER) && !r.body.includes(marker)
 	);
 	if (!asked && covered) {
 		return context.results.skipReview(ref, 'This commit was already reviewed.');
@@ -171,7 +173,10 @@ export async function runReviewJob(
 		);
 
 		const body = `${renderReviewBody(result, { config, configErrors: errors })}\n\n${marker}`;
-		const earlier = reviews.find((r) => r.body.includes(marker));
+		// Listed again: an overlapping delivery of this job may have posted while this one ran.
+		const earlier = (await github.listReviews(pr.number)).find(
+			(r) => r.bot && r.commitId === pr.head.sha && r.body.includes(marker)
+		);
 		const posted =
 			earlier ??
 			(await github.createReview(pr.number, {
@@ -187,11 +192,9 @@ export async function runReviewJob(
 				}))
 			}));
 
-		// Buffers are cleared only once written, so a failed write still reaches the catch below.
-		await context.results.recordEvents(ref, [...events]);
-		events.length = 0;
-		await context.results.recordUsage(ref, [...usage]);
-		usage.length = 0;
+		// The sink takes entries out as it stores them, so the catch below writes only the rest.
+		await context.results.recordEvents(ref, events);
+		await context.results.recordUsage(ref, usage);
 		await context.results.completeReview(ref, {
 			verdict: result.verdict,
 			tier: result.tier,

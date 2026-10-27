@@ -247,10 +247,22 @@ describe('RestGitHubClient', () => {
 	test('lists reviews', async () => {
 		const api = serve({
 			'GET /repos/acme/app/pulls/7/reviews': () =>
-				Response.json([{ id: 5, body: null, commit_id: 'h', html_url: 'u' }])
+				Response.json([
+					{ id: 5, body: null, commit_id: 'h', html_url: 'u', user: { login: 'a', type: 'User' } },
+					{
+						id: 6,
+						body: 'b',
+						commit_id: 'h',
+						html_url: 'v',
+						user: { login: 'x[bot]', type: 'Bot' }
+					}
+				])
 		});
 		const { github } = await client(api);
-		expect(await github.listReviews(7)).toEqual([{ id: 5, body: '', commitId: 'h', url: 'u' }]);
+		expect(await github.listReviews(7)).toEqual([
+			{ id: 5, body: '', commitId: 'h', url: 'u', bot: false },
+			{ id: 6, body: 'b', commitId: 'h', url: 'v', bot: true }
+		]);
 	});
 
 	test('finds the GraphQL endpoint of GitHub Enterprise Server', async () => {

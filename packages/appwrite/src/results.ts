@@ -21,22 +21,23 @@ export class AppwriteResultsSink implements ResultsSink {
 	}
 
 	async recordEvents(review: ReviewRef, events: TraceEvent[]) {
-		for (let i = 0; i < events.length; i += BATCH) {
+		while (events.length) {
 			await this.api.request('POST', `${path(review)}/events`, {
 				projectId: review.projectId,
-				events: events
-					.slice(i, i + BATCH)
-					.map((event) => ({ ...event, at: event.at.toISOString() }))
+				events: events.slice(0, BATCH).map((event) => ({ ...event, at: event.at.toISOString() }))
 			});
+			// Stored: a later batch that fails leaves only the rest to send again.
+			events.splice(0, BATCH);
 		}
 	}
 
 	async recordUsage(review: ReviewRef, usage: ModelUsage[]) {
-		for (let i = 0; i < usage.length; i += BATCH) {
+		while (usage.length) {
 			await this.api.request('POST', `${path(review)}/usage`, {
 				projectId: review.projectId,
-				usage: usage.slice(i, i + BATCH)
+				usage: usage.slice(0, BATCH)
 			});
+			usage.splice(0, BATCH);
 		}
 	}
 

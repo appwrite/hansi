@@ -89,6 +89,29 @@ describe('AppwriteResultsSink', () => {
 		});
 	});
 
+	test('leaves only the unwritten batches after a failure', async () => {
+		let calls = 0;
+		const sink = new AppwriteResultsSink(
+			serve(() =>
+				++calls === 2
+					? Response.json({ message: 'Down.', code: 503, type: 'general_unknown' }, { status: 503 })
+					: new Response(null, { status: 204 })
+			)
+		);
+		const at = new Date('2026-10-27T12:00:00Z');
+		const events = Array.from({ length: 250 }, (_, i) => ({ type: 'tool.grep', at, data: { i } }));
+
+		await expect(sink.recordEvents(review, events)).rejects.toThrow();
+		expect(events).toHaveLength(150);
+		await sink.recordEvents(review, events);
+
+		expect(events).toHaveLength(0);
+		const sent = requests.flatMap((r) => (r.body as { events: { data: { i: number } }[] }).events);
+		// The failed batch is sent twice; the stored one is not.
+		expect(sent.filter((event) => event.data.i === 0)).toHaveLength(1);
+		expect(sent.filter((event) => event.data.i === 100)).toHaveLength(2);
+	});
+
 	test('treats a review that already ended as done', async () => {
 		const sink = new AppwriteResultsSink(serve(invalidStatus));
 

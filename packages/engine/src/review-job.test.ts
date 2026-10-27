@@ -315,6 +315,42 @@ describe('runReviewJob', () => {
 		expect(github.reviews).toHaveLength(1);
 	});
 
+	test('does not skip for a marker a person wrote into their own review', async () => {
+		const { github, context } = setup();
+		github.reviews.push({
+			pullNumber: 7,
+			bot: false,
+			review: {
+				commitId: headSha,
+				event: 'COMMENT',
+				body: '<!-- hansi:review review-0 -->',
+				comments: []
+			}
+		});
+
+		await runReviewJob(job(), context, { reviewer: review([]) });
+
+		expect(github.reviews).toHaveLength(2);
+	});
+
+	test('posts again on a retry when its earlier review was for an older head', async () => {
+		const { github, results, context } = setup();
+		github.reviews.push({
+			pullNumber: 7,
+			review: {
+				commitId: 'f'.repeat(40),
+				event: 'COMMENT',
+				body: '<!-- hansi:review review-1 -->',
+				comments: []
+			}
+		});
+
+		await runReviewJob(job({ trigger: { kind: 'retry' } }), context, { reviewer: review([]) });
+
+		expect(github.reviews.map((r) => r.review.commitId)).toEqual(['f'.repeat(40), headSha]);
+		expect(results.calls.at(-1)).toMatchObject({ outcome: { providerReviewId: 2 } });
+	});
+
 	test('reviews the current head when the queued one is older', async () => {
 		const { github, context } = setup();
 

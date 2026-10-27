@@ -55,7 +55,12 @@ export interface ResultsSink {
 	 * the review already ended, e.g. on a redelivery after it completed: the job stops there.
 	 */
 	startReview(review: ReviewRef, input: { headSha: string; baseSha: string }): Promise<boolean>;
+	/**
+	 * Takes stored entries out of `events` as it goes, so after a failure the array holds only
+	 * what still needs writing and a second call does not store anything twice.
+	 */
 	recordEvents(review: ReviewRef, events: TraceEvent[]): Promise<void>;
+	/** Takes stored entries out of `usage` as it goes, like `recordEvents`. */
 	recordUsage(review: ReviewRef, usage: ModelUsage[]): Promise<void>;
 	completeReview(review: ReviewRef, outcome: ReviewOutcome): Promise<void>;
 	/** Nothing to review: superseded by a newer head, closed, a draft, nothing reviewable. */

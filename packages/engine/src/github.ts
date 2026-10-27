@@ -51,6 +51,8 @@ export interface SubmittedReview {
 	body: string;
 	commitId: string;
 	url: string;
+	/** Posted by a GitHub App, which a person cannot pose as. */
+	bot: boolean;
 }
 
 export interface CheckRun {
