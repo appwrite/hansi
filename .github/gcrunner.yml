@@ -1,0 +1,14 @@
+runners:
+  standard:
+    family: c3d
+    cpu: 4+8
+    ram: 16+32
+    disk: 80gb
+
+  # A preempted image build leaves a half-pushed digest.
+  image:
+    family: c3d
+    cpu: 4
+    ram: 16
+    disk: 80gb
+    spot: false

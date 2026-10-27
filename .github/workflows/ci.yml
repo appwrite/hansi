@@ -36,7 +36,7 @@ jobs:
     runs-on: >-
       ${{ (github.event_name != 'pull_request'
       || github.event.pull_request.head.repo.full_name == github.repository)
-      && format('gcrunner={0}-image/runner=build', github.run_id)
+      && format('gcrunner={0}-image/runner=standard', github.run_id)
       || 'ubuntu-24.04' }}
     steps:
       - uses: actions/checkout@v5
