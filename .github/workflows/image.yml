@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: gcrunner=${{ github.run_id }}-publish/runner=image
     steps:
       - uses: actions/checkout@v5
       - uses: docker/setup-buildx-action@v3

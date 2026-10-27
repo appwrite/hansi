@@ -1,5 +1,6 @@
 {
 	"name": "@hansi/engine",
+	"license": "BSD-3-Clause",
 	"private": true,
 	"type": "module",
 	"exports": {
