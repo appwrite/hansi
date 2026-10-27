@@ -133,6 +133,22 @@ describe('runWorker', () => {
 		]);
 	});
 
+	test('treats a rejection without a reason as a failure', async () => {
+		const source = new MemoryJobSource();
+		source.push(review);
+
+		await run(
+			source,
+			{
+				review: () => Promise.reject(undefined),
+				chat: async () => {}
+			},
+			1
+		);
+
+		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: true }]);
+	});
+
 	test('does not retry what is not implemented', async () => {
 		const source = new MemoryJobSource();
 		source.push(review);

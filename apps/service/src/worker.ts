@@ -52,15 +52,17 @@ async function runJob(options: WorkerOptions, lease: Lease): Promise<void> {
 	// A running job is not cut short on shutdown; the signal is for the engine's own cleanup.
 	const running = new AbortController();
 
+	let failed = false;
 	let failure: unknown;
 	try {
 		if (job.type === 'review') await options.handlers.review(job, running.signal);
 		else await options.handlers.chat(job, running.signal);
 	} catch (error) {
+		failed = true;
 		failure = error;
 	}
 
-	if (failure === undefined) {
+	if (!failed) {
 		// The job is done; an ack that fails only means it may be delivered again.
 		await lease.ack().then(
 			() => logger.info('job done'),
