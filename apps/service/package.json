@@ -1,5 +1,6 @@
 {
 	"name": "@hansi/service",
+	"license": "BSD-3-Clause",
 	"private": true,
 	"type": "module",
 	"scripts": {
