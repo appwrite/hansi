@@ -13,7 +13,7 @@ GitHub ─► Appwrite (webhooks, Reviews module) ─► queue ─► hansi serv
 
 ## Status
 
-Skeleton. The service starts, runs the worker loop and serves health checks, and the engine contracts are in place. The Appwrite adapters are stubs until the Reviews module lands in appwrite/appwrite, and the review engine is ported in follow-up changes.
+Skeleton. The service starts, runs the worker loop and serves health checks, and the engine contracts are in place. The Appwrite adapters are stubs until the Reviews module lands in appwrite/appwrite, The engine can run a review and verify pass against a local checkout; fetching the pull request, posting to GitHub and the sandbox tool follow in later changes.
 
 ## Development
 
