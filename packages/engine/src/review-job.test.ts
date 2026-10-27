@@ -291,18 +291,81 @@ describe('runReviewJob', () => {
 		expect(github.reviews[0]!.review.comments.map((c) => c.path)).toEqual(['größe.ts']);
 	});
 
-	test('skips a pull request that moved on, without checking it out', async () => {
-		const { github, results, context } = setup(
-			pullRequest({ head: { ref: 'bump', sha: baseSha } })
-		);
+	test('skips a head another review job already reviewed, without checking it out', async () => {
+		const { github, results, context } = setup();
+		github.reviews.push({
+			pullNumber: 7,
+			review: {
+				commitId: headSha,
+				event: 'COMMENT',
+				body: 'Looks fine.\n\n<!-- hansi:review review-0 -->',
+				comments: []
+			}
+		});
+
 		await runReviewJob(job(), context, { reviewer: scriptedModel([]) });
+
 		expect(results.calls).toEqual([
 			{
 				method: 'skipReview',
 				review: { projectId: 'project-1', reviewId: 'review-1' },
-				reason: 'A newer commit was pushed.'
+				reason: 'This commit was already reviewed.'
 			}
 		]);
+		expect(github.reviews).toHaveLength(1);
+	});
+
+	test('does not skip for a marker a person wrote into their own review', async () => {
+		const { github, context } = setup();
+		github.reviews.push({
+			pullNumber: 7,
+			bot: false,
+			review: {
+				commitId: headSha,
+				event: 'COMMENT',
+				body: '<!-- hansi:review review-0 -->',
+				comments: []
+			}
+		});
+
+		await runReviewJob(job(), context, { reviewer: review([]) });
+
+		expect(github.reviews).toHaveLength(2);
+	});
+
+	test('posts again on a retry when its earlier review was for an older head', async () => {
+		const { github, results, context } = setup();
+		github.reviews.push({
+			pullNumber: 7,
+			review: {
+				commitId: 'f'.repeat(40),
+				event: 'COMMENT',
+				body: '<!-- hansi:review review-1 -->',
+				comments: []
+			}
+		});
+
+		await runReviewJob(job({ trigger: { kind: 'retry' } }), context, { reviewer: review([]) });
+
+		expect(github.reviews.map((r) => r.review.commitId)).toEqual(['f'.repeat(40), headSha]);
+		expect(results.calls.at(-1)).toMatchObject({ outcome: { providerReviewId: 2 } });
+	});
+
+	test('reviews the current head when the queued one is older', async () => {
+		const { github, context } = setup();
+
+		await runReviewJob(job({ headSha: 'f'.repeat(40) }), context, { reviewer: review([]) });
+
+		expect(github.reviews[0]?.review.commitId).toBe(headSha);
+	});
+
+	test('stops on a redelivery of a review that already ended', async () => {
+		const { github, results, context } = setup();
+		results.ended = true;
+
+		await runReviewJob(job(), context, { reviewer: scriptedModel([]) });
+
+		expect(results.calls.map((call) => call.method)).toEqual(['startReview']);
 		expect(github.reviews).toHaveLength(0);
 	});
 
@@ -326,16 +389,11 @@ describe('skipReason', () => {
 		reviews: { ...defaultConfig.reviews, ...reviews }
 	});
 
-	test('skips closed pull requests and superseded pushes', () => {
+	test('skips closed pull requests, not ones with a newer head', () => {
 		expect(skipReason(job(), pullRequest({ state: 'closed' }), null)).toBe(
 			'The pull request is closed.'
 		);
-		expect(skipReason(job({ headSha: 'old' }), pullRequest(), null)).toBe(
-			'A newer commit was pushed.'
-		);
-		expect(
-			skipReason(job({ headSha: 'old', trigger: { kind: 'retry' } }), pullRequest(), null)
-		).toBeNull();
+		expect(skipReason(job({ headSha: 'old' }), pullRequest(), null)).toBeNull();
 	});
 
 	test('follows the repository settings', () => {

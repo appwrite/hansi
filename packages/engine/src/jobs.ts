@@ -39,7 +39,10 @@ export interface ReviewJob {
 	reviewId: string;
 	repository: Repository;
 	pullNumber: number;
-	/** The head the review was queued for. A newer push supersedes it. */
+	/**
+	 * The head when the review was queued. Appwrite moves a queued review to newer pushes without
+	 * queueing again, so the job reviews whatever the head is when it runs.
+	 */
 	headSha: string;
 	trigger: ReviewTrigger;
 }

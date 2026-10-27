@@ -76,17 +76,20 @@ export type SinkCall =
 
 export class MemoryResultsSink implements ResultsSink {
 	readonly calls: SinkCall[] = [];
+	/** Set to answer `startReview` as for a review that already ended. */
+	ended = false;
 
 	async startReview(review: ReviewRef, input: { headSha: string; baseSha: string }) {
 		this.calls.push({ method: 'startReview', review, ...input });
+		return !this.ended;
 	}
 
 	async recordEvents(review: ReviewRef, events: TraceEvent[]) {
-		this.calls.push({ method: 'recordEvents', review, events });
+		this.calls.push({ method: 'recordEvents', review, events: events.splice(0) });
 	}
 
 	async recordUsage(review: ReviewRef, usage: ModelUsage[]) {
-		this.calls.push({ method: 'recordUsage', review, usage });
+		this.calls.push({ method: 'recordUsage', review, usage: usage.splice(0) });
 	}
 
 	async completeReview(review: ReviewRef, outcome: ReviewOutcome) {
@@ -146,8 +149,12 @@ export function scriptedModel(turns: ScriptedTurn[]): MockLanguageModelV4 {
 
 /** A GitHub repository in memory, with one pull request. Records what the engine posts. */
 export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
-	readonly reviews: { pullNumber: number; review: Parameters<GitHubClient['createReview']>[1] }[] =
-		[];
+	/** `bot: false` for a review a person posted; the ones created here are the app's. */
+	readonly reviews: {
+		pullNumber: number;
+		review: Parameters<GitHubClient['createReview']>[1];
+		bot?: boolean;
+	}[] = [];
 	readonly checkRuns: CheckRun[] = [];
 	/** Set to make check runs fail, as for an installation without the permission. */
 	checksForbidden = false;
@@ -183,11 +190,12 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	}
 
 	async listReviews(): Promise<SubmittedReview[]> {
-		return this.reviews.map(({ review }, i) => ({
+		return this.reviews.map(({ review, bot = true }, i) => ({
 			id: i + 1,
 			body: review.body,
 			commitId: review.commitId,
-			url: `memory://review/${i + 1}`
+			url: `memory://review/${i + 1}`,
+			bot
 		}));
 	}
 

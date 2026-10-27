@@ -53,14 +53,16 @@ export class InstallationGitHubClientFactory implements GitHubClientFactory {
 	) {}
 
 	async forRepository(repository: {
-		providerInstallationId: string;
+		projectId: string;
+		repositoryId: string;
 		owner: string;
 		name: string;
 	}): Promise<GitHubClient> {
 		let current: InstallationToken | null = null;
 		const token = async () => {
 			if (!current || current.expiresAt.getTime() - Date.now() < TOKEN_MARGIN_MS) {
-				current = await this.tokens.get(repository.providerInstallationId);
+				const { projectId, repositoryId } = repository;
+				current = await this.tokens.get({ projectId, repositoryId });
 			}
 			return current.token;
 		};
@@ -110,6 +112,7 @@ interface RawReviewComment {
 interface RawReview {
 	id: number;
 	body: string | null;
+	user: (RawUser & { type?: string }) | null;
 	commit_id: string;
 	html_url: string;
 }
@@ -267,7 +270,8 @@ export class RestGitHubClient implements GitHubClient {
 			id: review.id,
 			body: review.body ?? '',
 			commitId: review.commit_id,
-			url: review.html_url
+			url: review.html_url,
+			bot: review.user?.type === 'Bot'
 		}));
 	}
 
