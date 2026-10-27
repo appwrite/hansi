@@ -9,7 +9,8 @@ import type {
 	PullRequestFile,
 	Reaction,
 	ReviewComment,
-	ReviewEvent
+	ReviewEvent,
+	SubmittedReview
 } from '@hansi/engine';
 import type { InstallationToken, InstallationTokens } from './tokens';
 
@@ -19,7 +20,7 @@ import type { InstallationToken, InstallationTokens } from './tokens';
 export interface GitHubConfig {
 	/** REST API root. GitHub Enterprise Server uses `https://<host>/api/v3`. */
 	apiUrl?: string;
-	/** GraphQL endpoint. Defaults to `<apiUrl>/graphql`. */
+	/** GraphQL endpoint. Defaults to GitHub's, or `https://<host>/api/graphql` for an `/api/v3` root. */
 	graphqlUrl?: string;
 	/** Web root for git remotes. */
 	webUrl?: string;
@@ -106,6 +107,13 @@ interface RawReviewComment {
 	pull_request_url: string;
 }
 
+interface RawReview {
+	id: number;
+	body: string | null;
+	commit_id: string;
+	html_url: string;
+}
+
 interface RawCheckRun {
 	name: string;
 	conclusion: string | null;
@@ -127,7 +135,10 @@ export class RestGitHubClient implements GitHubClient {
 		config: GitHubConfig = {}
 	) {
 		this.api = (config.apiUrl ?? 'https://api.github.com').replace(/\/+$/, '');
-		this.graphqlUrl = config.graphqlUrl ?? `${this.api}/graphql`;
+		// github.com serves GraphQL beside REST; GitHub Enterprise Server at /api/graphql.
+		this.graphqlUrl =
+			config.graphqlUrl ??
+			(this.api.endsWith('/api/v3') ? `${this.api.slice(0, -3)}/graphql` : `${this.api}/graphql`);
 		this.web = (config.webUrl ?? 'https://github.com').replace(/\/+$/, '');
 		this.http = config.fetch ?? fetch;
 	}
@@ -248,6 +259,16 @@ export class RestGitHubClient implements GitHubClient {
 				url: run.details_url ?? run.html_url,
 				summary: run.output?.summary ?? undefined
 			}));
+	}
+
+	async listReviews(pullNumber: number): Promise<SubmittedReview[]> {
+		const reviews = await this.paginate<RawReview>(`${this.repo}/pulls/${pullNumber}/reviews`);
+		return reviews.map((review) => ({
+			id: review.id,
+			body: review.body ?? '',
+			commitId: review.commit_id,
+			url: review.html_url
+		}));
 	}
 
 	async listReviewComments(pullNumber: number): Promise<ReviewComment[]> {

@@ -46,6 +46,13 @@ export interface InlineComment {
 
 export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
+export interface SubmittedReview {
+	id: number;
+	body: string;
+	commitId: string;
+	url: string;
+}
+
 export interface CheckRun {
 	name: string;
 	headSha: string;
@@ -80,6 +87,7 @@ export interface GitHubClient {
 	getArchiveUrl(ref: string): Promise<string>;
 	listFailedChecks(ref: string): Promise<FailedCheck[]>;
 
+	listReviews(pullNumber: number): Promise<SubmittedReview[]>;
 	listReviewComments(pullNumber: number): Promise<ReviewComment[]>;
 	createReview(
 		pullNumber: number,

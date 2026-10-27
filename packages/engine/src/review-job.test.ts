@@ -127,6 +127,8 @@ const v5Finding = {
 describe('runReviewJob', () => {
 	test('reviews the pull request and posts the review', async () => {
 		const { github, results, context } = setup();
+		// The diff comes from the checkout: a stale file list from GitHub does not matter.
+		github.files = [];
 		const verifier = scriptedModel([
 			{
 				calls: [
@@ -192,6 +194,46 @@ describe('runReviewJob', () => {
 		expect(github.reviews).toHaveLength(1);
 		const events = results.calls.find((call) => call.method === 'recordEvents');
 		expect(JSON.stringify(events)).toContain('check.unavailable');
+	});
+
+	test('a retry after a posted review does not post it again', async () => {
+		const { github, results, context } = setup();
+		let failures = 1;
+		const flaky = Object.assign(Object.create(results) as MemoryResultsSink, {
+			async completeReview(...args: Parameters<MemoryResultsSink['completeReview']>) {
+				if (failures-- > 0) throw new Error('Appwrite is down');
+				return results.completeReview(...args);
+			}
+		});
+		const flakyContext = { ...context, results: flaky };
+		await expect(runReviewJob(job(), flakyContext, { reviewer: review([], 'S') })).rejects.toThrow(
+			'Appwrite is down'
+		);
+		await runReviewJob(job(), flakyContext, { reviewer: review([], 'S') });
+		expect(github.reviews).toHaveLength(1);
+		expect(github.reviews[0]!.review.body).toContain('<!-- hansi:review review-1 -->');
+		expect(results.calls.at(-1)).toMatchObject({
+			method: 'completeReview',
+			outcome: { providerReviewId: 1 }
+		});
+	});
+
+	test('keeps the trace when writing it fails', async () => {
+		const { results, context } = setup();
+		let failures = 1;
+		const flaky = Object.assign(Object.create(results) as MemoryResultsSink, {
+			async recordEvents(...args: Parameters<MemoryResultsSink['recordEvents']>) {
+				if (failures-- > 0) throw new Error('Appwrite is down');
+				return results.recordEvents(...args);
+			}
+		});
+		await expect(
+			runReviewJob(job(), { ...context, results: flaky }, { reviewer: review([], 'S') })
+		).rejects.toThrow('Appwrite is down');
+		const recorded = results.calls.find((call) => call.method === 'recordEvents');
+		expect(recorded).toMatchObject({
+			events: expect.arrayContaining([expect.objectContaining({ type: 'review.done' })])
+		});
 	});
 
 	test('skips a pull request that moved on, without checking it out', async () => {

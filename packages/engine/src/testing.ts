@@ -9,7 +9,8 @@ import type {
 	GitRemote,
 	PullRequest,
 	PullRequestFile,
-	ReviewComment
+	ReviewComment,
+	SubmittedReview
 } from './github';
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
@@ -177,6 +178,15 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 
 	async listFailedChecks(): Promise<FailedCheck[]> {
 		return [];
+	}
+
+	async listReviews(): Promise<SubmittedReview[]> {
+		return this.reviews.map(({ review }, i) => ({
+			id: i + 1,
+			body: review.body,
+			commitId: review.commitId,
+			url: `memory://review/${i + 1}`
+		}));
 	}
 
 	async listReviewComments(): Promise<ReviewComment[]> {

@@ -2,7 +2,7 @@ import type { LanguageModel } from 'ai';
 import { checkout } from './checkout';
 import { CONFIG_FILES, parseConfig, type RepoConfig } from './config';
 import type { EngineContext } from './context';
-import { parseGitHubFile } from './diff';
+import { parseGitDiff } from './diff';
 import { git, isMissingPath } from './git';
 import type { GitHubClient, PullRequest, ReviewEvent } from './github';
 import type { ReviewJob } from './jobs';
@@ -101,7 +101,22 @@ export async function runReviewJob(
 		await context.results.startReview(ref, { headSha: pr.head.sha, baseSha: pr.base.sha });
 		checkRun = await startCheck(github, pr.head.sha, events);
 
-		const files = (await github.listPullRequestFiles(pr.number)).map(parseGitHubFile);
+		// The diff comes from the checkout, not GitHub's file list: a push while the job runs
+		// would make that list describe a newer head than the one reviewed and commented on.
+		const files = parseGitDiff(
+			await git(
+				[
+					'diff',
+					'--no-color',
+					'--no-ext-diff',
+					'--find-renames',
+					'--src-prefix=a/',
+					'--dst-prefix=b/',
+					`${pr.base.sha}...${pr.head.sha}`
+				],
+				{ cwd: tree.dir, token: remote.token, signal: options.signal }
+			)
+		);
 		const result = await runReview(
 			{
 				repoDir: tree.dir,
@@ -124,22 +139,30 @@ export async function runReviewJob(
 			}
 		);
 
-		const body = renderReviewBody(result, { config, configErrors: errors });
-		const posted = await github.createReview(pr.number, {
-			commitId: pr.head.sha,
-			event: reviewEvent[result.verdict],
-			body,
-			comments: result.findings.map((finding) => ({
-				path: finding.path,
-				line: finding.endLine,
-				startLine: finding.startLine === finding.endLine ? undefined : finding.startLine,
-				side: 'RIGHT',
-				body: renderFinding(finding)
-			}))
-		});
+		// The marker finds this review again when a retry runs after it was posted.
+		const marker = `<!-- hansi:review ${job.reviewId} -->`;
+		const body = `${renderReviewBody(result, { config, configErrors: errors })}\n\n${marker}`;
+		const earlier = (await github.listReviews(pr.number)).find((r) => r.body.includes(marker));
+		const posted =
+			earlier ??
+			(await github.createReview(pr.number, {
+				commitId: pr.head.sha,
+				event: reviewEvent[result.verdict],
+				body,
+				comments: result.findings.map((finding) => ({
+					path: finding.path,
+					line: finding.endLine,
+					startLine: finding.startLine === finding.endLine ? undefined : finding.startLine,
+					side: 'RIGHT',
+					body: renderFinding(finding)
+				}))
+			}));
 
-		await context.results.recordEvents(ref, events.splice(0));
-		await context.results.recordUsage(ref, usage.splice(0));
+		// Buffers are cleared only once written, so a failed write still reaches the catch below.
+		await context.results.recordEvents(ref, [...events]);
+		events.length = 0;
+		await context.results.recordUsage(ref, [...usage]);
+		usage.length = 0;
 		await context.results.completeReview(ref, {
 			verdict: result.verdict,
 			tier: result.tier,

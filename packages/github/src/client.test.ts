@@ -244,6 +244,46 @@ describe('RestGitHubClient', () => {
 		]);
 	});
 
+	test('lists reviews', async () => {
+		const api = serve({
+			'GET /repos/acme/app/pulls/7/reviews': () =>
+				Response.json([{ id: 5, body: null, commit_id: 'h', html_url: 'u' }])
+		});
+		const { github } = await client(api);
+		expect(await github.listReviews(7)).toEqual([{ id: 5, body: '', commitId: 'h', url: 'u' }]);
+	});
+
+	test('finds the GraphQL endpoint of GitHub Enterprise Server', async () => {
+		const api = serve({
+			'GET /api/v3/repos/acme/app/pulls/comments/11': () =>
+				Response.json({
+					id: 11,
+					pull_request_url: 'https://ghe.test/api/v3/repos/acme/app/pulls/7'
+				}),
+			'POST /api/graphql': () =>
+				Response.json({
+					data: {
+						repository: {
+							pullRequest: {
+								reviewThreads: {
+									nodes: [
+										{ id: 'T1', isResolved: true, comments: { nodes: [{ databaseId: 11 }] } }
+									],
+									pageInfo: { hasNextPage: false, endCursor: null }
+								}
+							}
+						}
+					}
+				})
+		});
+		const { github } = await client(`${api}/api/v3`);
+		await github.resolveThread(11);
+		expect(requests.map((r) => r.path)).toEqual([
+			'/api/v3/repos/acme/app/pulls/comments/11',
+			'/api/graphql'
+		]);
+	});
+
 	test('throws GitHubError with the status on failure', async () => {
 		const api = serve({});
 		const { github } = await client(api);
