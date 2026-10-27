@@ -1,0 +1,21 @@
+{
+	"name": "@hansi/service",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "bun --watch src/index.ts",
+		"start": "bun src/index.ts",
+		"check": "tsc -p ."
+	},
+	"dependencies": {
+		"@hansi/appwrite": "workspace:*",
+		"@hansi/engine": "workspace:*",
+		"@hansi/github": "workspace:*",
+		"@hansi/sandbox": "workspace:*",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	}
+}

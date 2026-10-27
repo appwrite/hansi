@@ -1,0 +1,3 @@
+# Toolchain for local development and Cloud Agents.
+[tools]
+bun = "1.4.4"
