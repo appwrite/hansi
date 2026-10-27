@@ -7,7 +7,7 @@ const required = {
 	HANSI_ORCHESTRATOR_ENDPOINT: 'http://orchestrator:8080',
 	HANSI_SANDBOX_IMAGE: 'appwrite/hansi-toolchain:1',
 	HANSI_REVIEW_MODEL: 'anthropic:claude-sonnet-4-5',
-	HANSI_ANTHROPIC_API_KEY: 'sk-ant'
+	HANSI_AI_SECRET: 'sk-ant'
 };
 
 describe('parseEnv', () => {
@@ -47,34 +47,38 @@ describe('parseEnv', () => {
 		}
 	});
 
-	test('needs the credentials of the providers the models use', () => {
-		expect(() => parseEnv({ ...required, HANSI_ANTHROPIC_API_KEY: undefined })).toThrow(
-			/HANSI_ANTHROPIC_API_KEY/
+	test('needs the credentials of the provider, and one provider for both models', () => {
+		expect(() => parseEnv({ ...required, HANSI_AI_SECRET: undefined })).toThrow(
+			/Required by anthropic[\s\S]*HANSI_AI_SECRET/
 		);
 		expect(() => parseEnv({ ...required, HANSI_VERIFY_MODEL: 'openai:gpt-5' })).toThrow(
-			/Required by HANSI_VERIFY_MODEL \(openai\)[\s\S]*HANSI_OPENAI_API_KEY/
+			/HANSI_VERIFY_MODEL/
 		);
-		expect(() => parseEnv({ ...required, HANSI_VERIFY_MODEL: 'openai-compatible:llama' })).toThrow(
-			/HANSI_OPENAI_COMPATIBLE_BASE_URL/
+		const local = {
+			...required,
+			HANSI_AI_SECRET: undefined,
+			HANSI_REVIEW_MODEL: 'openai-compatible:qwen3:32b'
+		};
+		expect(() => parseEnv(local)).toThrow(/HANSI_AI_BASE_URL/);
+		expect(
+			parseEnv({ ...local, HANSI_AI_BASE_URL: 'http://ollama:11434/v1' }).HANSI_AI_SECRET
+		).toBeUndefined();
+	});
+
+	test('takes Bedrock with a region', () => {
+		const bedrock = { ...required, HANSI_REVIEW_MODEL: 'bedrock:us.anthropic.claude-x-v1:0' };
+		expect(() => parseEnv(bedrock)).toThrow(/HANSI_AI_REGION/);
+		expect(parseEnv({ ...bedrock, HANSI_AI_REGION: 'eu-central-1' }).HANSI_AI_REGION).toBe(
+			'eu-central-1'
 		);
 	});
 
-	test('takes Bedrock with a region and an API key or an access key pair', () => {
-		const bedrock = { ...required, HANSI_REVIEW_MODEL: 'bedrock:us.anthropic.claude-x-v1:0' };
-		expect(() => parseEnv(bedrock)).toThrow(/HANSI_BEDROCK_REGION[\s\S]*HANSI_BEDROCK_API_KEY/);
-		const region = { ...bedrock, HANSI_BEDROCK_REGION: 'eu-central-1' };
-		expect(parseEnv({ ...region, HANSI_BEDROCK_API_KEY: 'k' }).HANSI_BEDROCK_REGION).toBe(
-			'eu-central-1'
+	test('takes the AI SDK reasoning levels', () => {
+		expect(parseEnv({ ...required, HANSI_REVIEW_REASONING: 'xhigh' }).HANSI_REVIEW_REASONING).toBe(
+			'xhigh'
 		);
-		expect(() => parseEnv({ ...region, HANSI_BEDROCK_ACCESS_KEY_ID: 'AKIA' })).toThrow(
-			/HANSI_BEDROCK_SECRET_ACCESS_KEY/
+		expect(() => parseEnv({ ...required, HANSI_VERIFY_REASONING: 'extreme' })).toThrow(
+			/HANSI_VERIFY_REASONING/
 		);
-		expect(
-			parseEnv({
-				...region,
-				HANSI_BEDROCK_ACCESS_KEY_ID: 'AKIA',
-				HANSI_BEDROCK_SECRET_ACCESS_KEY: 's'
-			}).HANSI_BEDROCK_ACCESS_KEY_ID
-		).toBe('AKIA');
 	});
 });

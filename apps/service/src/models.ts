@@ -5,13 +5,13 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createXai } from '@ai-sdk/xai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { createProviderRegistry } from 'ai';
+import { wrapLanguageModel, type LanguageModel } from 'ai';
 import type { Env } from './env';
 import type { Models } from './handlers';
 
 // Model ids name their provider, as `provider:model` (`bedrock:global.anthropic.claude-…`).
-// Each provider takes its credentials from `HANSI_<PROVIDER>_*`; `parseEnv` refuses a model
-// whose provider is not configured, so a missing key fails the start, not the first review.
+// Both models use one provider and one credential, `HANSI_AI_SECRET`, the way Appwrite will hand
+// one over once it serves model keys.
 
 export const providerIds = [
 	'openai',
@@ -24,91 +24,134 @@ export const providerIds = [
 ] as const;
 export type ProviderId = (typeof providerIds)[number];
 
-export function providerOf(modelId: string): string {
-	const separator = modelId.indexOf(':');
-	return separator === -1 ? '' : modelId.slice(0, separator);
-}
-
 export function isProviderId(id: string): id is ProviderId {
 	return (providerIds as readonly string[]).includes(id);
 }
 
-type ProviderEnv = Omit<Env, 'HANSI_REVIEW_MODEL' | 'HANSI_VERIFY_MODEL'>;
+/** Splits `provider:model` on its first colon: Bedrock and Ollama model ids have their own. */
+export function parseModelId(id: string): { provider: string; model: string } {
+	const separator = id.indexOf(':');
+	return separator === -1
+		? { provider: '', model: id }
+		: { provider: id.slice(0, separator), model: id.slice(separator + 1) };
+}
 
-/** The variables a provider still needs, or none when it is ready. */
-export function missingConfig(provider: ProviderId, env: Partial<ProviderEnv>): string[] {
+/** The AI SDK's reasoning levels. Unset leaves the provider's default. */
+export const reasoningEfforts = [
+	'none',
+	'minimal',
+	'low',
+	'medium',
+	'high',
+	'xhigh',
+	'max'
+] as const;
+export type ReasoningEffort = (typeof reasoningEfforts)[number];
+
+export type BedrockAuth =
+	{ apiKey: string } | { accessKeyId: string; secretAccessKey: string; sessionToken?: string };
+
+/**
+ * A Bedrock API key, or an IAM key pair written as `ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]`,
+ * told apart by the access key's AKIA (long-term) or ASIA (temporary) prefix.
+ */
+export function parseBedrockSecret(secret: string): BedrockAuth {
+	const value = secret.trim();
+	const [accessKeyId, secretAccessKey, ...session] = value.split(':');
+	const iam = accessKeyId?.startsWith('AKIA') || accessKeyId?.startsWith('ASIA');
+	if (!iam || !secretAccessKey) return { apiKey: value };
+	const sessionToken = session.join(':');
+	return { accessKeyId: accessKeyId!, secretAccessKey, ...(sessionToken && { sessionToken }) };
+}
+
+/** The variables the provider still needs, or none when it is ready. */
+export function missingConfig(
+	provider: ProviderId,
+	env: Pick<Env, 'HANSI_AI_SECRET' | 'HANSI_AI_REGION' | 'HANSI_AI_BASE_URL'>
+): string[] {
 	switch (provider) {
-		case 'openai':
-			return env.HANSI_OPENAI_API_KEY ? [] : ['HANSI_OPENAI_API_KEY'];
-		case 'anthropic':
-			return env.HANSI_ANTHROPIC_API_KEY ? [] : ['HANSI_ANTHROPIC_API_KEY'];
-		case 'xai':
-			return env.HANSI_XAI_API_KEY ? [] : ['HANSI_XAI_API_KEY'];
-		case 'google':
-			return env.HANSI_GOOGLE_API_KEY ? [] : ['HANSI_GOOGLE_API_KEY'];
-		case 'openrouter':
-			return env.HANSI_OPENROUTER_API_KEY ? [] : ['HANSI_OPENROUTER_API_KEY'];
-		case 'bedrock': {
-			const missing = env.HANSI_BEDROCK_REGION ? [] : ['HANSI_BEDROCK_REGION'];
-			// A Bedrock API key, or an IAM access key pair.
-			if (env.HANSI_BEDROCK_API_KEY) return missing;
-			if (!env.HANSI_BEDROCK_ACCESS_KEY_ID && !env.HANSI_BEDROCK_SECRET_ACCESS_KEY) {
-				return [...missing, 'HANSI_BEDROCK_API_KEY'];
-			}
-			if (!env.HANSI_BEDROCK_ACCESS_KEY_ID) missing.push('HANSI_BEDROCK_ACCESS_KEY_ID');
-			if (!env.HANSI_BEDROCK_SECRET_ACCESS_KEY) missing.push('HANSI_BEDROCK_SECRET_ACCESS_KEY');
-			return missing;
-		}
+		case 'bedrock':
+			return [
+				...(env.HANSI_AI_SECRET ? [] : ['HANSI_AI_SECRET']),
+				...(env.HANSI_AI_REGION ? [] : ['HANSI_AI_REGION'])
+			];
 		case 'openai-compatible':
-			return env.HANSI_OPENAI_COMPATIBLE_BASE_URL ? [] : ['HANSI_OPENAI_COMPATIBLE_BASE_URL'];
+			// Local servers often take no key.
+			return env.HANSI_AI_BASE_URL ? [] : ['HANSI_AI_BASE_URL'];
+		default:
+			return env.HANSI_AI_SECRET ? [] : ['HANSI_AI_SECRET'];
 	}
 }
 
-/**
- * The providers, built from the environment. Building one calls nothing and checks no key, so
- * the providers no model uses cost nothing.
- */
-export function createRegistry(env: ProviderEnv) {
-	return createProviderRegistry({
-		openai: createOpenAI({ apiKey: env.HANSI_OPENAI_API_KEY, baseURL: env.HANSI_OPENAI_BASE_URL }),
-		anthropic: createAnthropic({
-			apiKey: env.HANSI_ANTHROPIC_API_KEY,
-			baseURL: env.HANSI_ANTHROPIC_BASE_URL
-		}),
-		xai: createXai({ apiKey: env.HANSI_XAI_API_KEY, baseURL: env.HANSI_XAI_BASE_URL }),
-		google: createGoogle({
-			apiKey: env.HANSI_GOOGLE_API_KEY,
-			baseURL: env.HANSI_GOOGLE_BASE_URL
-		}),
-		openrouter: createOpenRouter({
-			apiKey: env.HANSI_OPENROUTER_API_KEY,
-			baseURL: env.HANSI_OPENROUTER_BASE_URL
-		}),
-		bedrock: createAmazonBedrock({
-			region: env.HANSI_BEDROCK_REGION,
-			// The provider prefers the API key, and signs with the key pair without one.
-			apiKey: env.HANSI_BEDROCK_API_KEY,
-			accessKeyId: env.HANSI_BEDROCK_ACCESS_KEY_ID,
-			secretAccessKey: env.HANSI_BEDROCK_SECRET_ACCESS_KEY,
-			sessionToken: env.HANSI_BEDROCK_SESSION_TOKEN
-		}),
-		// It has no default endpoint, so it exists only with one; parseEnv requires it to be used.
-		...(env.HANSI_OPENAI_COMPATIBLE_BASE_URL && {
-			'openai-compatible': createOpenAICompatible({
-				name: 'openai-compatible',
-				baseURL: env.HANSI_OPENAI_COMPATIBLE_BASE_URL,
-				apiKey: env.HANSI_OPENAI_COMPATIBLE_API_KEY
-			})
-		})
+/** The provider's model, with the credential from the environment. */
+export function createLanguageModel(
+	env: Env,
+	id: string,
+	reasoning?: ReasoningEffort
+): LanguageModel {
+	const { provider } = parseModelId(id);
+	const model = providerModel(env, id);
+	if (!reasoning) return model;
+	return wrapLanguageModel({
+		model,
+		middleware: {
+			// OpenRouter reads the effort from its own options, the others from the shared setting.
+			transformParams: async ({ params }) =>
+				provider === 'openrouter'
+					? {
+							...params,
+							providerOptions: {
+								...params.providerOptions,
+								openrouter: {
+									...params.providerOptions?.openrouter,
+									reasoning: { effort: reasoning }
+								}
+							}
+						}
+					: { ...params, reasoning }
+		}
 	});
 }
 
+function providerModel(env: Env, id: string) {
+	const { provider, model } = parseModelId(id);
+	const apiKey = env.HANSI_AI_SECRET;
+	const baseURL = env.HANSI_AI_BASE_URL;
+
+	switch (provider as ProviderId) {
+		case 'openai':
+			return createOpenAI({ apiKey, baseURL })(model);
+		case 'anthropic':
+			return createAnthropic({ apiKey, baseURL })(model);
+		case 'xai':
+			return createXai({ apiKey, baseURL })(model);
+		case 'google':
+			return createGoogle({ apiKey, baseURL })(model);
+		case 'openrouter':
+			return createOpenRouter({ apiKey, baseURL })(model);
+		case 'bedrock':
+			return createAmazonBedrock({
+				region: env.HANSI_AI_REGION,
+				baseURL,
+				...parseBedrockSecret(apiKey ?? '')
+			})(model);
+		case 'openai-compatible':
+			return createOpenAICompatible({ name: 'openai-compatible', apiKey, baseURL: baseURL! })(
+				model
+			);
+	}
+}
+
 export function createModels(env: Env): Models {
-	const registry = createRegistry(env);
 	return {
-		reviewer: registry.languageModel(env.HANSI_REVIEW_MODEL as `${ProviderId}:${string}`),
-		verifier: env.HANSI_VERIFY_MODEL
-			? registry.languageModel(env.HANSI_VERIFY_MODEL as `${ProviderId}:${string}`)
-			: undefined
+		reviewer: createLanguageModel(env, env.HANSI_REVIEW_MODEL, env.HANSI_REVIEW_REASONING),
+		verifier:
+			env.HANSI_VERIFY_MODEL || env.HANSI_VERIFY_REASONING
+				? createLanguageModel(
+						env,
+						env.HANSI_VERIFY_MODEL ?? env.HANSI_REVIEW_MODEL,
+						env.HANSI_VERIFY_REASONING ?? env.HANSI_REVIEW_REASONING
+					)
+				: undefined
 	};
 }

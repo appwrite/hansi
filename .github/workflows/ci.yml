@@ -69,7 +69,7 @@ jobs:
             -e HANSI_APPWRITE_ENDPOINT=http://127.0.0.1:9/v1 -e HANSI_APPWRITE_SECRET=ci \
             -e HANSI_QUEUE_URL=redis://redis:6379 -e HANSI_ORCHESTRATOR_ENDPOINT=http://127.0.0.1:9 \
             -e HANSI_SANDBOX_IMAGE=ci -e HANSI_REVIEW_MODEL=bedrock:ci \
-            -e HANSI_BEDROCK_REGION=us-east-1 -e HANSI_BEDROCK_API_KEY=ci hansi:ci
+            -e HANSI_AI_REGION=us-east-1 -e HANSI_AI_SECRET=ci hansi:ci
           for i in $(seq 1 30); do curl -fsS localhost:8080/readyz && break; sleep 1; done
           # The loop does not fail on its own: a pod that never becomes ready must.
           curl -fsS localhost:8080/readyz
