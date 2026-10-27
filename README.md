@@ -32,6 +32,8 @@ The service reads its configuration from the environment:
 | `HANSI_APPWRITE_SECRET`       |              | `_APP_REVIEWS_SECRET` for that API           |
 | `HANSI_QUEUE_URL`             |              | Appwrite's queue, `nats://` or `redis://`    |
 | `HANSI_QUEUE_NAME`            | `v1-reviews` | Queue the Reviews module publishes to        |
+| `HANSI_QUEUE_USER`            |              | Queue user, instead of in the URL            |
+| `HANSI_QUEUE_PASSWORD`        |              | Queue password, instead of in the URL        |
 | `HANSI_ORCHESTRATOR_ENDPOINT` | none         | open-runtimes orchestrator API, for commands |
 | `HANSI_ORCHESTRATOR_KEY`      |              | Orchestrator API key, when it has one        |
 | `HANSI_SANDBOX_IMAGE`         |              | Toolchain image, with the orchestrator       |

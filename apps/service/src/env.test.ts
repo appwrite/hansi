@@ -41,6 +41,22 @@ describe('parseEnv', () => {
 		);
 	});
 
+	test('puts separate queue credentials into the URL, escaped', () => {
+		const env = parseEnv({
+			...required,
+			HANSI_QUEUE_URL: 'redis://redis:6379',
+			HANSI_QUEUE_USER: 'default',
+			HANSI_QUEUE_PASSWORD: 'p@ss:/?#%41'
+		});
+		const url = new URL(env.HANSI_QUEUE_URL);
+		expect(url.host).toBe('redis:6379');
+		expect(decodeURIComponent(url.username)).toBe('default');
+		expect(decodeURIComponent(url.password)).toBe('p@ss:/?#%41');
+		expect(
+			parseEnv({ ...required, HANSI_QUEUE_USER: '', HANSI_QUEUE_PASSWORD: '' }).HANSI_QUEUE_URL
+		).toBe(required.HANSI_QUEUE_URL);
+	});
+
 	test('names every missing variable', () => {
 		expect(() => parseEnv({})).toThrow(
 			/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_QUEUE_URL[\s\S]*HANSI_REVIEW_MODEL/

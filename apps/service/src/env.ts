@@ -14,6 +14,12 @@ const schema = z
 		/** Appwrite's queue: NATS on Cloud (`nats://user:pass@host:4222`), Redis self-hosted (`redis://host:6379`). */
 		HANSI_QUEUE_URL: z.url({ protocol: /^(nats|rediss?)$/, hostname: /./ }),
 		HANSI_QUEUE_NAME: z.string().min(1).default(REVIEWS_QUEUE),
+		/**
+		 * The queue's credentials, kept out of the URL so they need no escaping. Empty is unset:
+		 * compose passes every variable it lists.
+		 */
+		HANSI_QUEUE_USER: z.string().optional(),
+		HANSI_QUEUE_PASSWORD: z.string().optional(),
 
 		/** The orchestrator's sandboxes, for the agents' commands. Without it, reviews only read. */
 		HANSI_ORCHESTRATOR_ENDPOINT: z.url().optional(),
@@ -31,6 +37,14 @@ const schema = z
 	.refine((env) => !env.HANSI_ORCHESTRATOR_ENDPOINT || env.HANSI_SANDBOX_IMAGE, {
 		message: 'Sandboxes need an image',
 		path: ['HANSI_SANDBOX_IMAGE']
+	})
+	.transform(({ HANSI_QUEUE_USER: user, HANSI_QUEUE_PASSWORD: password, ...env }) => {
+		if (!user && !password) return env;
+		// Encoded here, so the queue clients decode exactly what was given, `%` included.
+		const url = new URL(env.HANSI_QUEUE_URL);
+		url.username = user ? encodeURIComponent(user) : '';
+		url.password = password ? encodeURIComponent(password) : '';
+		return { ...env, HANSI_QUEUE_URL: url.href };
 	});
 
 export type Env = z.infer<typeof schema>;
