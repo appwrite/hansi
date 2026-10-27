@@ -1,9 +1,15 @@
+export * from './agent';
 export * from './config';
 export * from './diff';
 export * from './errors';
 export * from './filters';
+export * from './findings';
+export * from './git';
 export * from './grading';
+export * from './prompts';
+export * from './review';
 export * from './tier';
+export * from './tools';
 export * from './verdict';
 export type * from './context';
 export type * from './github';

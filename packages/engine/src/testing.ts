@@ -1,5 +1,6 @@
 // In-memory adapters for tests. Not for production: nothing here survives a restart.
 
+import { MockLanguageModelV4 } from 'ai/test';
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
 import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from './results';
@@ -86,4 +87,46 @@ export class MemoryResultsSink implements ResultsSink {
 	async failReview(review: ReviewRef, reason: string) {
 		this.calls.push({ method: 'failReview', review, reason });
 	}
+}
+
+/** One model response: text that ends the turn, or tool calls. */
+export type ScriptedTurn = { text: string } | { calls: { tool: string; input: unknown }[] };
+
+/**
+ * A model that replays `turns` in order, one per call, and throws when they run out. Its
+ * `doGenerateCalls` show what each call was sent.
+ */
+export function scriptedModel(turns: ScriptedTurn[]): MockLanguageModelV4 {
+	let next = 0;
+	return new MockLanguageModelV4({
+		provider: 'scripted',
+		modelId: 'scripted-model',
+		doGenerate: async () => {
+			const turn = turns[next++];
+			if (!turn) throw new Error(`The script has no turn ${next}`);
+			const usage = {
+				inputTokens: { total: 100, noCache: 80, cacheRead: 20, cacheWrite: 0 },
+				outputTokens: { total: 10, text: 8, reasoning: 2 }
+			};
+			if ('text' in turn) {
+				return {
+					content: [{ type: 'text', text: turn.text }],
+					finishReason: { unified: 'stop', raw: undefined },
+					usage,
+					warnings: []
+				};
+			}
+			return {
+				content: turn.calls.map((call, i) => ({
+					type: 'tool-call' as const,
+					toolCallId: `call-${next}-${i}`,
+					toolName: call.tool,
+					input: JSON.stringify(call.input)
+				})),
+				finishReason: { unified: 'tool-calls', raw: undefined },
+				usage,
+				warnings: []
+			};
+		}
+	});
 }
