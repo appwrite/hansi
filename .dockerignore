@@ -1,0 +1,8 @@
+**/node_modules
+**/*.test.ts
+.git
+.github
+.env
+.env.*
+charts
+*.md

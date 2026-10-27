@@ -23,3 +23,36 @@ jobs:
       - run: bun run test
         env:
           HANSI_TEST_NATS_URL: nats://127.0.0.1:4222
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: hansi:ci
+      # The image starts, answers its health checks and drains on SIGTERM.
+      - run: |
+          docker run -d --name hansi -p 8080:8080 \
+            -e HANSI_APPWRITE_ENDPOINT=http://127.0.0.1:9/v1 -e HANSI_APPWRITE_SECRET=ci \
+            -e HANSI_QUEUE_URL=nats://127.0.0.1:4222 -e HANSI_ORCHESTRATOR_ENDPOINT=http://127.0.0.1:9 \
+            -e HANSI_SANDBOX_IMAGE=ci -e HANSI_REVIEW_MODEL=ci/model hansi:ci
+          for i in $(seq 1 30); do curl -fsS localhost:8080/readyz && break; sleep 1; done
+          curl -fsS localhost:8080/healthz
+          docker exec hansi sh -c 'git --version && rg --version'
+          docker stop -t 30 hansi
+          test "$(docker inspect hansi --format '{{.State.ExitCode}}')" = 0
+
+  chart:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+      - run: helm lint charts/hansi -f charts/hansi/ci-values.yaml
+      - run: helm template hansi charts/hansi -f charts/hansi/ci-values.yaml > /dev/null

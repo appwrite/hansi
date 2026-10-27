@@ -42,3 +42,9 @@ The service reads its configuration from the environment:
 | `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn`, `error`              |
 
 Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise, which reads `AI_GATEWAY_API_KEY`. This is a stopgap until Appwrite serves the keys and models.
+
+## Deployment
+
+The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite-labs/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version.
+
+`charts/hansi` deploys it to Kubernetes: a Deployment with a read-only root filesystem, checkouts on an `emptyDir` at `/tmp`, health probes on `/healthz` and `/readyz`, and a disruption budget. No Service: the service only takes jobs from the queue. The settings are values (`appwrite.endpoint`, `orchestrator.endpoint`, `orchestrator.sandboxImage`, `models.review`); credentials come from `existingSecret`, a Secret holding `HANSI_APPWRITE_SECRET`, `HANSI_QUEUE_URL`, `AI_GATEWAY_API_KEY` and optionally `HANSI_ORCHESTRATOR_KEY`. A pod that is stopped finishes its running jobs first, for up to `terminationGracePeriodSeconds` (20 minutes by default).

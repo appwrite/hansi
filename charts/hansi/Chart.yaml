@@ -1,0 +1,6 @@
+apiVersion: v2
+name: hansi
+description: AI code review for Appwrite Cloud. Takes review and chat jobs from Appwrite's reviews queue.
+type: application
+version: 0.1.0
+appVersion: '0.1.0'
