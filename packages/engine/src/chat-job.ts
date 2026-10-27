@@ -5,6 +5,7 @@ import { changedFiles, checkout, readRepoConfig } from './checkout';
 import type { EngineContext } from './context';
 import type { GitHubClient, PullRequest } from './github';
 import type { ChatJob } from './jobs';
+import type { ModelUsage } from './results';
 import { REVIEW_MARKER, TRUSTED_ASSOCIATIONS } from './review-job';
 import { resolveRepoPath } from './tools';
 
@@ -55,6 +56,7 @@ export async function runChatJob(
 		{ headSha: pr.head.sha, baseSha: pr.base.sha },
 		options.signal
 	);
+	const usage: ModelUsage[] = [];
 	try {
 		// Settings come from the base, like a review's.
 		const { config } = await readRepoConfig(tree.dir, pr.base.sha, remote.token);
@@ -83,7 +85,7 @@ export async function runChatJob(
 				conversation: asked.conversation,
 				question: asked.question
 			},
-			{ model: options.model, signal: options.signal }
+			{ model: options.model, signal: options.signal, usage: (entry) => usage.push(entry) }
 		);
 
 		// Looked up again: an overlapping delivery of this job may have answered meanwhile.
@@ -94,6 +96,17 @@ export async function runChatJob(
 			await github.createIssueComment(pr.number, `@${asked.question.author} ${reply}\n\n${marker}`);
 		}
 	} finally {
+		// Billed whether or not the reply was posted: the model ran either way. A failed write
+		// does not fail the job, whose retry would find the answer posted and stop.
+		if (usage.length) {
+			const chat = {
+				projectId: job.repository.projectId,
+				repositoryId: job.repository.repositoryId,
+				pullNumber: pr.number,
+				commentId: comment.id
+			};
+			await context.results.recordChatUsage(chat, usage).catch(() => {});
+		}
 		await tree.remove();
 	}
 }

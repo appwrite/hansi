@@ -133,6 +133,42 @@ describe('AppwriteResultsSink', () => {
 		expect(requests).toHaveLength(2);
 	});
 
+	test('sends chat usage keyed on the repository and the comment', async () => {
+		const sink = new AppwriteResultsSink(serve());
+		const usage = [
+			{ role: 'chat', provider: 'p', model: 'm', inputTokens: 1, outputTokens: 2, durationMs: 3 }
+		];
+
+		await sink.recordChatUsage(
+			{ projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: 11 },
+			usage
+		);
+
+		expect(usage).toHaveLength(0);
+		expect(requests).toEqual([
+			{
+				method: 'POST',
+				path: '/v1/reviews/repositories/repo-1/usage',
+				secret: 'reviews-secret',
+				body: {
+					projectId: 'project-1',
+					pullNumber: 7,
+					commentId: 11,
+					usage: [
+						{
+							role: 'chat',
+							provider: 'p',
+							model: 'm',
+							inputTokens: 1,
+							outputTokens: 2,
+							durationMs: 3
+						}
+					]
+				}
+			}
+		]);
+	});
+
 	test('treats a review that already ended as done', async () => {
 		const sink = new AppwriteResultsSink(serve(invalidStatus));
 

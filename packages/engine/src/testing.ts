@@ -16,7 +16,14 @@ import type {
 } from './github';
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
-import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from './results';
+import type {
+	ChatRef,
+	ModelUsage,
+	ResultsSink,
+	ReviewOutcome,
+	ReviewRef,
+	TraceEvent
+} from './results';
 import type { CommandResult, Sandbox, SandboxClient, SandboxSpec } from './sandbox';
 
 export type Settlement = { job: Job; result: 'ack' } | { job: Job; result: 'nack'; retry: boolean };
@@ -74,7 +81,8 @@ export type SinkCall =
 	| { method: 'recordUsage'; review: ReviewRef; usage: ModelUsage[] }
 	| { method: 'completeReview'; review: ReviewRef; outcome: ReviewOutcome }
 	| { method: 'skipReview'; review: ReviewRef; reason: string }
-	| { method: 'failReview'; review: ReviewRef; reason: string };
+	| { method: 'failReview'; review: ReviewRef; reason: string }
+	| { method: 'recordChatUsage'; chat: ChatRef; usage: ModelUsage[] };
 
 export class MemoryResultsSink implements ResultsSink {
 	readonly calls: SinkCall[] = [];
@@ -104,6 +112,10 @@ export class MemoryResultsSink implements ResultsSink {
 
 	async failReview(review: ReviewRef, reason: string) {
 		this.calls.push({ method: 'failReview', review, reason });
+	}
+
+	async recordChatUsage(chat: ChatRef, usage: ModelUsage[]) {
+		this.calls.push({ method: 'recordChatUsage', chat, usage: usage.splice(0) });
 	}
 }
 

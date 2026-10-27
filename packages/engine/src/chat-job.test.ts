@@ -138,6 +138,7 @@ function reply(id: number, body: string, author = 'octocat') {
 describe('runChatJob', () => {
 	test('answers a question on the conversation, once', async () => {
 		const { github, context } = setup();
+		const results = context.results;
 		github.issueComments.push(
 			{ id: 1, body: '@hansi why 500?', author: 'maintainer', bot: false, url: 'memory://1' },
 			{ id: 2, body: 'Unrelated.', author: 'someone', bot: false, url: 'memory://2' }
@@ -153,6 +154,13 @@ describe('runChatJob', () => {
 			'@maintainer Because `app.ts:5` says so.\n\n<!-- hansi:chat 1 -->'
 		);
 		expect(github.reactions).toEqual([{ comment: { id: 1, kind: 'issue' }, reaction: 'eyes' }]);
+		expect(results.calls).toEqual([
+			{
+				method: 'recordChatUsage',
+				chat: { projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: 1 },
+				usage: [expect.objectContaining({ role: 'chat', inputTokens: 100 })]
+			}
+		]);
 		const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
 		expect(prompt).toContain('why 500?');
 		expect(prompt).not.toContain('Unrelated.');

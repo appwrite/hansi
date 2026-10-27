@@ -49,6 +49,14 @@ export interface ReviewRef {
 	reviewId: string;
 }
 
+/** The comment a chat job answered. Chat has no review document, so usage is keyed on this. */
+export interface ChatRef {
+	projectId: string;
+	repositoryId: string;
+	pullNumber: number;
+	commentId: number;
+}
+
 export interface ResultsSink {
 	/**
 	 * The review started working on `headSha` (which may be newer than the queued one). False when
@@ -67,4 +75,6 @@ export interface ResultsSink {
 	skipReview(review: ReviewRef, reason: string): Promise<void>;
 	/** `reason` is shown to the project's users; keep internals out of it. */
 	failReview(review: ReviewRef, reason: string): Promise<void>;
+	/** Model usage of a chat job. Takes stored entries out of `usage` as it goes. */
+	recordChatUsage(chat: ChatRef, usage: ModelUsage[]): Promise<void>;
 }
