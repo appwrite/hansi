@@ -174,4 +174,28 @@ describe.skipIf(!url)('RedisJobSource', () => {
 		await lease.ack();
 		expect(await list('processing')).toEqual([]);
 	});
+
+	test('parks a claim on the dead list once its workers died with it on every attempt', async () => {
+		const pid = 'deadly';
+		const raw = JSON.stringify({
+			pid,
+			queue,
+			timestamp: 1,
+			payload: review,
+			attempts: REDIS_MAX_ATTEMPTS - 1
+		});
+		await redis.set(key('jobs', pid), raw);
+		await redis.set(key('owners', pid), 'dead-worker');
+		await redis.send('LPUSH', [key('processing'), pid]);
+		const controller = new AbortController();
+
+		const next = source().next(controller.signal);
+		await Bun.sleep(200);
+		controller.abort();
+
+		expect(await next).toBeNull();
+		expect(await list('dead')).toEqual([pid]);
+		expect(await list('queue')).toEqual([]);
+		expect(await list('processing')).toEqual([]);
+	});
 });

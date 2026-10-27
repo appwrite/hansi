@@ -276,9 +276,10 @@ export class RedisJobSource implements JobSource {
 		}
 
 		// A review outlasts the claim, so it is kept alive until it is settled.
+		let beat: Promise<unknown> = Promise.resolve();
 		const heartbeat = setInterval(
 			() => {
-				this.script(
+				beat = this.script(
 					this.commands,
 					'extend',
 					[this.key('claims', envelope.pid), this.key('owners', envelope.pid)],
@@ -287,6 +288,12 @@ export class RedisJobSource implements JobSource {
 			},
 			(CLAIM_TTL / 3) * 1_000
 		);
+		// Stopped before the claim changes hands: a beat landing after a requeue ends the claim
+		// would bring it back, and the requeue would then find it alive and leave it stranded.
+		const stop = async () => {
+			clearInterval(heartbeat);
+			await beat;
+		};
 		let settled = false;
 		const settle = async (settlement: () => Promise<void>) => {
 			if (settled) return;
@@ -294,7 +301,7 @@ export class RedisJobSource implements JobSource {
 			try {
 				await settlement();
 			} finally {
-				clearInterval(heartbeat);
+				await stop();
 			}
 		};
 
@@ -311,6 +318,7 @@ export class RedisJobSource implements JobSource {
 					// the service stops. Out of attempts but still owed one, it starts over.
 					const delay = this.options.retryDelayMs ?? ((n) => RETRY_DELAY_MS[n] ?? 300_000);
 					await sleep(delay(attempts), this.stopping());
+					await stop();
 					await this.requeue(claimed, attempts + 1 < REDIS_MAX_ATTEMPTS ? attempts + 1 : 0);
 				})
 		};
@@ -381,6 +389,9 @@ export class RedisJobSource implements JobSource {
 			if (job.timestamp > cutoff || (await this.commands.exists(this.key('claims', pid)))) {
 				continue;
 			}
+			// A job whose workers keep dying with it goes to the dead list once out of attempts,
+			// as Broker\Redis parks it with `reapMaxAttempts`; `queue-retry` cannot revive it.
+			const dead = job.attempts + 1 >= REDIS_MAX_ATTEMPTS;
 			await this.script(
 				this.commands,
 				'reclaim',
@@ -390,9 +401,9 @@ export class RedisJobSource implements JobSource {
 					this.key('jobs', pid),
 					processing,
 					this.key('stats', 'processing'),
-					this.key('queue')
+					this.key(dead ? 'dead' : 'queue')
 				],
-				[owner ?? '', pid, this.retryPayload(job, job.attempts + 1), 0]
+				[owner ?? '', pid, dead ? '' : this.retryPayload(job, job.attempts + 1), 0]
 			);
 		}
 	}
