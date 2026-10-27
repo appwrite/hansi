@@ -121,16 +121,19 @@ describe('AppwriteResultsSink', () => {
 							{ message: 'Too many.', code: 429, type: 'general_rate_limit_exceeded' },
 							{
 								status: 429,
-								headers: { 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000)) }
+								// Two seconds out: one to a second boundary, and a whole one.
+								headers: { 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 2) }
 							}
 						)
 					: new Response(null, { status: 204 })
 			)
 		);
 
+		const started = Date.now();
 		await sink.failReview(review, 'Broke.');
 
 		expect(requests).toHaveLength(2);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(900);
 	});
 
 	test('sends chat usage keyed on the repository and the comment', async () => {

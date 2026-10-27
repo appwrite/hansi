@@ -250,6 +250,8 @@ export interface ChatPromptInput {
 	pullRequest: { title: string; body: string; author: string };
 	config: RepoConfig;
 	guidelines: { path: string; content: string }[];
+	/** Instructions from `pathInstructions` whose glob matches a changed file. */
+	pathInstructions: string[];
 	diff: string;
 	notShown: { path: string; reason: string }[];
 	/** For a comment in a review thread: the code the thread is on. */
@@ -264,10 +266,7 @@ function commentBlock(tag: string, comment: { id: number; author: string; body: 
 }
 
 export function chatPrompt(input: ChatPromptInput): string {
-	const parts = [
-		pullRequestSection(input.pullRequest),
-		...rulesSections({ ...input, pathInstructions: [] })
-	];
+	const parts = [pullRequestSection(input.pullRequest), ...rulesSections(input)];
 	if (input.notShown.length) {
 		const list = input.notShown.map((f) => `- ${untrusted(f.path)} (${f.reason})`).join('\n');
 		parts.push(

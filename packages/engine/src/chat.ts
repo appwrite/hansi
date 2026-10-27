@@ -6,7 +6,7 @@ import type { FileDiff } from './diff';
 import { filterFiles } from './filters';
 import { chatInstructions, chatPrompt, type ChatPromptInput } from './prompts';
 import type { ModelUsage } from './results';
-import { fitDiff } from './review';
+import { fitDiff, matchingPathInstructions } from './review';
 import { createRepoTools, loadGuidelines, type Emit } from './tools';
 
 // One answer to one comment on a pull request: the model reads the conversation and the code
@@ -58,6 +58,7 @@ export async function runChat(input: ChatInput, options: ChatOptions): Promise<s
 			pullRequest: input.pullRequest,
 			config,
 			guidelines,
+			pathInstructions: matchingPathInstructions(config, included),
 			diff,
 			notShown,
 			thread: input.thread,
