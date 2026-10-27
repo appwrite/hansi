@@ -42,3 +42,9 @@ The service reads its configuration from the environment:
 | `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn`, `error`              |
 
 Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise, which reads `AI_GATEWAY_API_KEY`. This is a stopgap until Appwrite serves the keys and models.
+
+## Deployment
+
+The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite-labs/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version.
+
+The cluster deployment lives with the cluster's other services, not here. What it needs from this image: the environment above (credentials from a Secret), a writable `/tmp` for checkouts (the image runs with a read-only root filesystem), probes on `/healthz` and `/readyz` (port 8080), no Service, and a termination grace period long enough for running jobs to finish (a repository's setup command alone may take 15 minutes).
