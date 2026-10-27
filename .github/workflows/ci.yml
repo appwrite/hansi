@@ -42,6 +42,8 @@ jobs:
             -e HANSI_QUEUE_URL=nats://127.0.0.1:4222 -e HANSI_ORCHESTRATOR_ENDPOINT=http://127.0.0.1:9 \
             -e HANSI_SANDBOX_IMAGE=ci -e HANSI_REVIEW_MODEL=ci/model hansi:ci
           for i in $(seq 1 30); do curl -fsS localhost:8080/readyz && break; sleep 1; done
+          # The loop does not fail on its own: a pod that never becomes ready must.
+          curl -fsS localhost:8080/readyz
           curl -fsS localhost:8080/healthz
           docker exec hansi sh -c 'git --version && rg --version'
           docker stop -t 30 hansi
