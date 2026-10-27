@@ -106,6 +106,9 @@ export async function runReviewJob(
 		const files = parseGitDiff(
 			await git(
 				[
+					// Unquoted paths: parseGitDiff reads them as they are.
+					'-c',
+					'core.quotePath=false',
 					'diff',
 					'--no-color',
 					'--no-ext-diff',

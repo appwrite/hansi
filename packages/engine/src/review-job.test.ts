@@ -40,9 +40,11 @@ beforeAll(async () => {
 
 	lines[4] = 'const v5 = 500;';
 	await writeFile(join(work, 'app.ts'), lines.join('\n') + '\n');
+	await writeFile(join(work, 'größe.ts'), 'export const size = 1;\n');
 	// The pull request tries to turn its own review off; settings are read from the base.
 	await writeFile(join(work, '.hansi.json'), '{ "reviews": { "enabled": false } }');
-	await run(['commit', '--quiet', '-am', 'head']);
+	await run(['add', '-A']);
+	await run(['commit', '--quiet', '-m', 'head']);
 	headSha = (await run(['rev-parse', 'HEAD'])).trim();
 	await run(['push', '--quiet', remote, 'main']);
 
@@ -234,6 +236,29 @@ describe('runReviewJob', () => {
 		expect(recorded).toMatchObject({
 			events: expect.arrayContaining([expect.objectContaining({ type: 'review.done' })])
 		});
+	});
+
+	test('comments on files with non-ASCII names', async () => {
+		const { github, context } = setup();
+		const finding = {
+			...v5Finding,
+			path: 'größe.ts',
+			startLine: 1,
+			endLine: 1,
+			suggestion: undefined
+		};
+		const verifier = scriptedModel([
+			{
+				calls: [
+					{
+						tool: 'submit_verdicts',
+						input: { verdicts: [{ id: 'f1', keep: true, reason: 'Real.' }] }
+					}
+				]
+			}
+		]);
+		await runReviewJob(job(), context, { reviewer: review([finding]), verifier });
+		expect(github.reviews[0]!.review.comments.map((c) => c.path)).toEqual(['größe.ts']);
 	});
 
 	test('skips a pull request that moved on, without checking it out', async () => {
