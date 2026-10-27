@@ -13,13 +13,13 @@ describe('parseConfig', () => {
 
 	test('fills in what the file leaves out', () => {
 		const { config, errors } = parseConfig(
-			'{"reviews":{"drafts":true},"sandbox":{"network":"none"}}'
+			'{"reviews":{"drafts":true},"sandbox":{"setup":"npm ci"}}'
 		);
 
 		expect(errors).toEqual([]);
 		expect(config.reviews.drafts).toBe(true);
 		expect(config.reviews.auto).toBe(true);
-		expect(config.sandbox).toEqual({ setup: '', network: 'none' });
+		expect(config.sandbox).toEqual({ setup: 'npm ci' });
 	});
 
 	test('falls back to defaults on invalid JSON', () => {

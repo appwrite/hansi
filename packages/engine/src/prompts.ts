@@ -28,7 +28,7 @@ ${testsAndFiles}
 ${minorUnless}`
 };
 
-function craft(config: RepoConfig): string {
+function craft(config: RepoConfig, commands: boolean): string {
 	const strict = config.reviews.profile === 'strict';
 	return `${profileGuidance[config.reviews.profile]}
 
@@ -40,20 +40,24 @@ How to work:
 - Only report on lines with a new-file number in the diff. startLine and endLine must be in the same hunk.
 - Never report formatting, import order or anything a linter catches.${strict ? '' : ' Do not report naming or style.'}
 - When changed code breaks a concrete rule in the trusted sections (a required API, a forbidden call, a test setup, a security or data rule), report it and name the rule. Do not report a rule the change follows.
-- Use file_history when a change looks deliberate but wrong, and read_file with ref "base" to compare old and new behavior.
+- Use file_history when a change looks deliberate but wrong, and read_file with ref "base" to compare old and new behavior.${commands ? `\n${COMMANDS}` : ''}
 - Severity: critical = security hole, data loss or outage; major = wrong behavior in normal use; minor = a real bug in a less common case; info = worth knowing, no defect.
 
 How to write findings: one or two short sentences on what goes wrong and when, kind and direct, like a helpful colleague. Write in language: ${config.language}.`;
 }
 
-export function reviewerInstructions(config: RepoConfig): string {
+/** How to use run_command, for an agent that has it. */
+const COMMANDS =
+	'- When reading cannot settle whether a suspected bug is real, prove it with run_command: run the tests that cover the code, a type checker, or a few lines that call the changed function with the input you suspect. A failing run is strong evidence; a passing one weighs against the finding. Do not run the whole test suite to look for problems.';
+
+export function reviewerInstructions(config: RepoConfig, commands = false): string {
 	return `You are a senior engineer reviewing a teammate's pull request.
 
 Catch real mistakes before they are merged. Do not comment for the sake of it, but do not hold back a finding because you are unsure either: a second reviewer checks every finding against the code. Leave a finding out because it does not matter, not because you might be wrong. No findings is a fine result, after you have actually looked.
 
 ${UNTRUSTED}
 
-${craft(config)}
+${craft(config, commands)}
 
 If <open_findings> is present, check each against the current code and list the ids of the fixed ones in resolved. Leave out any you are unsure of.
 
@@ -78,14 +82,14 @@ const verifierBar: Record<Profile, string> = {
 		'Keep a finding when the problem is real: a reachable bug, or a gap a demanding senior reviewer would block on, including maintainability. Drop it when it is wrong, handled elsewhere, or taste.'
 };
 
-export function verifierInstructions(profile: Profile): string {
+export function verifierInstructions(profile: Profile, commands = false): string {
 	return `You are checking findings from an automated code review before they are posted. A wrong or nitpicky comment teaches people to ignore the reviewer; dropping a real bug lets it ship. Both are failures, so decide on evidence from the code, not on how likely a problem sounds.
 
 ${UNTRUSTED}
 
 Each finding shows the current code around it and, where its lines changed, a <diff> of the change (lines marked - are the old code).
 
-For each finding, read the actual code with the tools and decide:
+For each finding, read the actual code with the tools${commands ? ', run it with run_command when reading cannot settle it,' : ''} and decide:
 - keep: ${verifierBar[profile]}
 - keep: the change breaks a concrete rule in the trusted sections and you can see it in the code.
 - drop: it is not real, handled elsewhere, needs an input or timing you cannot find, is a nit, or the trusted sections say not to report it.

@@ -1,5 +1,6 @@
 import type { LanguageModel } from 'ai';
 import { checkout } from './checkout';
+import { SandboxSession } from './commands';
 import { CONFIG_FILES, parseConfig, type RepoConfig } from './config';
 import type { EngineContext } from './context';
 import { parseGitDiff } from './diff';
@@ -91,7 +92,10 @@ export async function runReviewJob(
 	);
 	const events: TraceEvent[] = [];
 	const usage: ModelUsage[] = [];
+	const emit = (type: string, data: Record<string, unknown> = {}) =>
+		events.push({ type, at: new Date(), data });
 	let checkRun: number | null = null;
+	let sandbox: SandboxSession | null = null;
 	try {
 		// Settings come from the base, so the pull request cannot change how it is reviewed.
 		const { config, errors } = await readConfig(tree.dir, pr.base.sha, remote.token);
@@ -120,6 +124,11 @@ export async function runReviewJob(
 				{ cwd: tree.dir, token: remote.token, signal: options.signal }
 			)
 		);
+		// Started on the agent's first command, from the head the review comments on.
+		sandbox = new SandboxSession(
+			async () => context.sandboxes.create({ archiveUrl: await github.getArchiveUrl(pr.head.sha) }),
+			{ setup: config.sandbox.setup, emit }
+		);
 		const result = await runReview(
 			{
 				repoDir: tree.dir,
@@ -136,8 +145,9 @@ export async function runReviewJob(
 			{
 				reviewer: options.reviewer,
 				verifier: options.verifier,
+				sandbox,
 				signal: options.signal,
-				emit: (type, data = {}) => events.push({ type, at: new Date(), data }),
+				emit,
 				usage: (entry) => usage.push(entry)
 			}
 		);
@@ -192,6 +202,7 @@ export async function runReviewJob(
 		]);
 		throw error;
 	} finally {
+		await sandbox?.close().catch(() => {});
 		await tree.remove();
 	}
 }

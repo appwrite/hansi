@@ -8,7 +8,7 @@ import { git } from './git';
 import type { PullRequest, PullRequestFile } from './github';
 import type { ReviewJob } from './jobs';
 import { runReviewJob, skipReason } from './review-job';
-import { MemoryGitHub, MemoryResultsSink, scriptedModel } from './testing';
+import { MemoryGitHub, MemoryResultsSink, MemorySandboxes, scriptedModel } from './testing';
 import type { SandboxClient } from './sandbox';
 
 let root: string;
@@ -127,6 +127,36 @@ const v5Finding = {
 };
 
 describe('runReviewJob', () => {
+	test("runs the reviewer's commands in a sandbox of the head, and tears it down", async () => {
+		const { github, results, context } = setup();
+		const sandboxes = new MemorySandboxes((command) => ({
+			exitCode: 1,
+			stdout: `${command}: 1 failing`,
+			stderr: '',
+			timedOut: false,
+			truncated: false
+		}));
+		const reviewer = scriptedModel([
+			{ calls: [{ tool: 'run_command', input: { command: 'npm test' } }] },
+			{
+				calls: [
+					{ tool: 'submit_review', input: { summary: 'Tests fail.', findings: [], tier: 'C' } }
+				]
+			}
+		]);
+
+		await runReviewJob(job(), { ...context, sandboxes }, { reviewer });
+
+		expect(sandboxes.created).toEqual([{ archiveUrl: `memory://archive/${headSha}` }]);
+		expect(sandboxes.commands).toEqual(['npm test']);
+		expect(sandboxes.closed).toBe(1);
+		const sent = JSON.stringify(reviewer.doGenerateCalls[1]?.prompt);
+		expect(sent).toContain('npm test: 1 failing');
+		const events = results.calls.find((call) => call.method === 'recordEvents');
+		expect(JSON.stringify(events)).toContain('tool.run_command');
+		expect(github.reviews).toHaveLength(1);
+	});
+
 	test('reviews the pull request and posts the review', async () => {
 		const { github, results, context } = setup();
 		// The diff comes from the checkout: a stale file list from GitHub does not matter.

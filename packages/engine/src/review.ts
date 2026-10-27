@@ -35,6 +35,7 @@ import {
 } from './prompts';
 import type { ModelUsage } from './results';
 import { finalTier, standing } from './tier';
+import { createCommandTools, type SandboxSession } from './commands';
 import { createRepoTools, loadGuidelines, resolveRepoPath, type Emit } from './tools';
 import { decideVerdict } from './verdict';
 
@@ -75,6 +76,8 @@ export interface ReviewOptions {
 	reviewer: LanguageModel;
 	/** Defaults to the reviewer. */
 	verifier?: LanguageModel;
+	/** Commands in a sandbox, for both agents. Without it they only read. */
+	sandbox?: SandboxSession;
 	emit?: Emit;
 	usage?: (usage: ModelUsage) => void;
 	signal?: AbortSignal;
@@ -160,13 +163,16 @@ export async function runReview(input: ReviewInput, options: ReviewOptions): Pro
 		})
 		.map((rule) => `${rule.path}: ${rule.instructions}`);
 	const guidelines = await loadGuidelines(repoDir, input.baseSha, input.token);
-	const tools = createRepoTools(repoDir, { emit, baseSha: input.baseSha, token: input.token });
+	const tools = {
+		...createRepoTools(repoDir, { emit, baseSha: input.baseSha, token: input.token }),
+		...(options.sandbox ? createCommandTools(options.sandbox) : {})
+	};
 	emit('review.start', { files: included.length, notShown: notShown.length, partial });
 
 	const submission = await runToSubmission({
 		role: 'review',
 		model: options.reviewer,
-		instructions: reviewerInstructions(config),
+		instructions: reviewerInstructions(config, !!options.sandbox),
 		prompt: reviewPrompt({
 			pullRequest: input.pullRequest,
 			config,
@@ -309,9 +315,12 @@ async function verify(
 	const submission = await runToSubmission({
 		role: 'verify',
 		model: options.verifier ?? options.reviewer,
-		instructions: verifierInstructions(input.config.reviews.profile),
+		instructions: verifierInstructions(input.config.reviews.profile, !!options.sandbox),
 		prompt,
-		tools: createRepoTools(input.repoDir, { emit, baseSha: input.baseSha, token: input.token }),
+		tools: {
+			...createRepoTools(input.repoDir, { emit, baseSha: input.baseSha, token: input.token }),
+			...(options.sandbox ? createCommandTools(options.sandbox) : {})
+		},
 		submit: {
 			name: 'submit_verdicts',
 			description: 'Submit a verdict for every finding. Call it exactly once, at the end.',

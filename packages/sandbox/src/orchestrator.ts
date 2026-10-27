@@ -64,7 +64,8 @@ export class OrchestratorSandboxClient implements SandboxClient {
 			idleTimeoutSeconds: spec.idleTimeoutSeconds ?? 3600,
 			artifacts: [
 				{ id: 'archive', type: 'download', in: spec.archiveUrl, out: ARCHIVE },
-				{ id: 'unpack', type: 'unarchive', in: ARCHIVE, out: '.', depends: 'archive' }
+				// GitHub wraps the tree in an <owner>-<repo>-<sha> directory.
+				{ id: 'unpack', type: 'unarchive', in: ARCHIVE, out: '.', strip: true, depends: 'archive' }
 			]
 		});
 		const status = (await response.json()) as SandboxStatus;

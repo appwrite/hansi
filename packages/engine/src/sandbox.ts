@@ -21,7 +21,7 @@ export interface Sandbox {
 }
 
 export interface SandboxSpec {
-	/** Tarball of the pull request head, unpacked as the working directory before it starts. */
+	/** GitHub tarball of the pull request head, unpacked without its wrapper directory as the working directory. */
 	archiveUrl: string;
 	/** Environment for commands. Never credentials: the code under review can read it. */
 	environment?: Record<string, string>;
