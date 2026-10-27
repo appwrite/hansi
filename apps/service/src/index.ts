@@ -1,7 +1,6 @@
 import {
 	AppwriteInstallationTokens,
 	AppwriteResultsSink,
-	openJobSource,
 	type AppwriteConfig
 } from '@hansi/appwrite';
 import { InstallationGitHubClientFactory } from '@hansi/github';
@@ -9,8 +8,8 @@ import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
 import { createHandlers } from './handlers';
 import { createLogger } from './logger';
-import { startHealthServer } from './server';
-import { runWorker } from './worker';
+import { startHealthServer, startJobsServer } from './server';
+import { Worker } from './worker';
 
 const env = parseEnv(process.env);
 const logger = createLogger(env.HANSI_LOG_LEVEL, { service: 'hansi' });
@@ -19,12 +18,6 @@ const appwrite: AppwriteConfig = {
 	endpoint: env.HANSI_APPWRITE_ENDPOINT,
 	secret: env.HANSI_APPWRITE_SECRET
 };
-const source = openJobSource(
-	{ url: env.HANSI_QUEUE_URL, name: env.HANSI_QUEUE_NAME },
-	{
-		onDiscard: (reason, details) => logger.error('queue message discarded', { reason, ...details })
-	}
-);
 const sink = new AppwriteResultsSink(appwrite);
 const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite));
 // Self-hosted Appwrite has no orchestrator: reviews there read the code without running it.
@@ -41,39 +34,65 @@ const handlers = createHandlers(
 	{ reviewer: env.HANSI_REVIEW_MODEL, verifier: env.HANSI_VERIFY_MODEL }
 );
 
-const controller = new AbortController();
+const worker = new Worker({
+	sink,
+	handlers,
+	logger,
+	concurrency: env.HANSI_CONCURRENCY
+});
+
+const jobs = startJobsServer({ port: env.HANSI_JOBS_PORT, worker });
+let draining = false;
+const server = startHealthServer({ port: env.HANSI_PORT, ready: () => !draining });
+
+// The consumer is a child of this process, so the container runs, stops and fails as one.
+// It owns the queue; this process owns the jobs. Started once the jobs port listens.
+const consumer = env.HANSI_CONSUMER_COMMAND
+	? Bun.spawn(env.HANSI_CONSUMER_COMMAND.split(' ').filter(Boolean), {
+			stdio: ['ignore', 'inherit', 'inherit']
+		})
+	: null;
+logger.info('service started', {
+	port: server.port,
+	jobsPort: jobs.port,
+	concurrency: env.HANSI_CONCURRENCY,
+	consumer: consumer !== null
+});
+
+const stopping = Promise.withResolvers<void>();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 	process.on(signal, () => {
-		if (controller.signal.aborted) {
+		if (draining) {
 			logger.warn('second signal, exiting without waiting for running jobs', { signal });
+			consumer?.kill('SIGKILL');
 			process.exit(1);
 		}
 		logger.info('shutting down after running jobs finish (signal again to force)', { signal });
-		controller.abort();
+		draining = true;
+		// The consumer stops receiving, waits for the jobs it handed over and settles them.
+		consumer?.kill('SIGTERM');
+		stopping.resolve();
 	});
 }
 
-const server = startHealthServer({
-	port: env.HANSI_PORT,
-	draining: () => controller.signal.aborted
-});
-logger.info('service started', { port: server.port, concurrency: env.HANSI_CONCURRENCY });
-
-try {
-	await runWorker({
-		source,
-		sink,
-		handlers,
-		logger,
-		concurrency: env.HANSI_CONCURRENCY,
-		signal: controller.signal
-	});
-} catch (error) {
-	logger.error('worker stopped', { err: error });
-	process.exitCode = 1;
+if (consumer) {
+	const code = await consumer.exited;
+	if (!draining) {
+		// Its deliveries go back to the queue, so the jobs it handed over stop here too.
+		logger.error('queue consumer exited', { code });
+		draining = true;
+		worker.abort();
+		process.exitCode = 1;
+	} else if (code !== 0) {
+		logger.error('queue consumer exited', { code });
+		process.exitCode = 1;
+	}
+} else {
+	await stopping.promise;
 }
 
-await source.close();
+await worker.drained();
+await jobs.stop();
 await server.stop();
 logger.info('service stopped');
 process.exit();

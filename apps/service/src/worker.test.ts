@@ -1,15 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import {
-	NotImplementedError,
-	type ChatJob,
-	type Job,
-	type JobSource,
-	type ReviewJob
-} from '@hansi/engine';
-import { MemoryJobSource, MemoryResultsSink } from '@hansi/engine/testing';
+import { NotImplementedError, type ChatJob, type Job, type ReviewJob } from '@hansi/engine';
+import { MemoryResultsSink } from '@hansi/engine/testing';
 import type { Handlers } from './handlers';
 import { createLogger } from './logger';
-import { FAILURE_REASON, runWorker } from './worker';
+import { FAILURE_REASON, Worker, type Delivery } from './worker';
 
 const repository = {
 	projectId: 'project1',
@@ -46,84 +40,50 @@ const chat: ChatJob = {
 
 const silent = createLogger('error', {}, () => {});
 
-/** Runs the worker until `settled` jobs are settled, then shuts it down. */
-async function run(
-	source: JobSource & { settled: unknown[] },
-	handlers: Handlers,
-	settled: number
-) {
-	const sink = new MemoryResultsSink();
-	const controller = new AbortController();
-	const done = runWorker({
-		source,
-		sink,
-		handlers,
-		logger: silent,
-		concurrency: 2,
-		signal: controller.signal
-	});
-	while (source.settled.length < settled) await Bun.sleep(1);
-	controller.abort();
-	await done;
-	return sink;
+const first = (job: unknown): Delivery => ({ payload: job, attempts: 0, maxAttempts: 3 });
+const last = (job: unknown): Delivery => ({ payload: job, attempts: 2, maxAttempts: 3 });
+
+const failing = (error: unknown): Handlers => ({
+	review: () => Promise.reject(error),
+	chat: () => Promise.reject(error)
+});
+
+function worker(handlers: Handlers, sink = new MemoryResultsSink(), concurrency = 2) {
+	return { worker: new Worker({ sink, handlers, logger: silent, concurrency }), sink };
 }
 
-describe('runWorker', () => {
-	test('dispatches each job to its handler and acks it', async () => {
-		const source = new MemoryJobSource();
+describe('Worker', () => {
+	test('dispatches each job to its handler', async () => {
 		const seen: Job[] = [];
-		source.push(review, chat);
+		const { worker: w } = worker({
+			review: async (job) => void seen.push(job),
+			chat: async (job) => void seen.push(job)
+		});
 
-		await run(
-			source,
-			{ review: async (job) => void seen.push(job), chat: async (job) => void seen.push(job) },
-			2
-		);
+		expect(await w.run(first(review))).toEqual({ outcome: 'done' });
+		expect(await w.run(first(chat))).toEqual({ outcome: 'done' });
+		expect(seen).toEqual([review, chat]);
+	});
 
-		expect(seen).toContainAllValues([review, chat]);
-		expect(source.settled.map((s) => s.result)).toEqual(['ack', 'ack']);
+	test('refuses a payload no delivery can run', async () => {
+		const { worker: w } = worker({ review: async () => {}, chat: async () => {} });
+
+		const outcome = await w.run(first({ type: 'review', reviewId: 'review1' }));
+
+		expect(outcome?.outcome).toBe('invalid');
 	});
 
 	test('retries a failed job while it has attempts left', async () => {
-		const source = new MemoryJobSource();
-		source.push(review);
+		const { worker: w, sink } = worker(failing(new Error('rate limited')));
 
-		const sink = await run(
-			source,
-			{
-				review: async () => {
-					throw new Error('rate limited');
-				},
-				chat: async () => {}
-			},
-			1
-		);
-
-		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: true }]);
+		expect(await w.run(first(review))).toEqual({ outcome: 'failed', retry: true });
 		expect(sink.calls).toEqual([]);
 	});
 
 	test('marks a review failed on its last attempt', async () => {
-		const source: MemoryJobSource = new MemoryJobSource();
-		const next = source.next.bind(source);
-		source.next = async (signal) => {
-			const lease = await next(signal);
-			return lease && { ...lease, attempts: lease.maxAttempts - 1 };
-		};
-		source.push(review);
+		const { worker: w, sink } = worker(failing(new Error('boom')));
 
-		const sink = await run(
-			source,
-			{
-				review: async () => {
-					throw new Error('boom');
-				},
-				chat: async () => {}
-			},
-			1
-		);
-
-		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: false }]);
+		expect(await w.run(last(review))).toEqual({ outcome: 'failed', retry: false });
 		expect(sink.calls).toEqual([
 			{
 				method: 'failReview',
@@ -134,117 +94,63 @@ describe('runWorker', () => {
 	});
 
 	test('treats a rejection without a reason as a failure', async () => {
-		const source = new MemoryJobSource();
-		source.push(review);
+		const { worker: w } = worker(failing(undefined));
 
-		await run(
-			source,
-			{
-				review: () => Promise.reject(undefined),
-				chat: async () => {}
-			},
-			1
-		);
-
-		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: true }]);
+		expect(await w.run(first(review))).toEqual({ outcome: 'failed', retry: true });
 	});
 
 	test('does not retry what is not implemented', async () => {
-		const source = new MemoryJobSource();
-		source.push(review);
+		const { worker: w, sink } = worker(failing(new NotImplementedError('review engine')));
 
-		const sink = await run(
-			source,
-			{
-				review: async () => {
-					throw new NotImplementedError('review engine');
-				},
-				chat: async () => {}
-			},
-			1
-		);
-
-		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: false }]);
+		expect(await w.run(first(review))).toEqual({ outcome: 'failed', retry: false });
 		expect(sink.calls.map((c) => c.method)).toEqual(['failReview']);
 	});
 
-	test('does not fail a review whose ack failed', async () => {
-		const source: MemoryJobSource = new MemoryJobSource();
-		const next = source.next.bind(source);
-		source.next = async (signal) => {
-			const lease = await next(signal);
-			return (
-				lease && {
-					...lease,
-					attempts: lease.maxAttempts - 1,
-					ack: async () => {
-						await lease.ack();
-						throw new Error('queue unavailable');
-					}
-				}
-			);
-		};
-		source.push(review);
-
-		const sink = await run(source, { review: async () => {}, chat: async () => {} }, 1);
-
-		expect(source.settled).toEqual([{ job: review, result: 'ack' }]);
-		expect(sink.calls).toEqual([]);
-	});
-
-	test('retries a review whose failure could not be recorded', async () => {
-		const source = new MemoryJobSource();
+	test('retries a review whose failure could not be recorded, past its attempts', async () => {
 		const sink = new MemoryResultsSink();
 		sink.failReview = async () => {
 			throw new Error('appwrite unavailable');
 		};
-		const controller = new AbortController();
-		source.push(review);
+		const { worker: w } = worker(failing(new Error('boom')), sink);
 
-		const done = runWorker({
-			source,
-			sink,
-			handlers: {
-				review: async () => {
-					throw new NotImplementedError('review engine');
-				},
-				chat: async () => {}
-			},
-			logger: silent,
-			concurrency: 1,
-			signal: controller.signal
-		});
-		while (source.settled.length < 1) await Bun.sleep(1);
-		controller.abort();
-		await done;
-
-		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: true }]);
+		expect(await w.run(last(review))).toEqual({ outcome: 'failed', retry: true });
 	});
 
-	test('finishes a running job before stopping', async () => {
-		const source = new MemoryJobSource();
-		const controller = new AbortController();
-		let finished = false;
-		source.push(review);
+	test('takes no more jobs than it has slots, and drains', async () => {
+		const release = Promise.withResolvers<void>();
+		const { worker: w } = worker(
+			{ review: () => release.promise, chat: async () => {} },
+			undefined,
+			1
+		);
 
-		const done = runWorker({
-			source,
-			sink: new MemoryResultsSink(),
-			handlers: {
-				review: async () => {
-					controller.abort();
-					await Bun.sleep(20);
-					finished = true;
-				},
-				chat: async () => {}
-			},
-			logger: silent,
-			concurrency: 1,
-			signal: controller.signal
+		const running = w.run(first(review));
+		expect(w.available).toBe(false);
+		expect(await w.run(first(chat))).toBeNull();
+
+		let drained = false;
+		const draining = w.drained().then(() => (drained = true));
+		await Bun.sleep(1);
+		expect(drained).toBe(false);
+
+		release.resolve();
+		expect(await running).toEqual({ outcome: 'done' });
+		await draining;
+		expect(w.available).toBe(true);
+	});
+
+	test('tells running jobs to stop on abort', async () => {
+		const { worker: w } = worker({
+			review: (_job, signal) =>
+				new Promise((_resolve, reject) =>
+					signal.addEventListener('abort', () => reject(new Error('aborted')))
+				),
+			chat: async () => {}
 		});
-		await done;
 
-		expect(finished).toBe(true);
-		expect(source.settled.map((s) => s.result)).toEqual(['ack']);
+		const running = w.run(first(review));
+		w.abort();
+
+		expect(await running).toEqual({ outcome: 'failed', retry: true });
 	});
 });

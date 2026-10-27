@@ -1,1 +1,3 @@
 bun.lock
+apps/consumer/composer.json
+apps/consumer/composer.lock

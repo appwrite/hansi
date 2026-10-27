@@ -4,7 +4,6 @@ import { parseEnv } from './env';
 const required = {
 	HANSI_APPWRITE_ENDPOINT: 'http://appwrite/v1',
 	HANSI_APPWRITE_SECRET: 'secret',
-	HANSI_QUEUE_URL: 'nats://hansi:secret@nats:4222',
 	HANSI_ORCHESTRATOR_ENDPOINT: 'http://orchestrator:8080',
 	HANSI_SANDBOX_IMAGE: 'appwrite/hansi-toolchain:1',
 	HANSI_REVIEW_MODEL: 'provider/model'
@@ -16,17 +15,8 @@ describe('parseEnv', () => {
 
 		expect(env.HANSI_PORT).toBe(8080);
 		expect(env.HANSI_CONCURRENCY).toBe(4);
-		expect(env.HANSI_QUEUE_NAME).toBe('v1-reviews');
-	});
-
-	test('takes a NATS or a Redis queue', () => {
-		expect(parseEnv({ ...required, HANSI_QUEUE_URL: 'redis://redis:6379' }).HANSI_QUEUE_URL).toBe(
-			'redis://redis:6379'
-		);
-		expect(() => parseEnv({ ...required, HANSI_QUEUE_URL: 'amqp://rabbit:5672' })).toThrow(
-			/HANSI_QUEUE_URL/
-		);
-		expect(() => parseEnv({ ...required, HANSI_QUEUE_URL: 'nats:///' })).toThrow(/HANSI_QUEUE_URL/);
+		expect(env.HANSI_JOBS_PORT).toBe(8081);
+		expect(env.HANSI_CONSUMER_COMMAND).toBeUndefined();
 	});
 
 	test('runs without sandboxes, but not sandboxes without an image', () => {
@@ -42,8 +32,6 @@ describe('parseEnv', () => {
 	});
 
 	test('names every missing variable', () => {
-		expect(() => parseEnv({})).toThrow(
-			/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_QUEUE_URL[\s\S]*HANSI_REVIEW_MODEL/
-		);
+		expect(() => parseEnv({})).toThrow(/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_REVIEW_MODEL/);
 	});
 });
