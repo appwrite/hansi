@@ -8,7 +8,7 @@ import {
 } from '@nats-io/jetstream';
 import { connect, headers, type NatsConnection } from '@nats-io/transport-node';
 import { xxhash128 } from 'hash-wasm';
-import { AppwriteJobSource } from './job-source';
+import { NatsJobSource } from './job-source';
 import { queueNames, SPARE_DELIVERY_METADATA, WORK_CONSUMER, WORK_SEQUENCE } from './queue';
 
 // Against a real NATS server with JetStream (`nats-server -js`), which CI starts. Each test
@@ -35,12 +35,12 @@ const review = {
 	trigger: { kind: 'synchronize' }
 };
 
-describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
+describe.skipIf(!url)('NatsJobSource on NATS', () => {
 	let nc: NatsConnection;
 	let jsm: JetStreamManager;
 	let queue: string;
 	let names: ReturnType<typeof queueNames>;
-	const sources: AppwriteJobSource[] = [];
+	const sources: NatsJobSource[] = [];
 	let count = 0;
 
 	beforeEach(async () => {
@@ -87,7 +87,7 @@ describe.skipIf(!url)('AppwriteJobSource on NATS', () => {
 	}
 
 	function source(onDiscard?: (reason: string) => void) {
-		const created = new AppwriteJobSource({ url: url!, name: queue }, { pollMs: 1_000, onDiscard });
+		const created = new NatsJobSource({ url: url!, name: queue }, { pollMs: 1_000, onDiscard });
 		sources.push(created);
 		return created;
 	}

@@ -1,7 +1,7 @@
 import {
 	AppwriteInstallationTokens,
-	AppwriteJobSource,
 	AppwriteResultsSink,
+	openJobSource,
 	type AppwriteConfig
 } from '@hansi/appwrite';
 import { InstallationGitHubClientFactory } from '@hansi/github';
@@ -19,7 +19,7 @@ const appwrite: AppwriteConfig = {
 	endpoint: env.HANSI_APPWRITE_ENDPOINT,
 	secret: env.HANSI_APPWRITE_SECRET
 };
-const source = new AppwriteJobSource(
+const source = openJobSource(
 	{ url: env.HANSI_QUEUE_URL, name: env.HANSI_QUEUE_NAME },
 	{
 		onDiscard: (reason, details) => logger.error('queue message discarded', { reason, ...details })
@@ -27,11 +27,15 @@ const source = new AppwriteJobSource(
 );
 const sink = new AppwriteResultsSink(appwrite);
 const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite));
-const sandboxes = new OrchestratorSandboxClient({
-	endpoint: env.HANSI_ORCHESTRATOR_ENDPOINT,
-	apiKey: env.HANSI_ORCHESTRATOR_KEY,
-	image: env.HANSI_SANDBOX_IMAGE
-});
+// Self-hosted Appwrite has no orchestrator: reviews there read the code without running it.
+const sandboxes =
+	env.HANSI_ORCHESTRATOR_ENDPOINT && env.HANSI_SANDBOX_IMAGE
+		? new OrchestratorSandboxClient({
+				endpoint: env.HANSI_ORCHESTRATOR_ENDPOINT,
+				apiKey: env.HANSI_ORCHESTRATOR_KEY,
+				image: env.HANSI_SANDBOX_IMAGE
+			})
+		: undefined;
 const handlers = createHandlers(
 	{ github, sandboxes, results: sink },
 	{ reviewer: env.HANSI_REVIEW_MODEL, verifier: env.HANSI_VERIFY_MODEL }

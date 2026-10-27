@@ -157,6 +157,23 @@ describe('runReviewJob', () => {
 		expect(github.reviews).toHaveLength(1);
 	});
 
+	test('reviews by reading alone without sandboxes, as on a self-hosted Appwrite', async () => {
+		const { github, context } = setup();
+		const reviewer = scriptedModel([
+			{
+				calls: [{ tool: 'submit_review', input: { summary: 'Fine.', findings: [], tier: 'S' } }]
+			}
+		]);
+
+		await runReviewJob(job(), { ...context, sandboxes: undefined }, { reviewer });
+
+		const tools = (reviewer.doGenerateCalls[0]?.tools ?? []).map((tool) => tool.name);
+		expect(tools).toContain('read_file');
+		expect(tools).not.toContain('run_command');
+		expect(JSON.stringify(reviewer.doGenerateCalls[0]?.prompt)).not.toContain('run_command');
+		expect(github.reviews).toHaveLength(1);
+	});
+
 	test('reviews the pull request and posts the review', async () => {
 		const { github, results, context } = setup();
 		// The diff comes from the checkout: a stale file list from GitHub does not matter.
