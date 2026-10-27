@@ -1,6 +1,17 @@
 // In-memory adapters for tests. Not for production: nothing here survives a restart.
 
 import { MockLanguageModelV4 } from 'ai/test';
+import type {
+	CheckRun,
+	FailedCheck,
+	GitHubClient,
+	GitHubClientFactory,
+	GitRemote,
+	PullRequest,
+	PullRequestFile,
+	ReviewComment,
+	SubmittedReview
+} from './github';
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
 import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from './results';
@@ -129,4 +140,92 @@ export function scriptedModel(turns: ScriptedTurn[]): MockLanguageModelV4 {
 			};
 		}
 	});
+}
+
+/** A GitHub repository in memory, with one pull request. Records what the engine posts. */
+export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
+	readonly reviews: { pullNumber: number; review: Parameters<GitHubClient['createReview']>[1] }[] =
+		[];
+	readonly checkRuns: CheckRun[] = [];
+	/** Set to make check runs fail, as for an installation without the permission. */
+	checksForbidden = false;
+
+	constructor(
+		public pullRequest: PullRequest,
+		public files: PullRequestFile[],
+		private readonly remote: GitRemote
+	) {}
+
+	async forRepository(): Promise<GitHubClient> {
+		return this;
+	}
+
+	async gitRemote(): Promise<GitRemote> {
+		return this.remote;
+	}
+
+	async getPullRequest(): Promise<PullRequest> {
+		return this.pullRequest;
+	}
+
+	async listPullRequestFiles(): Promise<PullRequestFile[]> {
+		return this.files;
+	}
+
+	async getArchiveUrl(ref: string): Promise<string> {
+		return `memory://archive/${ref}`;
+	}
+
+	async listFailedChecks(): Promise<FailedCheck[]> {
+		return [];
+	}
+
+	async listReviews(): Promise<SubmittedReview[]> {
+		return this.reviews.map(({ review }, i) => ({
+			id: i + 1,
+			body: review.body,
+			commitId: review.commitId,
+			url: `memory://review/${i + 1}`
+		}));
+	}
+
+	async listReviewComments(): Promise<ReviewComment[]> {
+		return [];
+	}
+
+	async createReview(
+		pullNumber: number,
+		review: Parameters<GitHubClient['createReview']>[1]
+	): Promise<{ id: number; url: string }> {
+		this.reviews.push({ pullNumber, review });
+		return { id: this.reviews.length, url: `memory://review/${this.reviews.length}` };
+	}
+
+	async replyToReviewComment(): Promise<{ id: number }> {
+		throw new Error('MemoryGitHub.replyToReviewComment is not implemented');
+	}
+
+	async resolveThread(): Promise<void> {
+		throw new Error('MemoryGitHub.resolveThread is not implemented');
+	}
+
+	async createIssueComment(): Promise<{ id: number; url: string }> {
+		throw new Error('MemoryGitHub.createIssueComment is not implemented');
+	}
+
+	async updateIssueComment(): Promise<void> {
+		throw new Error('MemoryGitHub.updateIssueComment is not implemented');
+	}
+
+	async addReaction(): Promise<void> {}
+
+	async createCheckRun(run: CheckRun): Promise<{ id: number }> {
+		if (this.checksForbidden) throw new Error('Resource not accessible by integration');
+		this.checkRuns.push({ ...run });
+		return { id: this.checkRuns.length - 1 };
+	}
+
+	async updateCheckRun(id: number, run: Partial<CheckRun>): Promise<void> {
+		Object.assign(this.checkRuns[id]!, run);
+	}
 }

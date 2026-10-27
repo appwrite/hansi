@@ -23,9 +23,9 @@ Run `bun run format`, `bun run lint`, `bun run check` and `bun run test` before 
 ## Layout
 
 - **apps/service** -- the process: env, logger, health server, worker loop, job handlers
-- **packages/engine** -- the engine and the contracts it works against (`JobSource`, `GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. Its only I/O is the checkout it is handed; everything else goes through the contracts
+- **packages/engine** -- the engine and the contracts it works against (`JobSource`, `GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. `runReviewJob` takes a review job from the pull request to the posted review. Its only I/O of its own is git, for the checkout; everything else goes through the contracts
 - **packages/appwrite** -- Appwrite adapters: job source (reviews queue), results sink and installation tokens (internal API), job payload parsing
-- **packages/github** -- GitHub client authenticated with installation tokens from Appwrite
+- **packages/github** -- GitHub client (REST, GraphQL for thread resolution) authenticated with installation tokens from Appwrite, renewed before they expire
 - **packages/sandbox** -- sandboxes on the open-runtimes orchestrator, for the agent's `run_command`
 
 The engine depends only on the contracts; adapters depend on the engine, never the other way round.

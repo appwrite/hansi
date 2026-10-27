@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { git, GitError } from './git';
+import { git, isMissingPath } from './git';
 
 // Read-only tools over the pull request checkout. Nothing here runs code from the repository:
 // commands go to the sandbox. Every file is written by the pull request author, so tool output
@@ -39,12 +39,6 @@ export function resolveRepoPath(repoDir: string, path: string): string {
 		throw new Error(`Path is outside the repository: ${path}`);
 	}
 	return absolute;
-}
-
-/** git's error for a path that is not in a commit. */
-function isMissingPath(error: unknown): boolean {
-	// "does not exist in", or "exists on disk, but not in" when the working tree has it.
-	return error instanceof GitError && /does not exist|but not in/.test(error.stderr);
 }
 
 function numbered(lines: string[], first: number): string {

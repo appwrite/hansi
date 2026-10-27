@@ -46,6 +46,13 @@ export interface InlineComment {
 
 export type ReviewEvent = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
+export interface SubmittedReview {
+	id: number;
+	body: string;
+	commitId: string;
+	url: string;
+}
+
 export interface CheckRun {
 	name: string;
 	headSha: string;
@@ -65,13 +72,22 @@ export interface FailedCheck {
 
 export type Reaction = 'eyes' | '+1' | 'confused' | 'rocket';
 
+/** Where to fetch the repository with git, and the token to send (absent for public test remotes). */
+export interface GitRemote {
+	url: string;
+	token?: string;
+}
+
 export interface GitHubClient {
+	/** A fresh remote for git. The token is short-lived: ask again for each checkout. */
+	gitRemote(): Promise<GitRemote>;
 	getPullRequest(pullNumber: number): Promise<PullRequest>;
 	listPullRequestFiles(pullNumber: number): Promise<PullRequestFile[]>;
 	/** A short-lived URL to a tarball of the repository at `ref`, for the checkout and sandbox. */
 	getArchiveUrl(ref: string): Promise<string>;
 	listFailedChecks(ref: string): Promise<FailedCheck[]>;
 
+	listReviews(pullNumber: number): Promise<SubmittedReview[]>;
 	listReviewComments(pullNumber: number): Promise<ReviewComment[]>;
 	createReview(
 		pullNumber: number,
