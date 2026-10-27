@@ -17,10 +17,14 @@ const logger = createLogger(env.HANSI_LOG_LEVEL, { service: 'hansi' });
 
 const appwrite: AppwriteConfig = {
 	endpoint: env.HANSI_APPWRITE_ENDPOINT,
-	secret: env.HANSI_APPWRITE_SECRET,
-	queue: env.HANSI_APPWRITE_QUEUE
+	secret: env.HANSI_APPWRITE_SECRET
 };
-const source = new AppwriteJobSource(appwrite);
+const source = new AppwriteJobSource(
+	{ url: env.HANSI_QUEUE_URL, name: env.HANSI_QUEUE_NAME },
+	{
+		onDiscard: (reason, details) => logger.error('queue message discarded', { reason, ...details })
+	}
+);
 const sink = new AppwriteResultsSink(appwrite);
 const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite));
 const sandboxes = new OrchestratorSandboxClient({
@@ -65,6 +69,7 @@ try {
 	process.exitCode = 1;
 }
 
+await source.close();
 await server.stop();
 logger.info('service stopped');
 process.exit();

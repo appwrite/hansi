@@ -4,8 +4,7 @@ export interface AppwriteConfig {
 	endpoint: string;
 	/** Shared secret for the internal API, the way the orchestrator uses `_APP_JOBS_SECRET`. */
 	secret: string;
-	/** Queue the Reviews module publishes to. */
-	queue: string;
 }
 
+/** The queue the Reviews module publishes to. */
 export const REVIEWS_QUEUE = 'v1-reviews';

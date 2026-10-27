@@ -8,6 +8,8 @@ export interface Lease {
 	job: Job;
 	/** How many times the job was delivered before, 0 on the first delivery. */
 	attempts: number;
+	/** Deliveries the queue allows. The last one is not retried. */
+	maxAttempts: number;
 	/** The job is done, whatever its outcome on GitHub. */
 	ack(): Promise<void>;
 	/** The job failed. With `retry`, it is delivered again later; without, it is dropped. */

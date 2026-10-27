@@ -54,6 +54,7 @@ export class MemoryJobSource implements JobSource {
 		return {
 			job,
 			attempts: 0,
+			maxAttempts: 3,
 			ack: async () => {
 				this.settled.push({ job, result: 'ack' });
 			},
