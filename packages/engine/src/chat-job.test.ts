@@ -241,6 +241,28 @@ describe('runChatJob', () => {
 		expect(github.issueComments.at(-1)!.body).toStartWith('@octocat Yes.');
 	});
 
+	test('does not answer before the usage is stored, so a retry can bill it', async () => {
+		const { github, context } = setup();
+		github.issueComments.push({
+			id: 1,
+			body: '@hansi why?',
+			author: 'maintainer',
+			bot: false,
+			url: 'memory://1'
+		});
+		const results = Object.assign(Object.create(context.results) as MemoryResultsSink, {
+			async recordChatUsage() {
+				throw new Error('Appwrite is down');
+			}
+		});
+
+		await expect(
+			runChatJob(job(), { ...context, results }, { model: answer('Because.') })
+		).rejects.toThrow('Appwrite is down');
+
+		expect(github.issueComments.filter((c) => c.bot)).toHaveLength(0);
+	});
+
 	test('ignores a comment deleted since it was queued', async () => {
 		const { github, context } = setup();
 

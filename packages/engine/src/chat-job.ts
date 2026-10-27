@@ -57,6 +57,12 @@ export async function runChatJob(
 		options.signal
 	);
 	const usage: ModelUsage[] = [];
+	const chat = {
+		projectId: job.repository.projectId,
+		repositoryId: job.repository.repositoryId,
+		pullNumber: pr.number,
+		commentId: comment.id
+	};
 	try {
 		// Settings come from the base, like a review's.
 		const { config } = await readRepoConfig(tree.dir, pr.base.sha, remote.token);
@@ -88,6 +94,9 @@ export async function runChatJob(
 			{ model: options.model, signal: options.signal, usage: (entry) => usage.push(entry) }
 		);
 
+		// Billed before the reply is posted: once it is, a retry stops at the marker and would
+		// never bill this run. A failed write fails the job, and the retry answers again.
+		await context.results.recordChatUsage(chat, usage);
 		// Looked up again: an overlapping delivery of this job may have answered meanwhile.
 		if (!(await findQuestion(github, job, pr, marker))) return;
 		if (asked.thread) {
@@ -95,18 +104,11 @@ export async function runChatJob(
 		} else {
 			await github.createIssueComment(pr.number, `@${asked.question.author} ${reply}\n\n${marker}`);
 		}
+	} catch (error) {
+		// A run that failed still used the model. The sink kept only what it did not store.
+		if (usage.length) await context.results.recordChatUsage(chat, usage).catch(() => {});
+		throw error;
 	} finally {
-		// Billed whether or not the reply was posted: the model ran either way. A failed write
-		// does not fail the job, whose retry would find the answer posted and stop.
-		if (usage.length) {
-			const chat = {
-				projectId: job.repository.projectId,
-				repositoryId: job.repository.repositoryId,
-				pullNumber: pr.number,
-				commentId: comment.id
-			};
-			await context.results.recordChatUsage(chat, usage).catch(() => {});
-		}
 		await tree.remove();
 	}
 }
