@@ -12,6 +12,7 @@ import { connect, headers, type NatsConnection } from '@nats-io/transport-node';
 import type { JobSource, Lease } from '@hansi/engine';
 import { xxhash128 } from 'hash-wasm';
 import { parseJob } from './payload';
+import { RedisJobSource } from './redis';
 import {
 	CONTENT_TYPE,
 	decodeEnvelope,
@@ -28,7 +29,10 @@ import {
 // work consumer Appwrite's publisher provisioned and never changes their configuration.
 
 export interface QueueConfig {
-	/** `nats://user:pass@host:4222`, as in `_APP_CONNECTIONS_QUEUE`. Query parameters are the publisher's. */
+	/**
+	 * As in `_APP_CONNECTIONS_QUEUE`: `nats://user:pass@host:4222` on Cloud, `redis://host:6379` on
+	 * a self-hosted Appwrite. Query parameters are the publisher's.
+	 */
 	url: string;
 	/** The queue's name, e.g. `v1-reviews`. */
 	name: string;
@@ -184,7 +188,7 @@ class Connection {
 	}
 }
 
-export class AppwriteJobSource implements JobSource {
+export class NatsJobSource implements JobSource {
 	private connection: Promise<Connection> | null = null;
 
 	constructor(
@@ -304,4 +308,15 @@ export class AppwriteJobSource implements JobSource {
 				})
 		};
 	}
+}
+
+/** The job source for the queue's broker, which its URL names. */
+export function openJobSource(
+	config: QueueConfig,
+	options: JobSourceOptions = {}
+): JobSource & { close(): Promise<void> } {
+	const { protocol } = new URL(config.url);
+	if (protocol === 'nats:') return new NatsJobSource(config, options);
+	if (protocol === 'redis:' || protocol === 'rediss:') return new RedisJobSource(config, options);
+	throw new Error(`Not a queue this service can read: ${protocol}//`);
 }

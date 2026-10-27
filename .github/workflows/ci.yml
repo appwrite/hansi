@@ -15,14 +15,16 @@ jobs:
           bun-version: 1.4.4
       # The engine's grep tool runs ripgrep.
       - run: sudo apt-get update && sudo apt-get install -y ripgrep
-      # The job source's tests run against a real NATS server with JetStream.
+      # The job sources' tests run against a real NATS server with JetStream, and a real Redis.
       - run: docker run -d --name nats -p 4222:4222 nats:2.11 -js
+      - run: docker run -d --name redis -p 6379:6379 redis:7.4-alpine
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run check
       - run: bun run test
         env:
           HANSI_TEST_NATS_URL: nats://127.0.0.1:4222
+          HANSI_TEST_REDIS_URL: redis://127.0.0.1:6379
 
   image:
     runs-on: ubuntu-latest

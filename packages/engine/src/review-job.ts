@@ -117,10 +117,13 @@ export async function runReviewJob(
 			{ token: remote.token, signal: options.signal }
 		);
 		// Started on the agent's first command, from the head the review comments on.
-		sandbox = new SandboxSession(
-			async () => context.sandboxes.create({ archiveUrl: await github.getArchiveUrl(pr.head.sha) }),
-			{ setup: config.sandbox.setup, emit }
-		);
+		const { sandboxes } = context;
+		if (sandboxes) {
+			sandbox = new SandboxSession(
+				async () => sandboxes.create({ archiveUrl: await github.getArchiveUrl(pr.head.sha) }),
+				{ setup: config.sandbox.setup, emit }
+			);
+		}
 		const result = await runReview(
 			{
 				repoDir: tree.dir,
@@ -137,7 +140,7 @@ export async function runReviewJob(
 			{
 				reviewer: options.reviewer,
 				verifier: options.verifier,
-				sandbox,
+				sandbox: sandbox ?? undefined,
 				signal: options.signal,
 				emit,
 				usage: (entry) => usage.push(entry)

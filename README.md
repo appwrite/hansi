@@ -1,6 +1,6 @@
 # Hansi
 
-AI code review for Appwrite Cloud.
+AI code review for Appwrite, on Cloud and self-hosted.
 
 Appwrite receives GitHub webhooks for repositories that have code review turned on and queues a job. This service picks the job up, checks out the pull request, reviews it with an agent that reads the code and can run commands in an isolated sandbox, then posts the review to GitHub and the results to Appwrite.
 
@@ -13,7 +13,7 @@ GitHub ─► Appwrite (webhooks, Reviews module) ─► queue ─► hansi serv
 
 ## Status
 
-Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue on NATS JetStream, read the way Appwrite's own workers read a queue. Results and repository-scoped installation tokens go through Appwrite's internal Reviews API (the Reviews module in appwrite/appwrite), and calls that hit Appwrite's abuse limit are sent again once it resets.
+Work in progress. The service runs the worker loop and serves health checks. A review job fetches the pull request, checks it out, runs the review and verify pass (both agents can run commands in an orchestrator sandbox of the head, started on first use), and posts the review with inline comments and a check run. Jobs come from Appwrite's reviews queue, read the way Appwrite's own workers read a queue: on NATS JetStream on Cloud, on Redis on a self-hosted Appwrite. Results and repository-scoped installation tokens go through Appwrite's internal Reviews API (the Reviews module in appwrite/appwrite), and calls that hit Appwrite's abuse limit are sent again once it resets.
 
 A chat job answers one comment on a pull request: a mention on the conversation or in a review thread, or a reply without a mention in a thread on one of Hansi's own findings. It answers people with write access and the pull request's author, never another app, reads the code with the same read-only tools as a review (no sandbox), and replies once: the reply carries a marker that a redelivery finds. Chat follows the base branch's `reviews.enabled`. Its model usage goes to Appwrite keyed on the repository and the comment, since a chat has no review, and is stored before the reply is posted so a retry still bills it.
 
@@ -26,25 +26,29 @@ bun run test
 
 The service reads its configuration from the environment:
 
-| Variable                      | Default      |                                               |
-| ----------------------------- | ------------ | --------------------------------------------- |
-| `HANSI_APPWRITE_ENDPOINT`     |              | Appwrite internal API                         |
-| `HANSI_APPWRITE_SECRET`       |              | `_APP_REVIEWS_SECRET` for that API            |
-| `HANSI_QUEUE_URL`             |              | Appwrite's NATS, `nats://user:pass@host:4222` |
-| `HANSI_QUEUE_NAME`            | `v1-reviews` | Queue the Reviews module publishes to         |
-| `HANSI_ORCHESTRATOR_ENDPOINT` |              | open-runtimes orchestrator API                |
-| `HANSI_ORCHESTRATOR_KEY`      |              | Orchestrator API key, when it has one         |
-| `HANSI_SANDBOX_IMAGE`         |              | Toolchain image for sandboxes                 |
-| `HANSI_REVIEW_MODEL`          |              | AI SDK model id for the reviewer              |
-| `HANSI_VERIFY_MODEL`          | review model | AI SDK model id for the verifier              |
-| `HANSI_CONCURRENCY`           | `4`          | Jobs one process runs at once                 |
-| `HANSI_PORT`                  | `8080`       | `/healthz` and `/readyz`                      |
-| `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn`, `error`              |
+| Variable                      | Default      |                                              |
+| ----------------------------- | ------------ | -------------------------------------------- |
+| `HANSI_APPWRITE_ENDPOINT`     |              | Appwrite internal API                        |
+| `HANSI_APPWRITE_SECRET`       |              | `_APP_REVIEWS_SECRET` for that API           |
+| `HANSI_QUEUE_URL`             |              | Appwrite's queue, `nats://` or `redis://`    |
+| `HANSI_QUEUE_NAME`            | `v1-reviews` | Queue the Reviews module publishes to        |
+| `HANSI_ORCHESTRATOR_ENDPOINT` | none         | open-runtimes orchestrator API, for commands |
+| `HANSI_ORCHESTRATOR_KEY`      |              | Orchestrator API key, when it has one        |
+| `HANSI_SANDBOX_IMAGE`         |              | Toolchain image, with the orchestrator       |
+| `HANSI_REVIEW_MODEL`          |              | AI SDK model id for the reviewer             |
+| `HANSI_VERIFY_MODEL`          | review model | AI SDK model id for the verifier             |
+| `HANSI_CONCURRENCY`           | `4`          | Jobs one process runs at once                |
+| `HANSI_PORT`                  | `8080`       | `/healthz` and `/readyz`                     |
+| `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn`, `error`             |
 
 Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise, which reads `AI_GATEWAY_API_KEY`. This is a stopgap until Appwrite serves the keys and models.
+
+Without an orchestrator, as on a self-hosted Appwrite, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`.
 
 ## Deployment
 
 The `Dockerfile` builds the service image: Bun running the sources, with `git` and `ripgrep` for the review's tools, as the unprivileged `bun` user. Nothing from a reviewed repository runs in it; commands go to orchestrator sandboxes. Pushes to `main` publish `ghcr.io/appwrite-labs/hansi:main` and `:sha-<commit>`, and a `v*` tag publishes its version.
+
+On a self-hosted Appwrite, Hansi is an optional service: Appwrite publishes review jobs only when reviews are turned on, and the container runs next to Appwrite's own on its Redis, without an orchestrator.
 
 The cluster deployment lives with the cluster's other services, not here. What it needs from this image: the environment above (credentials from a Secret), a writable `/tmp` for checkouts (the image runs with a read-only root filesystem), probes on `/healthz` and `/readyz` (port 8080), no Service, and a termination grace period long enough for running jobs to finish (a repository's setup command alone may take 15 minutes).
