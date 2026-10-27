@@ -103,7 +103,7 @@ export function parseConfig(source: string | null | undefined): ConfigResult {
 		};
 	}
 
-	const result = repoConfigSchema.safeParse(raw ?? {});
+	const result = repoConfigSchema.safeParse(raw);
 	if (result.success) return { config: result.data, errors: [] };
 	return {
 		config: defaultConfig,

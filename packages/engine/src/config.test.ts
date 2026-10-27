@@ -29,6 +29,13 @@ describe('parseConfig', () => {
 		expect(errors[0]).toStartWith('Not valid JSON');
 	});
 
+	test('reports a file that is not an object', () => {
+		const { config, errors } = parseConfig('null');
+
+		expect(config).toEqual(defaultConfig);
+		expect(errors).toHaveLength(1);
+	});
+
 	test('names the field that is wrong', () => {
 		const { config, errors } = parseConfig('{"reviews":{"maxComments":1000}}');
 
