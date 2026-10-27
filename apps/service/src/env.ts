@@ -9,7 +9,10 @@ const schema = z.object({
 
 	HANSI_APPWRITE_ENDPOINT: z.url(),
 	HANSI_APPWRITE_SECRET: z.string().min(1),
-	HANSI_APPWRITE_QUEUE: z.string().min(1).default(REVIEWS_QUEUE),
+
+	/** Appwrite's NATS queue connection, `nats://user:pass@host:4222`. */
+	HANSI_QUEUE_URL: z.url({ protocol: /^nats$/, hostname: /./ }),
+	HANSI_QUEUE_NAME: z.string().min(1).default(REVIEWS_QUEUE),
 
 	HANSI_ORCHESTRATOR_ENDPOINT: z.url(),
 	HANSI_ORCHESTRATOR_KEY: z.string().min(1).optional(),

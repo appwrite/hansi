@@ -9,7 +9,7 @@ import {
 import { MemoryJobSource, MemoryResultsSink } from '@hansi/engine/testing';
 import type { Handlers } from './handlers';
 import { createLogger } from './logger';
-import { FAILURE_REASON, MAX_ATTEMPTS, runWorker } from './worker';
+import { FAILURE_REASON, runWorker } from './worker';
 
 const repository = {
 	projectId: 'project1',
@@ -108,7 +108,7 @@ describe('runWorker', () => {
 		const next = source.next.bind(source);
 		source.next = async (signal) => {
 			const lease = await next(signal);
-			return lease && { ...lease, attempts: MAX_ATTEMPTS - 1 };
+			return lease && { ...lease, attempts: lease.maxAttempts - 1 };
 		};
 		source.push(review);
 
@@ -176,7 +176,7 @@ describe('runWorker', () => {
 			return (
 				lease && {
 					...lease,
-					attempts: MAX_ATTEMPTS - 1,
+					attempts: lease.maxAttempts - 1,
 					ack: async () => {
 						await lease.ack();
 						throw new Error('queue unavailable');

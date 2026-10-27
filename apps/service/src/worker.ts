@@ -2,8 +2,6 @@ import { NotImplementedError, type JobSource, type Lease, type ResultsSink } fro
 import type { Handlers } from './handlers';
 import type { Logger } from './logger';
 
-/** Deliveries of one job before it is given up on. */
-export const MAX_ATTEMPTS = 3;
 /** What the project's users see when a review fails. The cause stays in the logs. */
 export const FAILURE_REASON = 'The review could not be completed.';
 
@@ -71,7 +69,7 @@ async function runJob(options: WorkerOptions, lease: Lease): Promise<void> {
 		return;
 	}
 
-	let retry = !(failure instanceof NotImplementedError) && lease.attempts + 1 < MAX_ATTEMPTS;
+	let retry = !(failure instanceof NotImplementedError) && lease.attempts + 1 < lease.maxAttempts;
 	logger.error('job failed', { err: failure, attempt: lease.attempts + 1, retry });
 	if (!retry && job.type === 'review') {
 		try {
@@ -80,7 +78,8 @@ async function runJob(options: WorkerOptions, lease: Lease): Promise<void> {
 				FAILURE_REASON
 			);
 		} catch (sinkError) {
-			// Dropping the job now would leave the review in progress forever.
+			// Kept for another delivery to mark it, past the queue's attempts if need be. While
+			// Appwrite is down that delivery fails early, before any model call.
 			logger.error('could not mark review failed', { err: sinkError });
 			retry = true;
 		}
