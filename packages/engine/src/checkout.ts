@@ -1,7 +1,9 @@
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { git } from './git';
+import { CONFIG_FILES, parseConfig, type ConfigResult } from './config';
+import { parseGitDiff, type FileDiff } from './diff';
+import { git, isMissingPath } from './git';
 import type { GitRemote } from './github';
 
 // A local copy of the pull request for the review's tools. A blobless partial clone: the
@@ -43,4 +45,46 @@ export async function checkout(
 		throw error;
 	}
 	return { dir, remove };
+}
+
+/** The repository's settings at `ref`, from the first config file that exists. */
+export async function readRepoConfig(
+	dir: string,
+	ref: string,
+	token?: string
+): Promise<ConfigResult> {
+	for (const file of CONFIG_FILES) {
+		try {
+			return parseConfig(await git(['show', `${ref}:${file}`], { cwd: dir, token }));
+		} catch (error) {
+			if (isMissingPath(error)) continue;
+			throw error;
+		}
+	}
+	return parseConfig(null);
+}
+
+/** What the pull request changes between the two commits of a checkout. */
+export async function changedFiles(
+	dir: string,
+	commits: { headSha: string; baseSha: string },
+	options: { token?: string; signal?: AbortSignal } = {}
+): Promise<FileDiff[]> {
+	return parseGitDiff(
+		await git(
+			[
+				// Unquoted paths: parseGitDiff reads them as they are.
+				'-c',
+				'core.quotePath=false',
+				'diff',
+				'--no-color',
+				'--no-ext-diff',
+				'--find-renames',
+				'--src-prefix=a/',
+				'--dst-prefix=b/',
+				`${commits.baseSha}...${commits.headSha}`
+			],
+			{ cwd: dir, ...options }
+		)
+	);
 }

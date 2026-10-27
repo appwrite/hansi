@@ -1,10 +1,8 @@
 import type { LanguageModel } from 'ai';
-import { checkout } from './checkout';
+import { changedFiles, checkout, readRepoConfig } from './checkout';
 import { SandboxSession } from './commands';
-import { CONFIG_FILES, parseConfig, type RepoConfig } from './config';
+import type { RepoConfig } from './config';
 import type { EngineContext } from './context';
-import { parseGitDiff } from './diff';
-import { git, isMissingPath } from './git';
 import type { GitHubClient, PullRequest, ReviewEvent } from './github';
 import type { ReviewJob } from './jobs';
 import { renderFinding, renderReviewBody } from './render';
@@ -17,13 +15,13 @@ import type { Verdict } from './grading';
 // in progress.
 
 /** Starts the marker every review body carries, `<!-- hansi:review <reviewId> -->`. */
-const MARKER = '<!-- hansi:review ';
+export const REVIEW_MARKER = '<!-- hansi:review ';
 
 /** The check run the review reports on the commit. */
 export const CHECK_NAME = 'Hansi';
 
 /** Authors who can push to the repository. Only their pull requests are approved by default. */
-const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+export const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 
 const reviewEvent: Record<Verdict, ReviewEvent> = {
 	approve: 'APPROVE',
@@ -56,23 +54,6 @@ export function skipReason(
 	return null;
 }
 
-/** The repository's settings at `ref`, from the first config file that exists. */
-async function readConfig(
-	dir: string,
-	ref: string,
-	token?: string
-): Promise<{ config: RepoConfig; errors: string[] }> {
-	for (const file of CONFIG_FILES) {
-		try {
-			return parseConfig(await git(['show', `${ref}:${file}`], { cwd: dir, token }));
-		} catch (error) {
-			if (isMissingPath(error)) continue;
-			throw error;
-		}
-	}
-	return parseConfig(null);
-}
-
 export async function runReviewJob(
 	job: ReviewJob,
 	context: EngineContext,
@@ -93,7 +74,10 @@ export async function runReviewJob(
 	// Only an app's review counts: anyone can write the marker into a review of their own.
 	const covered = reviews.some(
 		(r) =>
-			r.bot && r.commitId === pr.head.sha && r.body.includes(MARKER) && !r.body.includes(marker)
+			r.bot &&
+			r.commitId === pr.head.sha &&
+			r.body.includes(REVIEW_MARKER) &&
+			!r.body.includes(marker)
 	);
 	if (!asked && covered) {
 		return context.results.skipReview(ref, 'This commit was already reviewed.');
@@ -113,7 +97,7 @@ export async function runReviewJob(
 	let sandbox: SandboxSession | null = null;
 	try {
 		// Settings come from the base, so the pull request cannot change how it is reviewed.
-		const { config, errors } = await readConfig(tree.dir, pr.base.sha, remote.token);
+		const { config, errors } = await readRepoConfig(tree.dir, pr.base.sha, remote.token);
 		const skip = skipReason(job, pr, config);
 		if (skip) return await context.results.skipReview(ref, skip);
 
@@ -127,22 +111,10 @@ export async function runReviewJob(
 
 		// The diff comes from the checkout, not GitHub's file list: a push while the job runs
 		// would make that list describe a newer head than the one reviewed and commented on.
-		const files = parseGitDiff(
-			await git(
-				[
-					// Unquoted paths: parseGitDiff reads them as they are.
-					'-c',
-					'core.quotePath=false',
-					'diff',
-					'--no-color',
-					'--no-ext-diff',
-					'--find-renames',
-					'--src-prefix=a/',
-					'--dst-prefix=b/',
-					`${pr.base.sha}...${pr.head.sha}`
-				],
-				{ cwd: tree.dir, token: remote.token, signal: options.signal }
-			)
+		const files = await changedFiles(
+			tree.dir,
+			{ headSha: pr.head.sha, baseSha: pr.base.sha },
+			{ token: remote.token, signal: options.signal }
 		);
 		// Started on the agent's first command, from the head the review comments on.
 		sandbox = new SandboxSession(

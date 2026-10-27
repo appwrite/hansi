@@ -1,4 +1,11 @@
-import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from '@hansi/engine';
+import type {
+	ChatRef,
+	ModelUsage,
+	ResultsSink,
+	ReviewOutcome,
+	ReviewRef,
+	TraceEvent
+} from '@hansi/engine';
 import { AppwriteApi, AppwriteError } from './api';
 import type { AppwriteConfig } from './config';
 
@@ -37,6 +44,22 @@ export class AppwriteResultsSink implements ResultsSink {
 				projectId: review.projectId,
 				usage: usage.slice(0, BATCH)
 			});
+			usage.splice(0, BATCH);
+		}
+	}
+
+	async recordChatUsage(chat: ChatRef, usage: ModelUsage[]) {
+		while (usage.length) {
+			await this.api.request(
+				'POST',
+				`/reviews/repositories/${encodeURIComponent(chat.repositoryId)}/usage`,
+				{
+					projectId: chat.projectId,
+					pullNumber: chat.pullNumber,
+					commentId: chat.commentId,
+					usage: usage.slice(0, BATCH)
+				}
+			);
 			usage.splice(0, BATCH);
 		}
 	}

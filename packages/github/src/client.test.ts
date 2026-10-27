@@ -244,6 +244,45 @@ describe('RestGitHubClient', () => {
 		]);
 	});
 
+	test('lists comments with who posted them', async () => {
+		const app = { login: 'hansi[bot]', type: 'Bot' };
+		const api = serve({
+			'GET /repos/acme/app/issues/7/comments': () =>
+				Response.json([{ id: 1, body: 'hi', user: app, html_url: 'u' }]),
+			'GET /repos/acme/app/pulls/7/comments': () =>
+				Response.json([
+					{
+						id: 2,
+						pull_request_review_id: 9,
+						path: 'a.ts',
+						line: 3,
+						body: 'b',
+						user: { login: 'octocat', type: 'User' },
+						in_reply_to_id: 1,
+						html_url: 'v',
+						pull_request_url: 'p'
+					}
+				])
+		});
+		const { github } = await client(api);
+		expect(await github.listIssueComments(7)).toEqual([
+			{ id: 1, body: 'hi', author: 'hansi[bot]', bot: true, url: 'u' }
+		]);
+		expect(await github.listReviewComments(7)).toEqual([
+			{
+				id: 2,
+				reviewId: 9,
+				path: 'a.ts',
+				line: 3,
+				body: 'b',
+				author: 'octocat',
+				bot: false,
+				inReplyToId: 1,
+				url: 'v'
+			}
+		]);
+	});
+
 	test('lists reviews', async () => {
 		const api = serve({
 			'GET /repos/acme/app/pulls/7/reviews': () =>

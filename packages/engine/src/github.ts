@@ -27,11 +27,26 @@ export interface PullRequestFile {
 
 export interface ReviewComment {
 	id: number;
+	/** The review the comment was posted with. */
+	reviewId?: number;
 	path: string;
 	line?: number;
 	body: string;
 	author: string;
+	/** Posted by a GitHub App, which a person cannot pose as. */
+	bot: boolean;
+	/** The thread's first comment: GitHub points every reply at it. */
 	inReplyToId?: number;
+	url: string;
+}
+
+/** A comment on the pull request conversation. */
+export interface IssueComment {
+	id: number;
+	body: string;
+	author: string;
+	/** Posted by a GitHub App, which a person cannot pose as. */
+	bot: boolean;
 	url: string;
 }
 
@@ -103,6 +118,8 @@ export interface GitHubClient {
 	/** Resolves the review thread a comment belongs to (GraphQL only). */
 	resolveThread(commentId: number): Promise<void>;
 
+	/** Oldest first. */
+	listIssueComments(issueNumber: number): Promise<IssueComment[]>;
 	createIssueComment(issueNumber: number, body: string): Promise<{ id: number; url: string }>;
 	updateIssueComment(commentId: number, body: string): Promise<void>;
 	addReaction(comment: { id: number; kind: 'issue' | 'review' }, reaction: Reaction): Promise<void>;

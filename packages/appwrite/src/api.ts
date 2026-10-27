@@ -16,6 +16,10 @@ export class AppwriteError extends Error {
 	}
 }
 
+/** Times a call that hit Appwrite's abuse limit is tried again. */
+const RATE_LIMIT_RETRIES = 3;
+const MAX_RATE_LIMIT_WAIT_MS = 30_000;
+
 export class AppwriteApi {
 	private readonly http: typeof fetch;
 
@@ -24,14 +28,22 @@ export class AppwriteApi {
 	}
 
 	async request<T = void>(method: string, path: string, body: unknown): Promise<T> {
-		const response = await this.http(`${this.config.endpoint.replace(/\/+$/, '')}${path}`, {
-			method,
-			headers: {
-				'content-type': 'application/json',
-				'x-appwrite-reviews-secret': this.config.secret
-			},
-			body: JSON.stringify(body)
-		});
+		let response: Response;
+		for (let attempt = 0; ; attempt++) {
+			response = await this.http(`${this.config.endpoint.replace(/\/+$/, '')}${path}`, {
+				method,
+				headers: {
+					'content-type': 'application/json',
+					'x-appwrite-reviews-secret': this.config.secret
+				},
+				body: JSON.stringify(body)
+			});
+			// Each route allows a number of calls per review a minute. Nothing was stored, so the
+			// same call is safe to send again once the window resets.
+			if (response.status !== 429 || attempt >= RATE_LIMIT_RETRIES) break;
+			await response.body?.cancel();
+			await Bun.sleep(rateLimitWait(response, attempt));
+		}
 		if (!response.ok) {
 			const text = await response.text();
 			let error: { type?: string; message?: string } = {};
@@ -48,4 +60,11 @@ export class AppwriteApi {
 		}
 		return (response.status === 204 ? undefined : await response.json()) as T;
 	}
+}
+
+/** Until the window resets, as Appwrite announces it, or a growing pause without that. */
+function rateLimitWait(response: Response, attempt: number): number {
+	const reset = Number(response.headers.get('x-ratelimit-reset'));
+	const wait = reset > 0 ? reset * 1000 - Date.now() : 1000 * 2 ** attempt;
+	return Math.min(Math.max(wait, 0), MAX_RATE_LIMIT_WAIT_MS);
 }

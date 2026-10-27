@@ -112,6 +112,66 @@ describe('AppwriteResultsSink', () => {
 		expect(sent.filter((event) => event.data.i === 100)).toHaveLength(2);
 	});
 
+	test('waits out the abuse limit and sends the call again', async () => {
+		let calls = 0;
+		const sink = new AppwriteResultsSink(
+			serve(() =>
+				++calls === 1
+					? Response.json(
+							{ message: 'Too many.', code: 429, type: 'general_rate_limit_exceeded' },
+							{
+								status: 429,
+								// Two seconds out: one to a second boundary, and a whole one.
+								headers: { 'x-ratelimit-reset': String(Math.floor(Date.now() / 1000) + 2) }
+							}
+						)
+					: new Response(null, { status: 204 })
+			)
+		);
+
+		const started = Date.now();
+		await sink.failReview(review, 'Broke.');
+
+		expect(requests).toHaveLength(2);
+		expect(Date.now() - started).toBeGreaterThanOrEqual(900);
+	});
+
+	test('sends chat usage keyed on the repository and the comment', async () => {
+		const sink = new AppwriteResultsSink(serve());
+		const usage = [
+			{ role: 'chat', provider: 'p', model: 'm', inputTokens: 1, outputTokens: 2, durationMs: 3 }
+		];
+
+		await sink.recordChatUsage(
+			{ projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: 11 },
+			usage
+		);
+
+		expect(usage).toHaveLength(0);
+		expect(requests).toEqual([
+			{
+				method: 'POST',
+				path: '/v1/reviews/repositories/repo-1/usage',
+				secret: 'reviews-secret',
+				body: {
+					projectId: 'project-1',
+					pullNumber: 7,
+					commentId: 11,
+					usage: [
+						{
+							role: 'chat',
+							provider: 'p',
+							model: 'm',
+							inputTokens: 1,
+							outputTokens: 2,
+							durationMs: 3
+						}
+					]
+				}
+			}
+		]);
+	});
+
 	test('treats a review that already ended as done', async () => {
 		const sink = new AppwriteResultsSink(serve(invalidStatus));
 

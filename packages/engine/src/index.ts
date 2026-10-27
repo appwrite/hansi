@@ -1,4 +1,6 @@
 export * from './agent';
+export * from './chat';
+export * from './chat-job';
 export * from './checkout';
 export * from './config';
 export * from './diff';

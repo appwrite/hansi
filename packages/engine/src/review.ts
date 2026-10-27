@@ -143,6 +143,16 @@ export function fitDiff(
 	return { diff: parts.join('\n\n'), shown, over };
 }
 
+/** The configured instructions whose glob matches one of `files`. */
+export function matchingPathInstructions(config: RepoConfig, files: FileDiff[]): string[] {
+	return config.pathInstructions
+		.filter((rule) => {
+			const glob = new Bun.Glob(rule.path);
+			return files.some((file) => glob.match(file.path));
+		})
+		.map((rule) => `${rule.path}: ${rule.instructions}`);
+}
+
 export async function runReview(input: ReviewInput, options: ReviewOptions): Promise<ReviewResult> {
 	const { config, repoDir } = input;
 	const emit: Emit = options.emit ?? (() => {});
@@ -156,12 +166,7 @@ export async function runReview(input: ReviewInput, options: ReviewOptions): Pro
 	// Changed files skipped by the default filters (lockfiles, generated code, build output) or
 	// over the budget went unread, so they cannot count as reviewed.
 	const partial = over.length > 0 || excluded.some((file) => file.reason === 'ignored');
-	const pathInstructions = config.pathInstructions
-		.filter((rule) => {
-			const glob = new Bun.Glob(rule.path);
-			return included.some((file) => glob.match(file.path));
-		})
-		.map((rule) => `${rule.path}: ${rule.instructions}`);
+	const pathInstructions = matchingPathInstructions(config, included);
 	const guidelines = await loadGuidelines(repoDir, input.baseSha, input.token);
 	const tools = {
 		...createRepoTools(repoDir, { emit, baseSha: input.baseSha, token: input.token }),
