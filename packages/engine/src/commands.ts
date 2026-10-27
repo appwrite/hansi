@@ -13,6 +13,8 @@ const DEFAULT_TIMEOUT_SECONDS = 120;
 const MAX_TIMEOUT_SECONDS = 600;
 /** The repository's setup command can install dependencies, which takes a while. */
 const SETUP_TIMEOUT_MS = 15 * 60_000;
+/** How long the job waits for the orchestrator to tear the sandbox down. */
+const CLOSE_TIMEOUT_MS = 30_000;
 /** Output kept per stream. The end of a test run says the most, so it is kept whole. */
 const MAX_STREAM_CHARS = 10_000;
 
@@ -51,8 +53,8 @@ export class SandboxSession {
 		const begun = Date.now();
 		try {
 			const result = await started.sandbox.run(command, { timeoutMs });
+			// The command is not traced: the model may have copied a secret from a file into it.
 			emit('tool.run_command', {
-				command,
 				exitCode: result.exitCode,
 				timedOut: result.timedOut,
 				durationMs: Date.now() - begun
@@ -62,15 +64,23 @@ export class SandboxSession {
 			started.setup = null;
 			return [setup, formatResult(result, timeoutSeconds)].filter(Boolean).join('\n\n');
 		} catch (error) {
-			emit('tool.run_command', { command, error: message(error) });
+			emit('tool.run_command', { error: message(error) });
 			return `Error: ${message(error)}`;
 		}
 	}
 
-	/** Tears the sandbox down, if one was started. */
-	async close(): Promise<void> {
-		const started = await this.sandbox?.catch(() => null);
-		await started?.sandbox.close();
+	/**
+	 * Tears the sandbox down, if one was started. Waits at most `timeoutMs`: the job must settle
+	 * even when the orchestrator does not answer, and its idle timeout removes the sandbox then.
+	 */
+	async close(timeoutMs = CLOSE_TIMEOUT_MS): Promise<void> {
+		const teardown = (async () => {
+			const started = await this.sandbox?.catch(() => null);
+			await started?.sandbox.close();
+		})();
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, timeoutMs)));
+		await Promise.race([teardown, timeout]).finally(() => clearTimeout(timer));
 	}
 
 	private async start(emit: Emit): Promise<{ sandbox: Sandbox; setup: string | null }> {

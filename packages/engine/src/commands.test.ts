@@ -99,6 +99,17 @@ describe('SandboxSession', () => {
 		expect(sandboxes.commands).toHaveLength(MAX_COMMANDS);
 	});
 
+	test('gives up waiting on a teardown that never answers', async () => {
+		const opened = new SandboxSession(async () => ({
+			id: 'stuck',
+			run: async () => ok(),
+			close: () => new Promise<void>(() => {})
+		}));
+		await opened.run('true', 10);
+
+		await opened.close(20);
+	});
+
 	test('closes nothing when no command ran', async () => {
 		const sandboxes = new MemorySandboxes();
 
