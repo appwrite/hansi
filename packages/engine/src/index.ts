@@ -1,4 +1,5 @@
 export * from './agent';
+export * from './checkout';
 export * from './config';
 export * from './diff';
 export * from './errors';
@@ -7,7 +8,9 @@ export * from './findings';
 export * from './git';
 export * from './grading';
 export * from './prompts';
+export * from './render';
 export * from './review';
+export * from './review-job';
 export * from './tier';
 export * from './tools';
 export * from './verdict';

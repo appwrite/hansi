@@ -13,7 +13,15 @@ const schema = z.object({
 
 	HANSI_ORCHESTRATOR_ENDPOINT: z.url(),
 	HANSI_ORCHESTRATOR_KEY: z.string().min(1).optional(),
-	HANSI_SANDBOX_IMAGE: z.string().min(1)
+	HANSI_SANDBOX_IMAGE: z.string().min(1),
+
+	/**
+	 * AI SDK model ids, resolved by the SDK's global provider (the AI Gateway by default, which
+	 * reads AI_GATEWAY_API_KEY). Appwrite takes over model choice once it serves keys and models.
+	 */
+	HANSI_REVIEW_MODEL: z.string().min(1),
+	/** The verifier's model. Defaults to the reviewer's. */
+	HANSI_VERIFY_MODEL: z.string().min(1).optional()
 });
 
 export type Env = z.infer<typeof schema>;

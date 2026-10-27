@@ -28,7 +28,10 @@ const sandboxes = new OrchestratorSandboxClient({
 	apiKey: env.HANSI_ORCHESTRATOR_KEY,
 	image: env.HANSI_SANDBOX_IMAGE
 });
-const handlers = createHandlers({ github, sandboxes, results: sink });
+const handlers = createHandlers(
+	{ github, sandboxes, results: sink },
+	{ reviewer: env.HANSI_REVIEW_MODEL, verifier: env.HANSI_VERIFY_MODEL }
+);
 
 const controller = new AbortController();
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

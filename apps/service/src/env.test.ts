@@ -5,7 +5,8 @@ const required = {
 	HANSI_APPWRITE_ENDPOINT: 'http://appwrite/v1',
 	HANSI_APPWRITE_SECRET: 'secret',
 	HANSI_ORCHESTRATOR_ENDPOINT: 'http://orchestrator:8080',
-	HANSI_SANDBOX_IMAGE: 'appwrite/hansi-toolchain:1'
+	HANSI_SANDBOX_IMAGE: 'appwrite/hansi-toolchain:1',
+	HANSI_REVIEW_MODEL: 'provider/model'
 };
 
 describe('parseEnv', () => {
@@ -18,6 +19,8 @@ describe('parseEnv', () => {
 	});
 
 	test('names every missing variable', () => {
-		expect(() => parseEnv({})).toThrow(/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_SANDBOX_IMAGE/);
+		expect(() => parseEnv({})).toThrow(
+			/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_SANDBOX_IMAGE[\s\S]*HANSI_REVIEW_MODEL/
+		);
 	});
 });

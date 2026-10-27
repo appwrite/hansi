@@ -40,3 +40,9 @@ export async function git(args: string[], options: GitOptions): Promise<string> 
 	if (exitCode !== 0) throw new GitError(args, exitCode, stderr);
 	return stdout;
 }
+
+/** git's error for a path that is not in a commit. */
+export function isMissingPath(error: unknown): boolean {
+	// "does not exist in", or "exists on disk, but not in" when the working tree has it.
+	return error instanceof GitError && /does not exist|but not in/.test(error.stderr);
+}
