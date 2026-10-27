@@ -104,6 +104,7 @@ services:
       - HANSI_APPWRITE_ENDPOINT=http://appwrite/v1
       - HANSI_APPWRITE_SECRET=${_APP_REVIEWS_SECRET}
       - HANSI_QUEUE_URL=redis://redis:6379
+      - HANSI_SHUTDOWN_TIMEOUT=840 # below stop_grace_period
       - HANSI_REVIEW_MODEL
       - AI_GATEWAY_API_KEY
 ```
@@ -139,7 +140,7 @@ The service validates its environment on start (`apps/service/src/env.ts`) and e
 
 Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise. This is a stopgap until Appwrite serves model keys and models itself.
 
-On Redis, which counts no deliveries, the consumer gives a job 3 attempts, 10 s, 60 s and 5 min apart. On NATS the attempts and backoff are the ones Appwrite provisioned on the queue's work consumer.
+On Redis, which counts no deliveries, the consumer gives a job 3 attempts: the second 10 s after the first, the third 60 s after the second. On NATS the attempts and backoff are the ones Appwrite provisioned on the queue's work consumer.
 
 ### Running in a cluster
 
