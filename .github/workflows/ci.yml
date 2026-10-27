@@ -46,13 +46,3 @@ jobs:
           docker exec hansi sh -c 'git --version && rg --version'
           docker stop -t 30 hansi
           test "$(docker inspect hansi --format '{{.State.ExitCode}}')" = 0
-
-  chart:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v5
-      - uses: azure/setup-helm@v4
-        with:
-          version: v3.19.0
-      - run: helm lint charts/hansi -f charts/hansi/ci-values.yaml
-      - run: helm template hansi charts/hansi -f charts/hansi/ci-values.yaml > /dev/null

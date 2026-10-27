@@ -4,5 +4,4 @@
 .github
 .env
 .env.*
-charts
 *.md

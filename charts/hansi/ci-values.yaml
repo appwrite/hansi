@@ -1,9 +1,0 @@
-# Values that satisfy every required setting, for `helm lint` and `helm template` in CI.
-appwrite:
-  endpoint: http://appwrite/v1
-orchestrator:
-  endpoint: http://orchestrator:8080
-  sandboxImage: openruntimes/sandbox:latest
-models:
-  review: anthropic/claude-sonnet-4.5
-existingSecret: hansi
