@@ -37,6 +37,8 @@ interface ExecuteResponse {
 /** Margin past a command's own timeout before the request carrying it is given up on. */
 const REQUEST_GRACE_MS = 10_000;
 const ARCHIVE = 'pr.tar.gz';
+/** What the sandbox agent exits with when it kills a command at its timeout, as `timeout(1)` does. */
+const TIMEOUT_EXIT_CODE = 124;
 
 export class SandboxError extends Error {
 	override readonly name = 'SandboxError';
@@ -142,7 +144,9 @@ class OrchestratorSandbox implements Sandbox {
 			exitCode: result.exitCode,
 			stdout: result.stdout,
 			stderr: result.stderr,
-			timedOut: result.exitCode === null && result.durationMillis >= timeoutSeconds * 1000,
+			timedOut:
+				(result.exitCode === null || result.exitCode === TIMEOUT_EXIT_CODE) &&
+				result.durationMillis >= timeoutSeconds * 1000,
 			truncated: result.truncated ?? false
 		};
 	}

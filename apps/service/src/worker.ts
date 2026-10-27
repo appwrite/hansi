@@ -52,23 +52,38 @@ async function runJob(options: WorkerOptions, lease: Lease): Promise<void> {
 	// A running job is not cut short on shutdown; the signal is for the engine's own cleanup.
 	const running = new AbortController();
 
+	let failure: unknown;
 	try {
 		if (job.type === 'review') await options.handlers.review(job, running.signal);
 		else await options.handlers.chat(job, running.signal);
-		await lease.ack();
-		logger.info('job done');
 	} catch (error) {
-		const retry = !(error instanceof NotImplementedError) && lease.attempts + 1 < MAX_ATTEMPTS;
-		logger.error('job failed', { err: error, attempt: lease.attempts + 1, retry });
-		if (!retry && job.type === 'review') {
-			await options.sink
-				.failReview(job.reviewId, FAILURE_REASON)
-				.catch((sinkError: unknown) =>
-					logger.error('could not mark review failed', { err: sinkError })
-				);
-		}
-		await lease
-			.nack({ retry })
-			.catch((nackError: unknown) => logger.error('could not settle job', { err: nackError }));
+		failure = error;
 	}
+
+	if (failure === undefined) {
+		// The job is done; an ack that fails only means it may be delivered again.
+		await lease.ack().then(
+			() => logger.info('job done'),
+			(ackError: unknown) => logger.error('could not ack job', { err: ackError })
+		);
+		return;
+	}
+
+	let retry = !(failure instanceof NotImplementedError) && lease.attempts + 1 < MAX_ATTEMPTS;
+	logger.error('job failed', { err: failure, attempt: lease.attempts + 1, retry });
+	if (!retry && job.type === 'review') {
+		try {
+			await options.sink.failReview(
+				{ projectId: job.repository.projectId, reviewId: job.reviewId },
+				FAILURE_REASON
+			);
+		} catch (sinkError) {
+			// Dropping the job now would leave the review in progress forever.
+			logger.error('could not mark review failed', { err: sinkError });
+			retry = true;
+		}
+	}
+	await lease
+		.nack({ retry })
+		.catch((nackError: unknown) => logger.error('could not settle job', { err: nackError }));
 }

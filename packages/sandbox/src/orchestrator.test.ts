@@ -64,6 +64,36 @@ describe('OrchestratorSandboxClient', () => {
 		expect(requests.filter((r) => r.method === 'DELETE')).toHaveLength(1);
 	});
 
+	test('reports a command the agent killed at its timeout', async () => {
+		const endpoint = serve({
+			'POST /v1/sandbox': () => Response.json({ id: 'sbx-1', status: 'ready', url: endpoint }),
+			'POST /execute': () =>
+				Response.json({ exitCode: 124, stdout: '', stderr: '', durationMillis: 2_003 })
+		});
+		const sandbox = await new OrchestratorSandboxClient({ endpoint, image: 'toolchain:1' }).create({
+			archiveUrl: 'https://example.test/pr.tar.gz'
+		});
+
+		const result = await sandbox.run('sleep 10', { timeoutMs: 2_000 });
+
+		expect(result).toMatchObject({ exitCode: 124, timedOut: true });
+	});
+
+	test('keeps a quick exit 124 as an ordinary exit', async () => {
+		const endpoint = serve({
+			'POST /v1/sandbox': () => Response.json({ id: 'sbx-1', status: 'ready', url: endpoint }),
+			'POST /execute': () =>
+				Response.json({ exitCode: 124, stdout: '', stderr: '', durationMillis: 5 })
+		});
+		const sandbox = await new OrchestratorSandboxClient({ endpoint, image: 'toolchain:1' }).create({
+			archiveUrl: 'https://example.test/pr.tar.gz'
+		});
+
+		const result = await sandbox.run('exit 124', { timeoutMs: 2_000 });
+
+		expect(result).toMatchObject({ exitCode: 124, timedOut: false });
+	});
+
 	test('refuses to run commands after close', async () => {
 		const endpoint = serve({
 			'POST /v1/sandbox': () => Response.json({ id: 'sbx-1', status: 'ready', url: endpoint }),

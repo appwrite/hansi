@@ -125,7 +125,11 @@ describe('runWorker', () => {
 
 		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: false }]);
 		expect(sink.calls).toEqual([
-			{ method: 'failReview', reviewId: 'review1', reason: FAILURE_REASON }
+			{
+				method: 'failReview',
+				review: { projectId: 'project1', reviewId: 'review1' },
+				reason: FAILURE_REASON
+			}
 		]);
 	});
 
@@ -146,6 +150,59 @@ describe('runWorker', () => {
 
 		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: false }]);
 		expect(sink.calls.map((c) => c.method)).toEqual(['failReview']);
+	});
+
+	test('does not fail a review whose ack failed', async () => {
+		const source: MemoryJobSource = new MemoryJobSource();
+		const next = source.next.bind(source);
+		source.next = async (signal) => {
+			const lease = await next(signal);
+			return (
+				lease && {
+					...lease,
+					attempts: MAX_ATTEMPTS - 1,
+					ack: async () => {
+						await lease.ack();
+						throw new Error('queue unavailable');
+					}
+				}
+			);
+		};
+		source.push(review);
+
+		const sink = await run(source, { review: async () => {}, chat: async () => {} }, 1);
+
+		expect(source.settled).toEqual([{ job: review, result: 'ack' }]);
+		expect(sink.calls).toEqual([]);
+	});
+
+	test('retries a review whose failure could not be recorded', async () => {
+		const source = new MemoryJobSource();
+		const sink = new MemoryResultsSink();
+		sink.failReview = async () => {
+			throw new Error('appwrite unavailable');
+		};
+		const controller = new AbortController();
+		source.push(review);
+
+		const done = runWorker({
+			source,
+			sink,
+			handlers: {
+				review: async () => {
+					throw new NotImplementedError('review engine');
+				},
+				chat: async () => {}
+			},
+			logger: silent,
+			concurrency: 1,
+			signal: controller.signal
+		});
+		while (source.settled.length < 1) await Bun.sleep(1);
+		controller.abort();
+		await done;
+
+		expect(source.settled).toEqual([{ job: review, result: 'nack', retry: true }]);
 	});
 
 	test('finishes a running job before stopping', async () => {

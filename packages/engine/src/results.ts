@@ -44,14 +44,20 @@ export interface ReviewOutcome {
 	providerReviewId?: number;
 }
 
+/** A review document. Review data lives in the owning project's database, so both are needed. */
+export interface ReviewRef {
+	projectId: string;
+	reviewId: string;
+}
+
 export interface ResultsSink {
 	/** The review started working on `headSha` (which may be newer than the queued one). */
-	startReview(reviewId: string, input: { headSha: string; baseSha: string }): Promise<void>;
-	recordEvents(reviewId: string, events: TraceEvent[]): Promise<void>;
-	recordUsage(reviewId: string, usage: ModelUsage[]): Promise<void>;
-	completeReview(reviewId: string, outcome: ReviewOutcome): Promise<void>;
+	startReview(review: ReviewRef, input: { headSha: string; baseSha: string }): Promise<void>;
+	recordEvents(review: ReviewRef, events: TraceEvent[]): Promise<void>;
+	recordUsage(review: ReviewRef, usage: ModelUsage[]): Promise<void>;
+	completeReview(review: ReviewRef, outcome: ReviewOutcome): Promise<void>;
 	/** Nothing to review: superseded by a newer head, closed, a draft, nothing reviewable. */
-	skipReview(reviewId: string, reason: string): Promise<void>;
+	skipReview(review: ReviewRef, reason: string): Promise<void>;
 	/** `reason` is shown to the project's users; keep internals out of it. */
-	failReview(reviewId: string, reason: string): Promise<void>;
+	failReview(review: ReviewRef, reason: string): Promise<void>;
 }

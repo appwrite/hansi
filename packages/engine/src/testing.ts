@@ -2,7 +2,7 @@
 
 import type { Job } from './jobs';
 import type { JobSource, Lease } from './job-source';
-import type { ModelUsage, ResultsSink, ReviewOutcome, TraceEvent } from './results';
+import type { ModelUsage, ResultsSink, ReviewOutcome, ReviewRef, TraceEvent } from './results';
 
 export type Settlement = { job: Job; result: 'ack' } | { job: Job; result: 'nack'; retry: boolean };
 
@@ -53,37 +53,37 @@ export class MemoryJobSource implements JobSource {
 }
 
 export type SinkCall =
-	| { method: 'startReview'; reviewId: string; headSha: string; baseSha: string }
-	| { method: 'recordEvents'; reviewId: string; events: TraceEvent[] }
-	| { method: 'recordUsage'; reviewId: string; usage: ModelUsage[] }
-	| { method: 'completeReview'; reviewId: string; outcome: ReviewOutcome }
-	| { method: 'skipReview'; reviewId: string; reason: string }
-	| { method: 'failReview'; reviewId: string; reason: string };
+	| { method: 'startReview'; review: ReviewRef; headSha: string; baseSha: string }
+	| { method: 'recordEvents'; review: ReviewRef; events: TraceEvent[] }
+	| { method: 'recordUsage'; review: ReviewRef; usage: ModelUsage[] }
+	| { method: 'completeReview'; review: ReviewRef; outcome: ReviewOutcome }
+	| { method: 'skipReview'; review: ReviewRef; reason: string }
+	| { method: 'failReview'; review: ReviewRef; reason: string };
 
 export class MemoryResultsSink implements ResultsSink {
 	readonly calls: SinkCall[] = [];
 
-	async startReview(reviewId: string, input: { headSha: string; baseSha: string }) {
-		this.calls.push({ method: 'startReview', reviewId, ...input });
+	async startReview(review: ReviewRef, input: { headSha: string; baseSha: string }) {
+		this.calls.push({ method: 'startReview', review, ...input });
 	}
 
-	async recordEvents(reviewId: string, events: TraceEvent[]) {
-		this.calls.push({ method: 'recordEvents', reviewId, events });
+	async recordEvents(review: ReviewRef, events: TraceEvent[]) {
+		this.calls.push({ method: 'recordEvents', review, events });
 	}
 
-	async recordUsage(reviewId: string, usage: ModelUsage[]) {
-		this.calls.push({ method: 'recordUsage', reviewId, usage });
+	async recordUsage(review: ReviewRef, usage: ModelUsage[]) {
+		this.calls.push({ method: 'recordUsage', review, usage });
 	}
 
-	async completeReview(reviewId: string, outcome: ReviewOutcome) {
-		this.calls.push({ method: 'completeReview', reviewId, outcome });
+	async completeReview(review: ReviewRef, outcome: ReviewOutcome) {
+		this.calls.push({ method: 'completeReview', review, outcome });
 	}
 
-	async skipReview(reviewId: string, reason: string) {
-		this.calls.push({ method: 'skipReview', reviewId, reason });
+	async skipReview(review: ReviewRef, reason: string) {
+		this.calls.push({ method: 'skipReview', review, reason });
 	}
 
-	async failReview(reviewId: string, reason: string) {
-		this.calls.push({ method: 'failReview', reviewId, reason });
+	async failReview(review: ReviewRef, reason: string) {
+		this.calls.push({ method: 'failReview', review, reason });
 	}
 }
