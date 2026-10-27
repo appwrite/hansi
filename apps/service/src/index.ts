@@ -8,6 +8,7 @@ import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
 import { createHandlers } from './handlers';
 import { createLogger } from './logger';
+import { createModels } from './models';
 import { startHealthServer, startJobsServer } from './server';
 import { Worker } from './worker';
 
@@ -29,10 +30,7 @@ const sandboxes =
 				image: env.HANSI_SANDBOX_IMAGE
 			})
 		: undefined;
-const handlers = createHandlers(
-	{ github, sandboxes, results: sink },
-	{ reviewer: env.HANSI_REVIEW_MODEL, verifier: env.HANSI_VERIFY_MODEL }
-);
+const handlers = createHandlers({ github, sandboxes, results: sink }, createModels(env));
 
 const worker = new Worker({
 	sink,

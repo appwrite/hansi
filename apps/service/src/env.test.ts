@@ -6,7 +6,8 @@ const required = {
 	HANSI_APPWRITE_SECRET: 'secret',
 	HANSI_ORCHESTRATOR_ENDPOINT: 'http://orchestrator:8080',
 	HANSI_SANDBOX_IMAGE: 'appwrite/hansi-toolchain:1',
-	HANSI_REVIEW_MODEL: 'provider/model'
+	HANSI_REVIEW_MODEL: 'anthropic:claude-sonnet-4-5',
+	HANSI_AI_SECRET: 'sk-ant'
 };
 
 describe('parseEnv', () => {
@@ -33,5 +34,51 @@ describe('parseEnv', () => {
 
 	test('names every missing variable', () => {
 		expect(() => parseEnv({})).toThrow(/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_REVIEW_MODEL/);
+	});
+
+	test('takes provider:model ids from known providers only', () => {
+		expect(parseEnv({ ...required, HANSI_REVIEW_MODEL: 'anthropic:x' }).HANSI_REVIEW_MODEL).toBe(
+			'anthropic:x'
+		);
+		for (const id of ['anthropic/claude-sonnet-4.5', 'nope:model', 'anthropic:']) {
+			expect(() => parseEnv({ ...required, HANSI_REVIEW_MODEL: id })).toThrow(
+				/provider:model[\s\S]*HANSI_REVIEW_MODEL/
+			);
+		}
+	});
+
+	test('needs the credentials of the provider, and one provider for both models', () => {
+		expect(() => parseEnv({ ...required, HANSI_AI_SECRET: undefined })).toThrow(
+			/Required by anthropic[\s\S]*HANSI_AI_SECRET/
+		);
+		expect(() => parseEnv({ ...required, HANSI_VERIFY_MODEL: 'openai:gpt-5' })).toThrow(
+			/HANSI_VERIFY_MODEL/
+		);
+		const local = {
+			...required,
+			HANSI_AI_SECRET: undefined,
+			HANSI_REVIEW_MODEL: 'openai-compatible:qwen3:32b'
+		};
+		expect(() => parseEnv(local)).toThrow(/HANSI_AI_BASE_URL/);
+		expect(
+			parseEnv({ ...local, HANSI_AI_BASE_URL: 'http://ollama:11434/v1' }).HANSI_AI_SECRET
+		).toBeUndefined();
+	});
+
+	test('takes Bedrock with a region', () => {
+		const bedrock = { ...required, HANSI_REVIEW_MODEL: 'bedrock:us.anthropic.claude-x-v1:0' };
+		expect(() => parseEnv(bedrock)).toThrow(/HANSI_AI_REGION/);
+		expect(parseEnv({ ...bedrock, HANSI_AI_REGION: 'eu-central-1' }).HANSI_AI_REGION).toBe(
+			'eu-central-1'
+		);
+	});
+
+	test('takes the AI SDK reasoning levels', () => {
+		expect(parseEnv({ ...required, HANSI_REVIEW_REASONING: 'xhigh' }).HANSI_REVIEW_REASONING).toBe(
+			'xhigh'
+		);
+		expect(() => parseEnv({ ...required, HANSI_VERIFY_REASONING: 'extreme' })).toThrow(
+			/HANSI_VERIFY_REASONING/
+		);
 	});
 });

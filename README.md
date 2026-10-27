@@ -105,8 +105,8 @@ services:
       - HANSI_APPWRITE_SECRET=${_APP_REVIEWS_SECRET}
       - HANSI_QUEUE_URL=redis://redis:6379
       - HANSI_SHUTDOWN_TIMEOUT=840 # below stop_grace_period
-      - HANSI_REVIEW_MODEL
-      - AI_GATEWAY_API_KEY
+      - HANSI_REVIEW_MODEL=anthropic:claude-sonnet-4-5
+      - HANSI_AI_SECRET
 ```
 
 Then start it with `docker compose up -d hansi`. Without an orchestrator, as above, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`. To let them run commands, point `HANSI_ORCHESTRATOR_ENDPOINT` at an [open-runtimes orchestrator](https://github.com/open-runtimes/orchestrator) and set `HANSI_SANDBOX_IMAGE`.
@@ -117,30 +117,50 @@ Images are published to `ghcr.io/appwrite/hansi` for amd64 and arm64: `main` and
 
 The service validates its environment on start (`apps/service/src/env.ts`) and exits with the reason when something is missing. The `HANSI_QUEUE_*` variables are read by the queue consumer (`apps/consumer/consumer.php`).
 
-| Variable                      | Default      | Description                                                                                |
-| ----------------------------- | ------------ | ------------------------------------------------------------------------------------------ |
-| `HANSI_APPWRITE_ENDPOINT`     | **required** | Appwrite's internal API, e.g. `http://appwrite/v1`. Never the public endpoint.             |
-| `HANSI_APPWRITE_SECRET`       | **required** | The `_APP_REVIEWS_SECRET` of that Appwrite.                                                |
-| `HANSI_QUEUE_URL`             | **required** | Appwrite's queue: `redis://` on self-hosted, `nats://` on Cloud.                           |
-| `HANSI_QUEUE_NAME`            | `v1-reviews` | The queue Appwrite publishes review jobs to.                                               |
-| `HANSI_QUEUE_USER`            |              | Queue user, instead of in the URL.                                                         |
-| `HANSI_QUEUE_PASSWORD`        |              | Queue password, instead of in the URL.                                                     |
-| `HANSI_REVIEW_MODEL`          | **required** | [AI SDK](https://ai-sdk.dev) model id for the reviewer, as `provider/model`.               |
-| `HANSI_VERIFY_MODEL`          | review model | AI SDK model id for the verifier.                                                          |
-| `AI_GATEWAY_API_KEY`          |              | Key for the AI Gateway, the AI SDK's default provider for model ids.                       |
-| `HANSI_ORCHESTRATOR_ENDPOINT` |              | open-runtimes orchestrator API. Without it, reviews only read the code.                    |
-| `HANSI_ORCHESTRATOR_KEY`      |              | Orchestrator API key, when it has one.                                                     |
-| `HANSI_SANDBOX_IMAGE`         |              | Toolchain image for sandboxes. Required with an orchestrator.                              |
-| `HANSI_CONCURRENCY`           | `4`          | Jobs one container runs at once. Each holds a checkout, and a sandbox if it runs commands. |
-| `HANSI_PORT`                  | `8080`       | Port for `/healthz` and `/readyz`.                                                         |
-| `HANSI_JOBS_PORT`             | `8081`       | Loopback port where the consumer hands over jobs.                                          |
-| `HANSI_SHUTDOWN_TIMEOUT`      | `3600`       | Seconds a stopping consumer waits for running jobs.                                        |
-| `HANSI_CONSUMER_COMMAND`      | set by image | Starts the queue consumer. Unset, jobs only arrive from whoever calls the jobs port.       |
-| `HANSI_LOG_LEVEL`             | `info`       | `debug`, `info`, `warn` or `error`.                                                        |
-
-Model ids go through the AI SDK's global provider, the AI Gateway unless configured otherwise. This is a stopgap until Appwrite serves model keys and models itself.
+| Variable                      | Default       | Description                                                                                    |
+| ----------------------------- | ------------- | ---------------------------------------------------------------------------------------------- |
+| `HANSI_APPWRITE_ENDPOINT`     | **required**  | Appwrite's internal API, e.g. `http://appwrite/v1`. Never the public endpoint.                 |
+| `HANSI_APPWRITE_SECRET`       | **required**  | The `_APP_REVIEWS_SECRET` of that Appwrite.                                                    |
+| `HANSI_QUEUE_URL`             | **required**  | Appwrite's queue: `redis://` on self-hosted, `nats://` on Cloud.                               |
+| `HANSI_QUEUE_NAME`            | `v1-reviews`  | The queue Appwrite publishes review jobs to.                                                   |
+| `HANSI_QUEUE_USER`            |               | Queue user, instead of in the URL.                                                             |
+| `HANSI_QUEUE_PASSWORD`        |               | Queue password, instead of in the URL.                                                         |
+| `HANSI_REVIEW_MODEL`          | **required**  | The reviewer's model, as `provider:model`. See [Models](#models).                              |
+| `HANSI_VERIFY_MODEL`          | review model  | The verifier's model, as `provider:model` with the review model's provider.                    |
+| `HANSI_REVIEW_REASONING`      | provider's    | The reviewer's reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. |
+| `HANSI_VERIFY_REASONING`      | review effort | The verifier's reasoning effort.                                                               |
+| `HANSI_AI_SECRET`             |               | The provider's key. Required except for `openai-compatible`. See [Models](#models).            |
+| `HANSI_AI_REGION`             |               | AWS region. Required for `bedrock`.                                                            |
+| `HANSI_AI_BASE_URL`           | provider's    | The provider's API, instead of its default. Required for `openai-compatible`.                  |
+| `HANSI_ORCHESTRATOR_ENDPOINT` |               | open-runtimes orchestrator API. Without it, reviews only read the code.                        |
+| `HANSI_ORCHESTRATOR_KEY`      |               | Orchestrator API key, when it has one.                                                         |
+| `HANSI_SANDBOX_IMAGE`         |               | Toolchain image for sandboxes. Required with an orchestrator.                                  |
+| `HANSI_CONCURRENCY`           | `4`           | Jobs one container runs at once. Each holds a checkout, and a sandbox if it runs commands.     |
+| `HANSI_PORT`                  | `8080`        | Port for `/healthz` and `/readyz`.                                                             |
+| `HANSI_JOBS_PORT`             | `8081`        | Loopback port where the consumer hands over jobs.                                              |
+| `HANSI_SHUTDOWN_TIMEOUT`      | `3600`        | Seconds a stopping consumer waits for running jobs.                                            |
+| `HANSI_CONSUMER_COMMAND`      | set by image  | Starts the queue consumer. Unset, jobs only arrive from whoever calls the jobs port.           |
+| `HANSI_LOG_LEVEL`             | `info`        | `debug`, `info`, `warn` or `error`.                                                            |
 
 On Redis, which counts no deliveries, the consumer gives a job 3 attempts: the second 10 s after the first, the third 60 s after the second. On NATS the attempts and backoff are the ones Appwrite provisioned on the queue's work consumer.
+
+### Models
+
+A model id names its provider, then the provider's own model id: `bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0`, `openai:gpt-5`. Both models use the same provider, with one credential in `HANSI_AI_SECRET`. The service checks on start that the provider has what it needs, and exits naming what is missing. Keys come from the environment until Appwrite serves model keys and models itself.
+
+| Provider            | `HANSI_AI_SECRET`                                                                          | Also needs          |
+| ------------------- | ------------------------------------------------------------------------------------------ | ------------------- |
+| `bedrock`           | A Bedrock API key, or an IAM key pair as `ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]` | `HANSI_AI_REGION`   |
+| `anthropic`         | Anthropic API key                                                                          |                     |
+| `openai`            | OpenAI API key                                                                             |                     |
+| `google`            | Gemini API key                                                                             |                     |
+| `xai`               | xAI API key                                                                                |                     |
+| `openrouter`        | OpenRouter API key                                                                         |                     |
+| `openai-compatible` | Optional                                                                                   | `HANSI_AI_BASE_URL` |
+
+Reasoning efforts go through the AI SDK's shared `reasoning` setting, which each provider maps to its own; OpenRouter gets its `reasoning.effort` option instead.
+
+`openai-compatible` covers Ollama, vLLM, LiteLLM, Groq and other OpenAI-compatible APIs. On Bedrock, newer models are only served through an inference profile, so use the profile's id (`global.…`, `us.…`, `eu.…`) where one exists. A Bedrock API key is sent as a bearer token; an IAM key pair signs each request, and needs `bedrock:InvokeModel` and `bedrock:InvokeModelWithResponseStream` on the models and profiles used.
 
 ### Running in a cluster
 
