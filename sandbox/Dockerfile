@@ -16,5 +16,9 @@ RUN apt-get update \
 COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 COPY --from=go /usr/local/go /usr/local/go
 
+# The orchestrator runs sandboxes as an unnamed non-root user on a read-only root filesystem,
+# with the workspace and /tmp writable: the package managers' caches (npm, pip, Composer, Go)
+# follow HOME there.
 ENV PATH=/usr/local/go/bin:$PATH \
+	HOME=/tmp \
 	CI=true
