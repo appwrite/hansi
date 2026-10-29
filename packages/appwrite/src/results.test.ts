@@ -6,17 +6,26 @@ import { AppwriteResultsSink } from './results';
 // A local server plays Appwrite's internal Reviews API.
 type Handler = (request: Request) => Response | Promise<Response>;
 let server: ReturnType<typeof Bun.serve> | undefined;
-const requests: Array<{ method: string; path: string; secret: string | null; body: unknown }> = [];
+const requests: Array<{
+	method: string;
+	path: string;
+	secret: string | null;
+	body: unknown;
+	query?: string;
+}> = [];
 
 function serve(handler: Handler = () => new Response(null, { status: 204 })) {
 	server = Bun.serve({
 		port: 0,
 		async fetch(request) {
+			const url = new URL(request.url);
+			const text = await request.clone().text();
 			requests.push({
 				method: request.method,
-				path: new URL(request.url).pathname,
+				path: url.pathname,
 				secret: request.headers.get('x-appwrite-reviews-secret'),
-				body: await request.clone().json()
+				body: text ? JSON.parse(text) : undefined,
+				...(url.search ? { query: url.search } : {})
 			});
 			return handler(request);
 		}
@@ -44,11 +53,13 @@ describe('AppwriteResultsSink', () => {
 		await sink.completeReview(review, {
 			verdict: 'approve',
 			tier: 'S',
+			tierReason: 'Nothing open.',
 			summary: 'Fine.',
+			walkthrough: [],
 			findings: [],
 			providerReviewId: 9
 		});
-		await sink.skipReview(review, 'Closed.');
+		await sink.skipReview(review, 'Closed.', 'h');
 		await sink.failReview(review, 'Broke.');
 
 		expect(requests.map((r) => `${r.method} ${r.path}`)).toEqual(
@@ -62,12 +73,85 @@ describe('AppwriteResultsSink', () => {
 				status: 'completed',
 				verdict: 'approve',
 				tier: 'S',
+				tierReason: 'Nothing open.',
 				summary: 'Fine.',
+				walkthrough: [],
 				findings: [],
 				providerReviewId: 9
 			},
-			{ projectId: 'project-1', status: 'skipped', reason: 'Closed.' },
+			{ projectId: 'project-1', status: 'skipped', reason: 'Closed.', headSha: 'h' },
 			{ projectId: 'project-1', status: 'failed', reason: 'Broke.' }
+		]);
+	});
+
+	test("reads and settles the pull request's history", async () => {
+		const sink = new AppwriteResultsSink(
+			serve((request) => {
+				const path = new URL(request.url).pathname;
+				if (path.endsWith('/reviews')) return Response.json({ reviews: [{ id: 'r1' }] });
+				if (path.endsWith('/findings')) return Response.json({ findings: [{ id: 'f1' }] });
+				if (path.endsWith('/learnings') && request.method === 'GET') {
+					return Response.json({ learnings: ['Prefer early returns.'] });
+				}
+				return new Response(null, { status: request.method === 'POST' ? 201 : 204 });
+			})
+		);
+		const pull = { projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7 };
+		const repository = { projectId: 'project-1', repositoryId: 'repo-1' };
+
+		expect(await sink.listReviews(pull)).toEqual([{ id: 'r1' }] as never);
+		expect(await sink.listFindings(pull, { limit: 200 })).toEqual([{ id: 'f1' }] as never);
+		await sink.updateFindings(pull, ['f1'], { status: 'dismissed', reason: 'Intended.' });
+		await sink.updateFindings(pull, [], { status: 'dismissed', reason: 'Nothing.' });
+		expect(await sink.listLearnings(repository)).toEqual(['Prefer early returns.']);
+		await sink.createLearning(repository, { body: 'b', author: 'a', sourceUrl: 'https://x.test' });
+		await sink.updateGrade(review, { tier: 'A', tierReason: 'One minor left.' });
+
+		expect(requests).toEqual([
+			{
+				method: 'GET',
+				path: '/v1/reviews/repositories/repo-1/pulls/7/reviews',
+				secret: 'reviews-secret',
+				body: undefined,
+				query: '?projectId=project-1'
+			},
+			{
+				method: 'GET',
+				path: '/v1/reviews/repositories/repo-1/pulls/7/findings',
+				secret: 'reviews-secret',
+				body: undefined,
+				query: '?projectId=project-1&limit=200'
+			},
+			{
+				method: 'PATCH',
+				path: '/v1/reviews/repositories/repo-1/pulls/7/findings/status',
+				secret: 'reviews-secret',
+				body: {
+					projectId: 'project-1',
+					findingIds: ['f1'],
+					status: 'dismissed',
+					reason: 'Intended.'
+				}
+			},
+			{
+				method: 'GET',
+				path: '/v1/reviews/repositories/repo-1/learnings',
+				secret: 'reviews-secret',
+				body: undefined,
+				query: '?projectId=project-1'
+			},
+			{
+				method: 'POST',
+				path: '/v1/reviews/repositories/repo-1/learnings',
+				secret: 'reviews-secret',
+				body: { projectId: 'project-1', body: 'b', author: 'a', sourceUrl: 'https://x.test' }
+			},
+			{
+				method: 'PATCH',
+				path: '/v1/reviews/review-1/tier',
+				secret: 'reviews-secret',
+				body: { projectId: 'project-1', tier: 'A', tierReason: 'One minor left.' }
+			}
 		]);
 	});
 
@@ -200,13 +284,25 @@ describe('AppwriteInstallationTokens', () => {
 	test('mints a token scoped to the review repository', async () => {
 		const tokens = new AppwriteInstallationTokens(
 			serve(() =>
-				Response.json({ token: 'ghs_x', expiresAt: '2026-10-27T13:00:00Z' }, { status: 201 })
+				Response.json(
+					{
+						token: 'ghs_x',
+						expiresAt: '2026-10-27T13:00:00Z',
+						appId: '123',
+						appSlug: 'hansi'
+					},
+					{ status: 201 }
+				)
 			)
 		);
 
 		const token = await tokens.get({ projectId: 'project-1', repositoryId: 'repo-1' });
 
-		expect(token).toEqual({ token: 'ghs_x', expiresAt: new Date('2026-10-27T13:00:00Z') });
+		expect(token).toEqual({
+			token: 'ghs_x',
+			expiresAt: new Date('2026-10-27T13:00:00Z'),
+			app: { id: '123', slug: 'hansi' }
+		});
 		expect(requests).toEqual([
 			{
 				method: 'POST',

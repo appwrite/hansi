@@ -10,7 +10,8 @@
 		"check": "tsc -p ."
 	},
 	"dependencies": {
-		"@hansi/engine": "workspace:*"
+		"@hansi/engine": "workspace:*",
+		"octokit": "^5.0.5"
 	},
 	"devDependencies": {
 		"@types/bun": "catalog:",

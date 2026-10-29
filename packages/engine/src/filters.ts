@@ -1,22 +1,54 @@
 import type { FileDiff } from './diff';
 
-// Which changed files the reviewer reads. Some files tell a reader nothing but can be checked by
-// running something (installing locked versions, re-running a generator); those are reviewed
-// only when a sandbox is available.
-
-export const lockfiles = [
+/**
+ * Dependency lockfiles. Reading one tells a model little, so they are ignored by default. With a
+ * sandbox the reviewer can install the locked versions and run the build and tests, so they are
+ * reviewed then.
+ */
+export const lockfileGlobs = [
 	'**/*.lock',
 	'**/package-lock.json',
 	'**/npm-shrinkwrap.json',
 	'**/pnpm-lock.yaml',
+	'**/yarn.lock',
+	'**/bun.lock',
 	'**/bun.lockb',
-	'**/go.sum'
+	'**/Cargo.lock',
+	'**/go.sum',
+	'**/poetry.lock',
+	'**/uv.lock',
+	'**/composer.lock',
+	'**/Gemfile.lock'
 ];
 
-export const generated = ['**/*.snap', '**/*.generated.*', '**/*.pb.go'];
+const lockfileMatchers = lockfileGlobs.map((g) => new Bun.Glob(g));
 
-/** Never worth reading, sandbox or not: build output, vendored code, bundles, media. */
-export const noise = [
+export function isLockfile(path: string): boolean {
+	return lockfileMatchers.some((glob) => glob.match(path));
+}
+
+/**
+ * Test snapshots and generated code. Read alone they say nothing about correctness, but with a
+ * sandbox the reviewer can run the snapshot tests or the generator and compare the output.
+ */
+export const outputGlobs = ['**/*.snap', '**/*.generated.*', '**/*.pb.go'];
+
+/** Ignored by default, but reviewed when a sandbox can check them by running something. */
+export const sandboxCheckedGlobs = [...lockfileGlobs, ...outputGlobs];
+
+const outputMatchers = outputGlobs.map((g) => new Bun.Glob(g));
+
+export function isGeneratedOutput(path: string): boolean {
+	return outputMatchers.some((glob) => glob.match(path));
+}
+
+/**
+ * Files that are almost never worth an LLM's attention. Build output, vendored code, minified
+ * bundles, and media stay ignored even with a sandbox: there is nothing to run that checks them
+ * which the review of their sources does not already cover.
+ */
+export const defaultIgnoreGlobs = [
+	...sandboxCheckedGlobs,
 	'**/*.min.js',
 	'**/*.min.css',
 	'**/*.map',
@@ -24,57 +56,62 @@ export const noise = [
 	'**/build/**',
 	'**/vendor/**',
 	'**/node_modules/**',
-	'**/*.{svg,png,jpg,jpeg,gif,webp,ico,pdf,woff,woff2,ttf}'
+	'**/*.svg',
+	'**/*.png',
+	'**/*.jpg',
+	'**/*.gif',
+	'**/*.ico',
+	'**/*.pdf',
+	'**/*.woff',
+	'**/*.woff2'
 ];
-
-export interface Excluded {
-	path: string;
-	reason: 'deleted' | 'binary' | 'no changes' | 'excluded by paths' | 'not in paths' | 'ignored';
-}
 
 export interface FilterResult {
 	included: FileDiff[];
-	excluded: Excluded[];
-}
-
-const globs = (patterns: string[]) => patterns.map((pattern) => new Bun.Glob(pattern));
-const matches = (patterns: Bun.Glob[], path: string) => patterns.some((glob) => glob.match(path));
-
-const lockfileGlobs = globs(lockfiles);
-const generatedGlobs = globs(generated);
-const noiseGlobs = globs(noise);
-
-export function isLockfile(path: string): boolean {
-	return matches(lockfileGlobs, path);
+	excluded: { path: string; reason: string }[];
 }
 
 /**
- * Splits changed files into reviewed and skipped. `paths` from the repository config come first:
- * `!` patterns exclude, the others form an allowlist that can also bring back a file ignored by
- * default.
+ * Applies default ignores plus `.hansi.json` path filters. Filters without `!` are an allowlist;
+ * filters with `!` exclude. User filters can re-include a default-ignored path. `sandbox` keeps
+ * the files only a sandbox can check (lockfiles, snapshots, generated code) in the review.
  */
 export function filterFiles(
 	files: FileDiff[],
-	paths: string[] = [],
+	pathFilters: string[] = [],
 	options: { sandbox?: boolean } = {}
 ): FilterResult {
-	const allow = globs(paths.filter((p) => !p.startsWith('!')));
-	const deny = globs(paths.filter((p) => p.startsWith('!')).map((p) => p.slice(1)));
+	const includes = pathFilters.filter((f) => !f.startsWith('!')).map((f) => new Bun.Glob(f));
+	const excludes = pathFilters
+		.filter((f) => f.startsWith('!'))
+		.map((f) => new Bun.Glob(f.slice(1)));
 	const ignored = options.sandbox
-		? noiseGlobs
-		: [...noiseGlobs, ...lockfileGlobs, ...generatedGlobs];
+		? defaultIgnoreGlobs.filter((g) => !sandboxCheckedGlobs.includes(g))
+		: defaultIgnoreGlobs;
+	const defaults = ignored.map((g) => new Bun.Glob(g));
 
 	const result: FilterResult = { included: [], excluded: [] };
-	const skip = (path: string, reason: Excluded['reason']) => result.excluded.push({ path, reason });
-
 	for (const file of files) {
-		if (file.status === 'deleted') skip(file.path, 'deleted');
-		else if (file.binary) skip(file.path, 'binary');
-		else if (file.hunks.length === 0) skip(file.path, 'no changes');
-		else if (matches(deny, file.path)) skip(file.path, 'excluded by paths');
-		else if (allow.length > 0 && !matches(allow, file.path)) skip(file.path, 'not in paths');
-		else if (allow.length === 0 && matches(ignored, file.path)) skip(file.path, 'ignored');
-		else result.included.push(file);
+		const reason = exclusionReason(file);
+		if (reason) {
+			result.excluded.push({ path: file.path, reason });
+		} else if (excludes.some((glob) => glob.match(file.path))) {
+			result.excluded.push({ path: file.path, reason: 'path filter' });
+		} else if (includes.length > 0) {
+			if (includes.some((glob) => glob.match(file.path))) result.included.push(file);
+			else result.excluded.push({ path: file.path, reason: 'not in path filters' });
+		} else if (defaults.some((glob) => glob.match(file.path))) {
+			result.excluded.push({ path: file.path, reason: 'ignored by default' });
+		} else {
+			result.included.push(file);
+		}
 	}
 	return result;
+
+	function exclusionReason(file: FileDiff) {
+		if (file.status === 'deleted') return 'deleted';
+		if (file.binary) return 'binary';
+		if (file.hunks.length === 0) return 'no content changes';
+		return null;
+	}
 }

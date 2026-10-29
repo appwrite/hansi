@@ -10,6 +10,9 @@ import type { Logger } from './logger';
 /** What the project's users see when a review fails. The cause stays in the logs. */
 export const FAILURE_REASON = 'The review could not be completed.';
 
+/** A failed answer is tried once more, as on hansi.codes: a question gets a reply, not a backlog. */
+export const CHAT_MAX_ATTEMPTS = 2;
+
 /** One delivery of a message on the reviews queue. */
 export interface Delivery {
 	payload: unknown;
@@ -93,20 +96,27 @@ export class Worker {
 			...(job.type === 'review' ? { review: job.reviewId } : {})
 		});
 		const { signal } = this.stopping;
+		const attempt = {
+			attempts: delivery.attempts + 1,
+			maxAttempts:
+				job.type === 'chat'
+					? Math.min(delivery.maxAttempts, CHAT_MAX_ATTEMPTS)
+					: delivery.maxAttempts
+		};
 
 		let failure: unknown;
 		try {
-			if (job.type === 'review') await handlers.review(job, signal);
-			else await handlers.chat(job, signal);
+			const run = { attempt, log: logger, signal };
+			if (job.type === 'review') await handlers.review(job, run);
+			else await handlers.chat(job, run);
 			logger.info('job done');
 			return { outcome: 'done' };
 		} catch (error) {
 			failure = error;
 		}
 
-		let retry =
-			!(failure instanceof NotImplementedError) && delivery.attempts + 1 < delivery.maxAttempts;
-		logger.error('job failed', { err: failure, attempt: delivery.attempts + 1, retry });
+		let retry = !(failure instanceof NotImplementedError) && attempt.attempts < attempt.maxAttempts;
+		logger.error('job failed', { err: failure, attempt: attempt.attempts, retry });
 		if (!retry && job.type === 'review') {
 			try {
 				await sink.failReview(

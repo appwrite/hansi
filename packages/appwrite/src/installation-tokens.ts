@@ -14,11 +14,14 @@ export class AppwriteInstallationTokens implements InstallationTokens {
 	}
 
 	async get(repository: { projectId: string; repositoryId: string }): Promise<InstallationToken> {
-		const { token, expiresAt } = await this.api.request<{ token: string; expiresAt: string }>(
-			'POST',
-			`/reviews/repositories/${encodeURIComponent(repository.repositoryId)}/tokens`,
-			{ projectId: repository.projectId }
-		);
-		return { token, expiresAt: new Date(expiresAt) };
+		const { token, expiresAt, appId, appSlug } = await this.api.request<{
+			token: string;
+			expiresAt: string;
+			appId: string;
+			appSlug: string;
+		}>('POST', `/reviews/repositories/${encodeURIComponent(repository.repositoryId)}/tokens`, {
+			projectId: repository.projectId
+		});
+		return { token, expiresAt: new Date(expiresAt), app: { id: appId, slug: appSlug } };
 	}
 }

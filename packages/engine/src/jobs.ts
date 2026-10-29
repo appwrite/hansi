@@ -20,6 +20,8 @@ export interface Repository {
 	providerRepositoryId: string;
 	owner: string;
 	name: string;
+	/** The Console's root, for links to a review. Absent when Appwrite has none to give. */
+	consoleUrl?: string;
 }
 
 /** The comment that asked for work: on the pull request conversation, or in a review thread. */
@@ -28,9 +30,9 @@ export interface CommentRef {
 	kind: 'issue' | 'review';
 }
 
+/** A pull request marked ready for review counts as opened. */
 export type ReviewTrigger =
-	| { kind: 'opened' | 'synchronize' | 'ready_for_review' | 'retry' }
-	| { kind: 'mention'; comment: CommentRef };
+	{ kind: 'opened' | 'synchronize' | 'retry' } | { kind: 'mention'; comment: CommentRef };
 
 /** Review one pull request at one head. Appwrite created the review document already. */
 export interface ReviewJob {
@@ -40,8 +42,8 @@ export interface ReviewJob {
 	repository: Repository;
 	pullNumber: number;
 	/**
-	 * The head when the review was queued. Appwrite moves a queued review to newer pushes without
-	 * queueing again, so the job reviews whatever the head is when it runs.
+	 * The head when the review was queued, empty for a mention. The job reviews whatever the head
+	 * is when it runs.
 	 */
 	headSha: string;
 	trigger: ReviewTrigger;
@@ -64,8 +66,9 @@ export interface ChatJob {
 		url: string;
 	};
 	/**
-	 * A review-thread reply that does not mention the bot. It is answered only when it replies
-	 * to one of the bot's own comments.
+	 * A comment that does not mention the bot. A review-thread reply is answered only when it
+	 * replies to one of the bot's own comments; a conversation comment only when it names an
+	 * open finding listed in a review body.
 	 */
 	unmentioned?: boolean;
 }

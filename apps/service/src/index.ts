@@ -3,6 +3,7 @@ import {
 	AppwriteResultsSink,
 	type AppwriteConfig
 } from '@hansi/appwrite';
+import { clearWorkdir } from '@hansi/engine';
 import { InstallationGitHubClientFactory } from '@hansi/github';
 import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
@@ -30,7 +31,9 @@ const sandboxes =
 				image: env.HANSI_SANDBOX_IMAGE
 			})
 		: undefined;
-const handlers = createHandlers({ github, sandboxes, results: sink }, createModels(env));
+// Checkouts a previous run of this process left behind, e.g. after it was killed mid-review.
+await clearWorkdir(undefined);
+const handlers = createHandlers({ github, sandboxes, results: sink, models: createModels(env) });
 
 const worker = new Worker({
 	sink,

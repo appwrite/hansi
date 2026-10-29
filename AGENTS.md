@@ -4,7 +4,7 @@ AI code review for Appwrite Cloud. A TypeScript service on Bun that takes review
 
 Appwrite owns everything around it: the GitHub App and its webhooks, which project reviews a repository (a `repositories` row with `resourceType = 'reviews'`), accounts, billing, model keys and the Console. This service owns everything between "review PR #N at SHA X" and "posted on GitHub".
 
-This is a new codebase. `TorstenDittmann/hansi` (hansi.codes) is reference material only: read it for prompts, guards and lessons, but write the code here fresh and never import from it.
+Reviews here must behave exactly like `TorstenDittmann/hansi` (hansi.codes): the engine, the review and chat jobs and the GitHub helpers are ported from it, file for file. Port a change made there rather than writing a different one here, and never import from it. What differs on purpose: Appwrite's internal Reviews API stands in for its database, models come from the environment, jobs come from Appwrite's queue, sandboxes run on the open-runtimes orchestrator, and there is no product analytics.
 
 ## Commands
 
@@ -26,9 +26,9 @@ The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwr
 
 - **apps/service** -- the process: env, logger, health server, the jobs port the consumer hands deliveries to, the worker that runs them and decides retries, job handlers. It starts the consumer as its child, so the container runs and stops as one
 - **apps/consumer** -- the queue consumer, in PHP on Appwrite's own utopia-php/queue: `Broker\Nats` on Cloud (adopting the queue Appwrite provisioned, with its attempts and backoff read from the work consumer), `Broker\Redis` on a self-hosted Appwrite (where it runs the attempts itself). Each delivery is one `POST /v1/jobs` to the service on loopback, settled by the outcome it answers with
-- **packages/engine** -- the engine and the contracts it works against (`GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. `runReviewJob` takes a review job from the pull request to the posted review. Its only I/O of its own is git, for the checkout; everything else goes through the contracts
+- **packages/engine** -- the engine and the contracts it works against (`GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. `runReviewJob` and `runChatJob` take a job from the pull request to what is posted on GitHub: the summary comment, the review, the check run, thread resolution and replies. Their only I/O of its own is git, for the checkout; everything else goes through the contracts
 - **packages/appwrite** -- Appwrite adapters: results sink and installation tokens (internal API), job payload parsing
-- **packages/github** -- GitHub client (REST, GraphQL for thread resolution) authenticated with installation tokens from Appwrite, renewed before they expire
+- **packages/github** -- GitHub client on octokit: hansi.codes' helpers (`pulls.ts`) as they are, authenticated with installation tokens from Appwrite, renewed before they expire
 - **packages/sandbox** -- sandboxes on the open-runtimes orchestrator, for the agent's `run_command`
 
 The engine depends only on the contracts; adapters depend on the engine, never the other way round.

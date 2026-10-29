@@ -1,172 +1,209 @@
-import { readFile } from 'node:fs/promises';
-import type { LanguageModel } from 'ai';
-import { runChat } from './chat';
-import { changedFiles, checkout, readRepoConfig } from './checkout';
-import type { EngineContext } from './context';
-import type { GitHubClient, PullRequest } from './github';
+import { blockingSeverity, parseRepoConfig, REPO_CONFIG_FILE } from './config';
+import { runChat, type ThreadMessage } from './chat';
+import {
+	chatFinding,
+	chatReplyFields,
+	findingsNamedIn,
+	openBodyFindings,
+	type ChatFindingRow
+} from './chat-finding';
+import { repliesToBot } from './chat-reply';
+import type { Attempt, EngineContext } from './context';
+import { absolutizeLinks } from './format';
+import { checkoutPullRequest } from './git';
 import type { ChatJob } from './jobs';
-import type { ModelUsage } from './results';
-import { REVIEW_MARKER, TRUSTED_ASSOCIATIONS } from './review-job';
-import { resolveRepoPath } from './tools';
+import { chatFailureReply } from './public-failure';
+import type { ChatRef, ModelUsage, PullRef } from './results';
+import { lazySandbox, openSandbox } from './review-sandbox';
+import { modelUsage, withWorkdir } from './shared';
+import { refreshSummaryAfterSettlement } from './summary';
 
-// One chat job, from the comment on GitHub to the reply under it. A comment that should not be
-// answered ends the job quietly: the person asking sees no reply, the same as for any comment
-// that does not mention the reviewer.
-
-/** Earlier comments the prompt holds. */
-const CONVERSATION_LIMIT = 20;
-/** Lines shown on each side of the line a review thread is on. */
-const THREAD_CONTEXT = 15;
-
-export interface ChatJobOptions {
-	model: LanguageModel;
-	signal?: AbortSignal;
-}
-
-interface Asked {
-	question: { id: number; author: string; body: string };
-	conversation: { id: number; author: string; body: string }[];
-	/** For a review thread: its first comment, which replies attach to, and where it is. */
-	thread?: { rootId: number; path: string; line?: number };
-}
+// One answer to a comment on a pull request. It follows hansi.codes' worker step for step;
+// Appwrite's Reviews API stands in for hansi.codes' database.
 
 export async function runChatJob(
 	job: ChatJob,
 	context: EngineContext,
-	options: ChatJobOptions
+	attempt: Attempt,
+	signal?: AbortSignal
 ): Promise<void> {
+	const { results, log } = context;
 	const { comment } = job;
-	// Not an app's comment: that keeps the reviewer from answering itself, or another bot, in a loop.
-	if (comment.author.endsWith('[bot]')) return;
-	const github = await context.github.forRepository(job.repository);
-	const pr = await github.getPullRequest(job.pullNumber);
-	// Every answer is a model run the project pays for: people with write access, and the author.
-	const allowed =
-		TRUSTED_ASSOCIATIONS.has(comment.authorAssociation) || comment.author === pr.author;
-	if (!allowed) return;
-
-	// The marker finds this answer again when a redelivery runs after it was posted.
-	const marker = `<!-- hansi:chat ${comment.id} -->`;
-	const asked = await findQuestion(github, job, pr, marker);
-	if (!asked) return;
-
-	const remote = await github.gitRemote();
-	const tree = await checkout(
-		remote,
-		{ headSha: pr.head.sha, baseSha: pr.base.sha },
-		options.signal
-	);
-	const usage: ModelUsage[] = [];
-	const chat = {
+	const pull: PullRef = {
 		projectId: job.repository.projectId,
 		repositoryId: job.repository.repositoryId,
-		pullNumber: pr.number,
-		commentId: comment.id
+		pullNumber: job.pullNumber
 	};
-	try {
-		// Settings come from the base, like a review's.
-		const { config } = await readRepoConfig(tree.dir, pr.base.sha, remote.token);
-		if (!config.reviews.enabled) return;
-		// Seen: an answer takes a while.
-		await github.addReaction({ id: comment.id, kind: comment.kind }, 'eyes').catch(() => {});
 
-		const files = await changedFiles(
-			tree.dir,
-			{ headSha: pr.head.sha, baseSha: pr.base.sha },
-			{ token: remote.token, signal: options.signal }
-		);
-		const reply = await runChat(
-			{
-				repoDir: tree.dir,
-				baseSha: pr.base.sha,
-				token: remote.token,
-				pullRequest: { title: pr.title, body: pr.body, author: pr.author },
-				files,
-				config,
-				thread: asked.thread && {
-					path: asked.thread.path,
-					line: asked.thread.line,
-					code: await codeAround(tree.dir, asked.thread.path, asked.thread.line)
-				},
-				conversation: asked.conversation,
-				question: asked.question
-			},
-			{ model: options.model, signal: options.signal, usage: (entry) => usage.push(entry) }
-		);
+	// Findings GitHub would not take inline have no thread; a conversation comment answers them.
+	const findings = await results.listFindings(pull, { limit: 200 });
+	const bodyFindings = comment.kind === 'issue' ? openBodyFindings(findings) : [];
+	if (job.unmentioned && comment.kind === 'issue' && bodyFindings.length === 0) {
+		log.info('conversation comment without a mention and no open body findings, skipping');
+		return;
+	}
 
-		// Billed before the reply is posted: once it is, a retry stops at the marker and would
-		// never bill this run. A failed write fails the job, and the retry answers again.
-		await context.results.recordChatUsage(chat, usage);
-		// Looked up again: an overlapping delivery of this job may have answered meanwhile.
-		if (!(await findQuestion(github, job, pr, marker))) return;
-		if (asked.thread) {
-			await github.replyToReviewComment(pr.number, asked.thread.rootId, `${reply}\n\n${marker}`);
+	const connection = await context.github.forRepository(job.repository);
+	const { github, app } = connection;
+	const mention = `@${app.slug}`;
+
+	const threadOf = () =>
+		comment.kind === 'review'
+			? github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)
+			: github.getRecentIssueComments(job.pullNumber);
+	// A reply without a mention is answered only when it replies to Hansi. Checked before the 👀,
+	// so people talking among themselves in a review thread see nothing from Hansi.
+	const early = job.unmentioned || bodyFindings.length > 0 ? await threadOf() : undefined;
+	if (early && comment.kind === 'review' && !repliesToBot(early, comment.id, mention)) {
+		log.info('review-thread reply is not to Hansi, skipping');
+		return;
+	}
+	// The comment being answered can settle a body-listed finding by quoting its title or line.
+	const answered = early?.find((c) => c.id === comment.id)?.body ?? '';
+	const named = findingsNamedIn(answered, bodyFindings, { mentioned: !job.unmentioned });
+	if (job.unmentioned && comment.kind === 'issue' && named.length === 0) {
+		log.info('conversation comment does not name an open finding, skipping');
+		return;
+	}
+
+	if (attempt.attempts === 1) {
+		await github
+			.acknowledgeComment({ id: comment.id, kind: comment.kind })
+			.catch((error: unknown) => log.warn('could not react to comment', { err: error }));
+	}
+
+	const repository = `${job.repository.owner}/${job.repository.name}`;
+	const files = { headSha: '' };
+	const reply = async (body: string) => {
+		const text = files.headSha ? absolutizeLinks(body, repository, files.headSha) : body;
+		if (comment.kind === 'review') {
+			await github.replyToReviewComment(job.pullNumber, comment.rootCommentId ?? comment.id, text);
 		} else {
-			await github.createIssueComment(pr.number, `@${asked.question.author} ${reply}\n\n${marker}`);
+			await github.createIssueComment(job.pullNumber, text);
 		}
+	};
+
+	const usage: ModelUsage[] = [];
+	const chat: ChatRef = { ...pull, commentId: comment.id };
+	try {
+		const pr = await github.getPullRequest(job.pullNumber);
+		files.headSha = pr.headSha;
+		// Settings and guidelines come from the base branch, which the PR author cannot change.
+		const { config } = parseRepoConfig(await github.getFileContent(REPO_CONFIG_FILE, pr.baseSha));
+
+		const comments = early ?? (await threadOf());
+		const thread: ThreadMessage[] = comments.map((c) => ({
+			author: c.author,
+			body: c.body,
+			fromBot: c.isBot
+		}));
+		const root = comments[0];
+		const bodyFinding = named[0];
+		const focus =
+			comment.kind === 'review' && root?.path
+				? { path: root.path, line: root.line ?? undefined, diffHunk: root.diffHunk }
+				: bodyFinding
+					? { path: bodyFinding.path, line: bodyFinding.endLine }
+					: undefined;
+
+		// Replies on a finding Hansi posted can resolve or dismiss that finding.
+		const finding: ChatFindingRow | undefined =
+			chatFinding(findings, comment.rootCommentId) ?? bodyFinding;
+		const findingIds = finding ? (named.length ? named.map((f) => f.id) : [finding.id]) : [];
+
+		let settled = false;
+		const learnings = await results.listLearnings(job.repository);
+
+		const token = await github.getInstallationToken();
+		const { sandboxes } = context;
+		const answer = await withWorkdir(context.workdir, async (repoDir) => {
+			const diff = await checkoutPullRequest({
+				dir: repoDir,
+				cloneUrl: pr.cloneUrl,
+				token,
+				pullNumber: pr.number,
+				baseSha: pr.baseSha,
+				headSha: pr.headSha
+			});
+			// Most replies need no commands, so the sandbox starts only when the first one runs.
+			const sandbox = sandboxes
+				? lazySandbox(async () =>
+						openSandbox({
+							client: sandboxes,
+							archiveUrl: await github.getArchiveUrl(pr.headSha),
+							config,
+							emit: () => {},
+							log
+						})
+					)
+				: undefined;
+			return runChat({
+				repoDir,
+				repository,
+				headSha: pr.headSha,
+				pullRequest: pr,
+				diff,
+				thread,
+				focus,
+				learnings,
+				trustedSource: { ref: pr.baseSha, token },
+				language: config.language,
+				...chatReplyFields(comment, finding),
+				model: context.models.review,
+				onModelCall: (call) => {
+					usage.push(modelUsage(call));
+				},
+				signal,
+				onRemember: async (rule) => {
+					await results.createLearning(job.repository, {
+						body: rule,
+						author: comment.author,
+						sourceUrl: comment.url
+					});
+				},
+				onMarkFinding: finding
+					? async (status, reason) => {
+							await results.updateFindings(pull, findingIds, { status, reason });
+							settled = true;
+						}
+					: undefined,
+				sandbox: sandbox?.runner
+			}).finally(() => sandbox?.close());
+		});
+
+		await reply(answer);
+		// A finding settled in the conversation (fixed, or intended) closes its thread after the answer.
+		if (settled) {
+			if (comment.rootCommentId) {
+				await github
+					.resolveReviewThreads(job.pullNumber, [comment.rootCommentId])
+					.catch((error: unknown) => log.warn('could not resolve thread', { err: error }));
+			}
+			// Keep the PR summary's open-finding list and tier in sync with the dismissal.
+			await refreshSummaryAfterSettlement({
+				results,
+				connection,
+				pull,
+				repository,
+				consoleUrl: job.repository.consoleUrl,
+				blockingSeverity: blockingSeverity(config),
+				log
+			}).catch((error: unknown) =>
+				log.warn('could not refresh summary after settlement', { err: error })
+			);
+		}
+		log.info('chat reply posted');
 	} catch (error) {
-		// A run that failed still used the model. The sink kept only what it did not store.
-		if (usage.length) await context.results.recordChatUsage(chat, usage).catch(() => {});
+		// Tell the person the answer failed, once retries are exhausted. The reply is fixed:
+		// the error can name a provider or include request details, and it stays in the logs.
+		const notice = chatFailureReply(attempt);
+		if (notice) await reply(notice).catch(() => {});
 		throw error;
 	} finally {
-		await tree.remove();
-	}
-}
-
-/** The comment to answer and what came before it, or null when it should not be answered. */
-async function findQuestion(
-	github: GitHubClient,
-	job: ChatJob,
-	pr: PullRequest,
-	marker: string
-): Promise<Asked | null> {
-	const { comment } = job;
-	if (comment.kind === 'issue') {
-		const comments = await github.listIssueComments(pr.number);
-		if (comments.some((c) => c.bot && c.body.includes(marker))) return null;
-		const index = comments.findIndex((c) => c.id === comment.id);
-		// Deleted since it was queued.
-		if (index < 0) return null;
-		return {
-			question: comments[index]!,
-			conversation: comments.slice(Math.max(0, index - CONVERSATION_LIMIT), index)
-		};
-	}
-
-	const rootId = comment.rootCommentId ?? comment.id;
-	const thread = (await github.listReviewComments(pr.number))
-		.filter((c) => c.id === rootId || c.inReplyToId === rootId)
-		.sort((a, b) => a.id - b.id);
-	if (thread.some((c) => c.bot && c.body.includes(marker))) return null;
-	const root = thread.find((c) => c.id === rootId);
-	const index = thread.findIndex((c) => c.id === comment.id);
-	if (!root || index < 0) return null;
-	// A reply that does not mention the reviewer is for it only in a thread on its own finding.
-	if (job.unmentioned) {
-		const reviews = await github.listReviews(pr.number);
-		const ours = reviews.some(
-			(r) => r.bot && r.id === root.reviewId && r.body.includes(REVIEW_MARKER)
-		);
-		if (!root.bot || !ours) return null;
-	}
-	return {
-		question: thread[index]!,
-		conversation: thread.slice(Math.max(0, index - CONVERSATION_LIMIT), index),
-		thread: { rootId, path: root.path, line: root.line }
-	};
-}
-
-/** Numbered lines of the head version around `line`, or the start of the file without one. */
-async function codeAround(repoDir: string, path: string, line?: number): Promise<string> {
-	try {
-		const lines = (await readFile(resolveRepoPath(repoDir, path), 'utf8')).split('\n');
-		const first = Math.max((line ?? 1) - THREAD_CONTEXT, 1);
-		const last = Math.min((line ?? 1) + THREAD_CONTEXT, lines.length);
-		return lines
-			.slice(first - 1, last)
-			.map((text, i) => `${String(first + i).padStart(5)}  ${text}`)
-			.join('\n');
-	} catch {
-		return '(not in the head of the pull request)';
+		if (usage.length) {
+			await results
+				.recordChatUsage(chat, usage)
+				.catch((error: unknown) => log.warn('could not record chat usage', { err: error }));
+		}
 	}
 }

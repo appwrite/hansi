@@ -15,7 +15,8 @@ const repository = z.object({
 	providerInstallationId: providerId,
 	providerRepositoryId: providerId,
 	owner: id,
-	name: id
+	name: id,
+	consoleUrl: z.url().optional()
 });
 
 const comment = z.object({
@@ -28,9 +29,12 @@ const review = z.object({
 	reviewId: id,
 	repository,
 	pullNumber: z.number().int().positive(),
-	headSha: z.string().regex(/^[0-9a-f]{40}$/),
+	// Empty for a mention: the job reviews whatever the head is when it runs.
+	headSha: z.union([z.literal(''), z.string().regex(/^[0-9a-f]{40}$/)]),
 	trigger: z.discriminatedUnion('kind', [
-		z.object({ kind: z.enum(['opened', 'synchronize', 'ready_for_review', 'retry']) }),
+		z.object({ kind: z.enum(['opened', 'synchronize', 'retry']) }),
+		// A pull request marked ready for review counts as opened, as hansi.codes treats it.
+		z.object({ kind: z.literal('ready_for_review').transform(() => 'opened' as const) }),
 		z.object({ kind: z.literal('mention'), comment })
 	])
 });

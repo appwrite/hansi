@@ -5,9 +5,13 @@ import { createOpenAI } from '@ai-sdk/openai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { createXai } from '@ai-sdk/xai';
 import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { wrapLanguageModel, type LanguageModel } from 'ai';
+import {
+	reasoningEfforts,
+	type EngineContext,
+	type ReasoningEffort,
+	type ReviewModel
+} from '@hansi/engine';
 import type { Env } from './env';
-import type { Models } from './handlers';
 
 // Model ids name their provider, as `provider:model` (`bedrock:global.anthropic.claude-…`).
 // Both models use one provider and one credential, `HANSI_AI_SECRET`, the way Appwrite will hand
@@ -37,16 +41,7 @@ export function parseModelId(id: string): { provider: string; model: string } {
 }
 
 /** The AI SDK's reasoning levels. Unset leaves the provider's default. */
-export const reasoningEfforts = [
-	'none',
-	'minimal',
-	'low',
-	'medium',
-	'high',
-	'xhigh',
-	'max'
-] as const;
-export type ReasoningEffort = (typeof reasoningEfforts)[number];
+export { reasoningEfforts, type ReasoningEffort };
 
 export type BedrockAuth =
 	{ apiKey: string } | { accessKeyId: string; secretAccessKey: string; sessionToken?: string };
@@ -83,34 +78,18 @@ export function missingConfig(
 	}
 }
 
-/** The provider's model, with the credential from the environment. */
-export function createLanguageModel(
-	env: Env,
-	id: string,
-	reasoning?: ReasoningEffort
-): LanguageModel {
-	const { provider } = parseModelId(id);
-	const model = providerModel(env, id);
-	if (!reasoning) return model;
-	return wrapLanguageModel({
-		model,
-		middleware: {
-			// OpenRouter reads the effort from its own options, the others from the shared setting.
-			transformParams: async ({ params }) =>
-				provider === 'openrouter'
-					? {
-							...params,
-							providerOptions: {
-								...params.providerOptions,
-								openrouter: {
-									...params.providerOptions?.openrouter,
-									reasoning: { effort: reasoning }
-								}
-							}
-						}
-					: { ...params, reasoning }
-		}
-	});
+/**
+ * The provider's model with the credential from the environment, named the way hansi.codes names
+ * it: the engine reads the provider for prompt caching and the reasoning setting.
+ */
+export function createReviewModel(env: Env, id: string, reasoning?: ReasoningEffort): ReviewModel {
+	const { provider, model } = parseModelId(id);
+	return {
+		model: providerModel(env, id),
+		provider: provider === 'bedrock' ? 'amazon-bedrock' : provider,
+		modelId: model,
+		reasoningEffort: reasoning ?? null
+	};
 }
 
 function providerModel(env: Env, id: string) {
@@ -142,12 +121,12 @@ function providerModel(env: Env, id: string) {
 	}
 }
 
-export function createModels(env: Env): Models {
+export function createModels(env: Env): EngineContext['models'] {
 	return {
-		reviewer: createLanguageModel(env, env.HANSI_REVIEW_MODEL, env.HANSI_REVIEW_REASONING),
-		verifier:
+		review: createReviewModel(env, env.HANSI_REVIEW_MODEL, env.HANSI_REVIEW_REASONING),
+		verify:
 			env.HANSI_VERIFY_MODEL || env.HANSI_VERIFY_REASONING
-				? createLanguageModel(
+				? createReviewModel(
 						env,
 						env.HANSI_VERIFY_MODEL ?? env.HANSI_REVIEW_MODEL,
 						env.HANSI_VERIFY_REASONING ?? env.HANSI_REVIEW_REASONING
