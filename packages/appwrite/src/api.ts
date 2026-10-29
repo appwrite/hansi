@@ -27,16 +27,19 @@ export class AppwriteApi {
 		this.http = config.fetch ?? fetch;
 	}
 
-	async request<T = void>(method: string, path: string, body: unknown): Promise<T> {
+	/** A GET sends `body` as the query string; every other method as JSON. */
+	async request<T = void>(method: string, path: string, body: Record<string, unknown>): Promise<T> {
+		const url = `${this.config.endpoint.replace(/\/+$/, '')}${path}`;
+		const get = method === 'GET';
 		let response: Response;
 		for (let attempt = 0; ; attempt++) {
-			response = await this.http(`${this.config.endpoint.replace(/\/+$/, '')}${path}`, {
+			response = await this.http(get ? `${url}?${query(body)}` : url, {
 				method,
 				headers: {
-					'content-type': 'application/json',
+					...(get ? {} : { 'content-type': 'application/json' }),
 					'x-appwrite-reviews-secret': this.config.secret
 				},
-				body: JSON.stringify(body)
+				...(get ? {} : { body: JSON.stringify(body) })
 			});
 			// Each route allows a number of calls per review a minute. Nothing was stored, so the
 			// same call is safe to send again once the window resets.
@@ -67,4 +70,12 @@ function rateLimitWait(response: Response, attempt: number): number {
 	const reset = Number(response.headers.get('x-ratelimit-reset'));
 	const wait = reset > 0 ? reset * 1000 - Date.now() : 1000 * 2 ** attempt;
 	return Math.min(Math.max(wait, 0), MAX_RATE_LIMIT_WAIT_MS);
+}
+
+function query(params: Record<string, unknown>): string {
+	const search = new URLSearchParams();
+	for (const [key, value] of Object.entries(params)) {
+		if (value !== undefined) search.set(key, String(value));
+	}
+	return search.toString();
 }

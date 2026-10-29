@@ -39,6 +39,18 @@ describe('parseJob', () => {
 		expect(job).toMatchObject({ trigger: { kind: 'mention', comment: { id: 7, kind: 'issue' } } });
 	});
 
+	test('parses a mention review without a head, and ready for review as opened', () => {
+		const mention = parseJob({
+			...review,
+			headSha: '',
+			trigger: { kind: 'mention', comment: { id: 7, kind: 'review' } }
+		});
+		const ready = parseJob({ ...review, trigger: { kind: 'ready_for_review' } });
+
+		expect(mention).toMatchObject({ headSha: '' });
+		expect(ready).toMatchObject({ trigger: { kind: 'opened' } });
+	});
+
 	test('parses a chat job', () => {
 		const job = parseJob({
 			type: 'chat',

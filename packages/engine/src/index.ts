@@ -1,23 +1,30 @@
-export * from './agent';
 export * from './chat';
 export * from './chat-job';
-export * from './checkout';
 export * from './config';
 export * from './diff';
 export * from './errors';
 export * from './filters';
 export * from './findings';
+export * from './format';
 export * from './git';
-export * from './grading';
-export * from './prompts';
-export * from './render';
+export * from './github';
+export * from './model-call';
+export * from './present';
 export * from './review';
 export * from './review-job';
+export * from './sandbox';
+export * from './shared';
+export * from './suggestions';
 export * from './tier';
-export * from './tools';
 export * from './verdict';
+export {
+	createRepoTools,
+	loadRepoGuidelines,
+	type EmitEvent,
+	type ReviewEvent as TraceStep,
+	type TrustedSource
+} from './tools';
 export type * from './context';
-export type * from './github';
 export type * from './jobs';
 export type * from './results';
-export type * from './sandbox';
+export type * from './sandboxes';

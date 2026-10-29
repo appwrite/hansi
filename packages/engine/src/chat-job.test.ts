@@ -1,273 +1,372 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runChatJob } from './chat-job';
+import { MockLanguageModelV4 } from 'ai/test';
+import type { EngineContext } from './context';
 import { git } from './git';
-import type { PullRequest } from './github';
+import { replyMarker, runChatJob } from './chat-job';
 import type { ChatJob } from './jobs';
-import type { SandboxClient } from './sandbox';
-import { MemoryGitHub, MemoryResultsSink, scriptedModel } from './testing';
+import { MemoryGitHub, MemoryResultsSink } from './testing';
 
-let root: string;
+// The chat job end to end against a local git remote, the in-memory GitHub and a scripted
+// model: who gets an answer, and what the answer changes.
+
+const usage = {
+	inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 },
+	outputTokens: { total: 20, text: 20, reasoning: 0 }
+};
+const toolCalls = (...calls: [string, unknown][]) => ({
+	content: calls.map(([toolName, input]) => ({
+		type: 'tool-call' as const,
+		toolCallId: toolName,
+		toolName,
+		input: JSON.stringify(input)
+	})),
+	finishReason: { unified: 'tool-calls' as const, raw: 'tool_use' },
+	usage,
+	warnings: []
+});
+const text = (answer: string) => ({
+	content: [{ type: 'text' as const, text: answer }],
+	finishReason: { unified: 'stop' as const, raw: 'stop' },
+	usage,
+	warnings: []
+});
 let remote: string;
 let baseSha: string;
 let headSha: string;
 
 beforeAll(async () => {
-	root = await mkdtemp(join(tmpdir(), 'hansi-chat-'));
-	remote = join(root, 'origin.git');
-	const work = join(root, 'work');
-	await mkdir(work);
-	await git(['init', '--quiet', '--bare', remote], { cwd: root });
-	await git(['config', 'uploadpack.allowFilter', 'true'], { cwd: remote });
-	await git(['config', 'uploadpack.allowAnySHA1InWant', 'true'], { cwd: remote });
-
-	const run = (args: string[]) => git(args, { cwd: work });
-	await run(['init', '--quiet', '-b', 'main']);
-	await run(['config', 'user.email', 'test@example.com']);
-	await run(['config', 'user.name', 'Test']);
-	const lines = Array.from({ length: 20 }, (_, i) => `const v${i + 1} = ${i + 1};`);
-	await writeFile(join(work, 'app.ts'), lines.join('\n') + '\n');
-	await run(['add', '-A']);
-	await run(['commit', '--quiet', '-m', 'base']);
-	baseSha = (await run(['rev-parse', 'HEAD'])).trim();
-
-	lines[4] = 'const v5 = 500;';
-	await writeFile(join(work, 'app.ts'), lines.join('\n') + '\n');
-	await run(['add', '-A']);
-	await run(['commit', '--quiet', '-m', 'head']);
-	headSha = (await run(['rev-parse', 'HEAD'])).trim();
-	await run(['push', '--quiet', remote, 'main']);
+	remote = await mkdtemp(join(tmpdir(), 'hansi-remote-'));
+	const run = (...args: string[]) => git(args, { cwd: remote });
+	await run('init', '--quiet', '--initial-branch=main');
+	await run('config', 'user.email', 'test@example.com');
+	await run('config', 'user.name', 'Test');
+	await run('config', 'uploadpack.allowFilter', 'true');
+	await run('config', 'uploadpack.allowAnySHA1InWant', 'true');
+	await Bun.$`mkdir -p ${join(remote, 'src')}`;
+	await writeFile(join(remote, 'src/math.ts'), 'export function divide(a, b) {\n  return 0;\n}\n');
+	await run('add', '.');
+	await run('commit', '--quiet', '-m', 'base');
+	baseSha = (await run('rev-parse', 'HEAD')).trim();
+	await writeFile(
+		join(remote, 'src/math.ts'),
+		'export function divide(a, b) {\n  return a / b;\n}\n'
+	);
+	await run('commit', '--quiet', '-am', 'divide');
+	headSha = (await run('rev-parse', 'HEAD')).trim();
+	await run('update-ref', 'refs/pull/7/head', headSha);
+	await run('checkout', '--quiet', baseSha);
 });
+afterAll(() => rm(remote, { recursive: true, force: true }));
 
-afterAll(() => rm(root, { recursive: true, force: true }));
-
-const pullRequest = (): PullRequest => ({
-	number: 7,
-	title: 'Bump v5',
-	body: '',
-	author: 'octocat',
-	authorAssociation: 'CONTRIBUTOR',
-	draft: false,
-	state: 'open',
-	merged: false,
-	base: { ref: 'main', sha: baseSha },
-	head: { ref: 'bump', sha: headSha },
-	url: 'https://github.com/acme/app/pull/7'
-});
-
-const job = (
-	comment: Partial<ChatJob['comment']> = {},
-	overrides: Partial<ChatJob> = {}
-): ChatJob => ({
-	type: 'chat',
-	repository: {
-		projectId: 'project-1',
-		projectInternalId: '1',
-		repositoryId: 'repo-1',
-		installationId: 'installation-1',
-		providerInstallationId: '42',
-		providerRepositoryId: '99',
-		owner: 'acme',
-		name: 'app'
-	},
-	pullNumber: 7,
-	comment: {
-		id: 1,
-		kind: 'issue',
-		author: 'maintainer',
+function setup(models: MockLanguageModelV4[] = []) {
+	const github = new MemoryGitHub({
+		number: 7,
+		title: 'Divide for real',
+		body: '',
+		author: 'octocat',
 		authorAssociation: 'MEMBER',
-		url: 'https://github.com/acme/app/pull/7#issuecomment-1',
-		...comment
-	},
-	...overrides
-});
-
-const unusedSandboxes: SandboxClient = {
-	create: () => Promise.reject(new Error('no sandboxes in chat'))
-};
-
-function setup() {
-	const github = new MemoryGitHub(pullRequest(), [], { url: `file://${remote}` });
-	return {
-		github,
-		context: { github, results: new MemoryResultsSink(), sandboxes: unusedSandboxes }
-	};
-}
-
-const answer = (body: string) =>
-	scriptedModel([{ calls: [{ tool: 'submit_reply', input: { body } }] }]);
-
-/** A finding the reviewer posted, as the first comment of a review thread. */
-function postFinding(github: MemoryGitHub) {
-	github.reviews.push({
-		pullNumber: 7,
-		review: {
-			commitId: headSha,
-			event: 'COMMENT',
-			body: 'Tier B\n\n<!-- hansi:review review-1 -->',
-			comments: []
+		draft: false,
+		state: 'open',
+		merged: false,
+		baseRef: 'main',
+		baseSha,
+		headSha,
+		cloneUrl: remote
+	});
+	const results = new MemoryResultsSink();
+	const model = new MockLanguageModelV4({
+		doGenerate: async () => {
+			const next = models[0];
+			throw new Error(`unexpected model call${next ? '' : ' (no script left)'}`);
 		}
 	});
-	github.reviewComments.push({
-		id: 10,
-		reviewId: 1,
-		path: 'app.ts',
-		line: 5,
-		body: '**v5 overflows**',
-		author: 'hansi[bot]',
-		bot: true,
-		url: 'memory://comment/10'
-	});
+	const context: EngineContext = {
+		github,
+		results,
+		models: { review: { model: models[0] ?? model, provider: 'mock', modelId: 'mock-1' } },
+		log: { info() {}, warn() {} }
+	};
+	return { github, results, context };
 }
 
-function reply(id: number, body: string, author = 'octocat') {
-	return {
-		id,
-		path: 'app.ts',
-		line: 5,
-		body,
-		author,
-		bot: false,
-		inReplyToId: 10,
-		url: `memory://comment/${id}`
-	};
+const repository = {
+	projectId: 'project1',
+	projectInternalId: '1',
+	repositoryId: 'repo1',
+	installationId: 'installation1',
+	providerInstallationId: '2',
+	providerRepositoryId: '3',
+	owner: 'acme',
+	name: 'math'
+};
+const first = { attempts: 1, maxAttempts: 2 };
+
+/** A completed review with one finding posted as review comment `rootId`. */
+function seedFinding(github: MemoryGitHub, results: MemoryResultsSink) {
+	results.queue({
+		id: 'review0',
+		status: 'completed',
+		headSha,
+		summary: 'Divides.',
+		verdict: 'request_changes',
+		tier: 'B',
+		completedAt: '2026-10-01T00:00:00.000Z'
+	});
+	const rootId = 500;
+	github.reviewComments.push({
+		id: rootId,
+		author: 'hansi[bot]',
+		isBot: true,
+		body: '**Division by zero**',
+		path: 'src/math.ts',
+		line: 2
+	});
+	results.findings.push({
+		id: 'finding1',
+		reviewId: 'review0',
+		path: 'src/math.ts',
+		startLine: 2,
+		endLine: 2,
+		severity: 'major',
+		category: 'bug',
+		title: 'Division by zero',
+		body: '`b` can be 0.',
+		suggestion: null,
+		status: 'posted',
+		dropReason: null,
+		providerCommentId: rootId,
+		createdAt: '2026-10-01T00:00:00.000Z'
+	});
+	return rootId;
 }
 
 describe('runChatJob', () => {
-	test('answers a question on the conversation, once', async () => {
-		const { github, context } = setup();
-		const results = context.results;
-		github.issueComments.push(
-			{ id: 1, body: '@hansi why 500?', author: 'maintainer', bot: false, url: 'memory://1' },
-			{ id: 2, body: 'Unrelated.', author: 'someone', bot: false, url: 'memory://2' }
-		);
-		const model = answer('Because `app.ts:5` says so.');
+	test('a reply on a finding can remember a rule and dismiss the finding', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(
+					['remember', { rule: 'Callers never pass 0 to divide.' }],
+					['mark_finding', { status: 'dismissed', reason: 'Callers check b first' }]
+				),
+				text('Makes sense, dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.reviewComments.push({
+			id: 501,
+			inReplyToId: rootId,
+			author: 'octocat',
+			isBot: false,
+			body: 'Callers check b first.'
+		});
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: 501,
+				kind: 'review',
+				rootCommentId: rootId,
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#discussion_r501'
+			},
+			unmentioned: true
+		};
 
-		await runChatJob(job(), context, { model });
-		await runChatJob(job(), context, { model: scriptedModel([]) });
+		await runChatJob(job, context, first);
 
-		const posted = github.issueComments.filter((c) => c.bot);
-		expect(posted).toHaveLength(1);
-		expect(posted[0]!.body).toBe(
-			'@maintainer Because `app.ts:5` says so.\n\n<!-- hansi:chat 1 -->'
-		);
-		expect(github.reactions).toEqual([{ comment: { id: 1, kind: 'issue' }, reaction: 'eyes' }]);
-		expect(results.calls).toEqual([
+		expect(github.reactions).toEqual([{ id: 501, kind: 'review' }]);
+		const reply = github.reviewComments.at(-1);
+		expect(reply?.inReplyToId).toBe(rootId);
+		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker(501)}`);
+		expect(results.learnings).toEqual([
 			{
-				method: 'recordChatUsage',
-				chat: { projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: 1 },
-				usage: [expect.objectContaining({ role: 'chat', inputTokens: 100 })]
+				body: 'Callers never pass 0 to divide.',
+				author: 'octocat',
+				sourceUrl: 'https://github.test/pull/7#discussion_r501'
 			}
 		]);
-		const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
-		expect(prompt).toContain('why 500?');
-		expect(prompt).not.toContain('Unrelated.');
-		expect(prompt).toContain('const v5 = 500;');
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.resolved.has(rootId)).toBe(true);
+		// The summary is rebuilt without the finding, and the change request withdrawn.
+		expect(github.summary()).toContain('Divides.');
+		expect(results.review('review0')?.tier).toBe('S');
+		expect(results.chatUsage[0]?.usage.map((u) => u.role)).toEqual(['chat']);
 	});
 
-	test("answers a reply to its own finding without a mention, in the finding's thread", async () => {
-		const { github, context } = setup();
-		postFinding(github);
-		github.reviewComments.push(reply(11, 'Is this not intended?'));
-		const model = answer('It is not: the old value was 5.');
-
-		await runChatJob(
-			job(
-				{ id: 11, kind: 'review', rootCommentId: 10, author: 'octocat', authorAssociation: 'NONE' },
-				{ unmentioned: true }
-			),
-			context,
-			{ model }
-		);
-
-		const posted = github.reviewComments.at(-1)!;
-		expect(posted).toMatchObject({ bot: true, inReplyToId: 10 });
-		expect(posted.body).toBe('It is not: the old value was 5.\n\n<!-- hansi:chat 11 -->');
-		const prompt = JSON.stringify(model.doGenerateCalls[0]!.prompt);
-		expect(prompt).toContain('v5 overflows');
-		expect(prompt).toContain('<thread path=\\"app.ts\\" line=\\"5\\">');
-	});
-
-	test("ignores a reply without a mention in a person's thread", async () => {
-		const { github, context } = setup();
+	test('a reply between people in a thread Hansi did not start gets nothing', async () => {
+		const { github, results, context } = setup();
 		github.reviewComments.push(
-			{ ...reply(10, 'Nice.'), inReplyToId: undefined },
-			reply(11, 'Thanks!')
+			{ id: 600, author: 'alice', isBot: false, body: 'Rename this?', path: 'src/math.ts' },
+			{ id: 601, inReplyToId: 600, author: 'bob', isBot: false, body: 'Sure.' }
 		);
 
 		await runChatJob(
-			job({ id: 11, kind: 'review', rootCommentId: 10 }, { unmentioned: true }),
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 601,
+					kind: 'review',
+					rootCommentId: 600,
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#discussion_r601'
+				},
+				unmentioned: true
+			},
 			context,
-			{ model: scriptedModel([]) }
+			first
 		);
 
+		expect(github.reactions).toEqual([]);
 		expect(github.reviewComments).toHaveLength(2);
+		expect(results.chatUsage).toEqual([]);
 	});
 
-	test('ignores people without write access other than the author, and bots', async () => {
+	test('a conversation comment without a mention needs an open finding in a review body', async () => {
 		const { github, context } = setup();
-		github.issueComments.push(
-			{ id: 1, body: '@hansi hi', author: 'drive-by', bot: false, url: 'memory://1' },
-			{ id: 2, body: '@hansi hi', author: 'other[bot]', bot: true, url: 'memory://2' }
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 700,
+					kind: 'issue',
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-700'
+				},
+				unmentioned: true
+			},
+			context,
+			first
 		);
 
-		await runChatJob(job({ id: 1, author: 'drive-by', authorAssociation: 'NONE' }), context, {
-			model: scriptedModel([])
-		});
-		await runChatJob(job({ id: 2, author: 'other[bot]' }), context, {
-			model: scriptedModel([])
-		});
+		expect(github.reactions).toEqual([]);
+		expect(github.issueComments).toEqual([]);
+	});
+
+	test('the answer is to the queued comment, not to a reply posted after it', async () => {
+		const model = new MockLanguageModelV4({ doGenerate: [text('It returns a / b.')] });
+		const { github, context } = setup([model]);
+		github.issueComments.push(
+			{ id: 900, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{ id: 901, author: 'carol', isBot: false, body: 'Unrelated: ship it on Friday?' }
+		);
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: 900,
+				kind: 'issue',
+				author: 'bob',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#issuecomment-900'
+			}
+		};
+
+		await runChatJob(job, context, first);
+
+		const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+		expect(prompt).toContain('what does divide return?');
+		expect(prompt).not.toContain('ship it on Friday');
+		expect(github.issueComments.at(-1)?.body).toBe(`It returns a / b.\n\n${replyMarker(900)}`);
+	});
+
+	test('a retry after the answer was posted does not answer again', async () => {
+		const { github, results, context } = setup();
+		github.issueComments.push(
+			{ id: 950, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{
+				id: 951,
+				author: 'hansi[bot]',
+				isBot: true,
+				body: `It returns a / b.\n\n${replyMarker(950)}`
+			}
+		);
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 950,
+					kind: 'issue',
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-950'
+				}
+			},
+			context,
+			{ attempts: 2, maxAttempts: 2 }
+		);
 
 		expect(github.issueComments).toHaveLength(2);
-		expect(github.reactions).toHaveLength(0);
+		expect(results.chatUsage).toEqual([]);
+
+		// It still finds the answer once more than 20 newer comments follow it.
+		for (let id = 952; id < 980; id++) {
+			github.issueComments.push({ id, author: 'carol', isBot: false, body: 'More talk.' });
+		}
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 950,
+					kind: 'issue',
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-950'
+				}
+			},
+			context,
+			{ attempts: 2, maxAttempts: 2 }
+		);
+		expect(github.issueComments).toHaveLength(30);
 	});
 
-	test('answers the author of the pull request without write access', async () => {
-		const { github, context } = setup();
-		github.issueComments.push({
-			id: 1,
-			body: '@hansi is this fine?',
-			author: 'octocat',
-			bot: false,
-			url: 'memory://1'
-		});
-
-		await runChatJob(job({ author: 'octocat', authorAssociation: 'CONTRIBUTOR' }), context, {
-			model: answer('Yes.')
-		});
-
-		expect(github.issueComments.at(-1)!.body).toStartWith('@octocat Yes.');
-	});
-
-	test('does not answer before the usage is stored, so a retry can bill it', async () => {
-		const { github, context } = setup();
-		github.issueComments.push({
-			id: 1,
-			body: '@hansi why?',
-			author: 'maintainer',
-			bot: false,
-			url: 'memory://1'
-		});
-		const results = Object.assign(Object.create(context.results) as MemoryResultsSink, {
-			async recordChatUsage() {
-				throw new Error('Appwrite is down');
+	test('the last attempt that fails says so in a fixed reply', async () => {
+		const failing = new MockLanguageModelV4({
+			doGenerate: async () => {
+				throw new Error('provider exploded with secret details');
 			}
 		});
+		const { github, context } = setup([failing]);
 
 		await expect(
-			runChatJob(job(), { ...context, results }, { model: answer('Because.') })
-		).rejects.toThrow('Appwrite is down');
+			runChatJob(
+				{
+					type: 'chat',
+					repository,
+					pullNumber: 7,
+					comment: {
+						id: 800,
+						kind: 'issue',
+						author: 'bob',
+						authorAssociation: 'MEMBER',
+						url: 'https://github.test/pull/7#issuecomment-800'
+					}
+				},
+				context,
+				{ attempts: 2, maxAttempts: 2 }
+			)
+		).rejects.toThrow();
 
-		expect(github.issueComments.filter((c) => c.bot)).toHaveLength(0);
-	});
-
-	test('ignores a comment deleted since it was queued', async () => {
-		const { github, context } = setup();
-
-		await runChatJob(job(), context, { model: scriptedModel([]) });
-
-		expect(github.issueComments).toHaveLength(0);
+		expect(github.issueComments.map((c) => c.body)).toEqual([
+			"Sorry, I couldn't answer that right now."
+		]);
 	});
 });

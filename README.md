@@ -46,13 +46,14 @@ On Appwrite Cloud, open your project in the [Console](https://cloud.appwrite.io)
 
 ### Repository settings
 
-Every setting is optional. Add a `.hansi.json` to the base branch to change them, since it is read from there; a file that does not parse falls back to the defaults and the review says why.
+Every setting is optional. Add a `.hansi.json` to the base branch to change them, since it is read from there; a file that does not parse falls back to the defaults and the review says why. The file is the same one [hansi.codes](https://hansi.codes) reads, and its [JSON Schema](https://hansi.codes/schema.json) gives editors completion.
 
 ```json
 {
+	"$schema": "https://hansi.codes/schema.json",
 	"reviews": {
 		"profile": "balanced",
-		"paths": ["src/**", "!src/generated/**"],
+		"pathFilters": ["src/**", "!src/generated/**"],
 		"minSeverity": "minor",
 		"requestChanges": "major"
 	},
@@ -70,7 +71,7 @@ Every setting is optional. Add a `.hansi.json` to the base branch to change them
 | `reviews.auto`                       | `true`     | Review when a pull request is opened or pushed to. Mentions work either way.                                                          |
 | `reviews.drafts`                     | `false`    | Review draft pull requests too.                                                                                                       |
 | `reviews.baseBranches`               | `[]`       | Only review pull requests into these branches. Empty means every branch.                                                              |
-| `reviews.paths`                      | `[]`       | Globs of files to review. A leading `!` excludes, e.g. `"!docs/**"`.                                                                  |
+| `reviews.pathFilters`                | `[]`       | Globs of files to review. A leading `!` excludes, e.g. `"!docs/**"`.                                                                  |
 | `reviews.profile`                    | `balanced` | `chill` reports only bugs it can show; `balanced` adds risky patterns, weak tests and broken docs; `strict` adds naming and style.    |
 | `reviews.minSeverity`                | `minor`    | Findings below this severity (`info`, `minor`, `major`, `critical`) are not posted.                                                   |
 | `reviews.maxComments`                | `15`       | The most inline comments one review posts, up to 100.                                                                                 |
@@ -80,7 +81,8 @@ Every setting is optional. Add a `.hansi.json` to the base branch to change them
 | `instructions`                       | `""`       | Extra review instructions, in plain language.                                                                                         |
 | `pathInstructions`                   | `[]`       | Instructions for files matching a glob.                                                                                               |
 | `language`                           | `en`       | Language of review comments.                                                                                                          |
-| `sandbox.setup`                      | `""`       | Shell command run when a review first runs a command, e.g. `npm ci`. The sandbox reaches public hosts.                                |
+| `sandbox.setup`                      | `""`       | Shell command run in the sandbox before the review starts, e.g. `npm ci`.                                                             |
+| `sandbox.network`                    | `public`   | `public` allows HTTP and HTTPS to public hosts; `none` removes the network.                                                           |
 
 ## Self-Hosting
 

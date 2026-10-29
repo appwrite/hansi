@@ -1,37 +1,45 @@
-import { severities, tiers, worseTier, type Severity, type Tier } from './grading';
+import { severities, tiers, type Severity, type Tier } from './config';
 
-// The tier grades merge confidence. The model proposes one; open findings cap how good it can
-// be, so a pull request with a critical finding never reads as ready to merge.
+export { tierMeaning, tiers, type Tier } from './config';
 
-const cap: Record<Severity, Tier> = {
+/** The best tier a PR can get with a finding of this severity still open. */
+const capBySeverity: Record<Severity, Tier> = {
+	// Informational notes don't stand in the way of merging.
 	info: 'S',
 	minor: 'A',
 	major: 'B',
 	critical: 'D'
 };
 
-/** The best tier the open findings allow. */
-export function tierCap(open: Severity[]): Tier {
-	return open.reduce<Tier>((best, severity) => worseTier(best, cap[severity]), 'S');
+/** Best tier allowed by the open findings: the worst severity decides. */
+export function tierCap(openSeverities: Severity[]): Tier {
+	const worst = openSeverities.reduce<Severity | null>(
+		(acc, s) => (acc === null || severities.indexOf(s) > severities.indexOf(acc) ? s : acc),
+		null
+	);
+	return worst ? capBySeverity[worst] : 'S';
 }
 
-/** The model's tier, or the cap when the model's is better than the findings allow. */
-export function finalTier(proposed: Tier | undefined, open: Severity[]): Tier {
-	const limit = tierCap(open);
-	return proposed ? worseTier(proposed, limit) : limit;
+/** The model's grade, but never better than the findings allow. */
+export function finalTier(modelTier: Tier | undefined, cap: Tier): Tier {
+	if (!modelTier) return cap;
+	return tiers.indexOf(modelTier) > tiers.indexOf(cap) ? modelTier : cap;
 }
 
-/** The tier after findings change outside a review, e.g. a thread dismissed, with its reason. */
-export function standing(open: { severity: Severity; title: string }[]): {
+/**
+ * Tier and reason after findings change outside a full review (e.g. a thread dismissal).
+ * With nothing open the PR is mergeable; otherwise the worst remaining finding caps the grade.
+ */
+export function standingFromOpenFindings(open: { severity: Severity; title: string }[]): {
 	tier: Tier;
-	reason: string;
+	tierReason: string;
 } {
-	const worst = [...open].sort(
-		(a, b) => severities.indexOf(b.severity) - severities.indexOf(a.severity)
-	)[0];
-	if (!worst || worst.severity === 'info') return { tier: tiers[0], reason: '' };
+	if (open.length === 0) return { tier: 'S', tierReason: '' };
+	const worst = open.reduce((a, b) =>
+		severities.indexOf(b.severity) > severities.indexOf(a.severity) ? b : a
+	);
 	return {
 		tier: tierCap(open.map((f) => f.severity)),
-		reason: `Limited by an open ${worst.severity} finding: ${worst.title}`
+		tierReason: `Limited by an open ${worst.severity} finding: ${worst.title}`
 	};
 }

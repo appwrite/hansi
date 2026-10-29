@@ -1,6 +1,8 @@
 export interface InstallationToken {
 	token: string;
 	expiresAt: Date;
+	/** The GitHub App the token is for. */
+	app: { id: string; slug: string };
 }
 
 /**

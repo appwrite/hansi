@@ -1,249 +1,482 @@
-// In-memory adapters for tests. Not for production: nothing here survives a restart.
-
-import { MockLanguageModelV4 } from 'ai/test';
 import type {
-	CheckRun,
-	FailedCheck,
+	CheckConclusion,
+	GitHubApp,
 	GitHubClient,
 	GitHubClientFactory,
-	GitRemote,
-	IssueComment,
+	GitHubConnection,
+	PostedReviewComment,
 	PullRequest,
-	PullRequestFile,
-	Reaction,
 	ReviewComment,
-	SubmittedReview
+	ReviewEvent,
+	ReviewThread,
+	ThreadComment
 } from './github';
 import type {
 	ChatRef,
+	FindingRecord,
+	FindingStatus,
 	ModelUsage,
+	PullRef,
 	ResultsSink,
 	ReviewOutcome,
+	ReviewRecord,
 	ReviewRef,
 	TraceEvent
 } from './results';
-import type { CommandResult, Sandbox, SandboxClient, SandboxSpec } from './sandbox';
+import type { Sandbox, SandboxClient, SandboxResult, SandboxSpec } from './sandboxes';
+import type { Tier } from './config';
 
-export type SinkCall =
-	| { method: 'startReview'; review: ReviewRef; headSha: string; baseSha: string }
-	| { method: 'recordEvents'; review: ReviewRef; events: TraceEvent[] }
-	| { method: 'recordUsage'; review: ReviewRef; usage: ModelUsage[] }
-	| { method: 'completeReview'; review: ReviewRef; outcome: ReviewOutcome }
-	| { method: 'skipReview'; review: ReviewRef; reason: string }
-	| { method: 'failReview'; review: ReviewRef; reason: string }
-	| { method: 'recordChatUsage'; chat: ChatRef; usage: ModelUsage[] };
+// In-memory stand-ins for the contracts, for tests here and in the adapters and the service.
 
+/** Appwrite's Reviews API, kept in memory. Reviews belong to one pull request per test. */
 export class MemoryResultsSink implements ResultsSink {
-	readonly calls: SinkCall[] = [];
-	/** Set to answer `startReview` as for a review that already ended. */
-	ended = false;
+	readonly reviews: ReviewRecord[] = [];
+	readonly findings: FindingRecord[] = [];
+	readonly learnings: { body: string; author: string; sourceUrl: string }[] = [];
+	readonly events: TraceEvent[] = [];
+	readonly usage: ModelUsage[] = [];
+	readonly chatUsage: { chat: ChatRef; usage: ModelUsage[] }[] = [];
+	readonly skipped: { reviewId: string; reason: string }[] = [];
+	readonly failed: { reviewId: string; reason: string }[] = [];
+	private clock = 0;
+	private ids = 0;
 
-	async startReview(review: ReviewRef, input: { headSha: string; baseSha: string }) {
-		this.calls.push({ method: 'startReview', review, ...input });
-		return !this.ended;
+	/** Adds a queued review, as Appwrite does when a webhook arrives. */
+	queue(review: Partial<ReviewRecord> & { id: string }): ReviewRecord {
+		const record: ReviewRecord = {
+			status: 'queued',
+			trigger: 'opened',
+			headSha: '',
+			summary: '',
+			tierReason: '',
+			walkthrough: [],
+			...review
+		};
+		this.reviews.unshift(record);
+		return record;
 	}
 
-	async recordEvents(review: ReviewRef, events: TraceEvent[]) {
-		this.calls.push({ method: 'recordEvents', review, events: events.splice(0) });
+	review(id: string): ReviewRecord | undefined {
+		return this.reviews.find((review) => review.id === id);
 	}
 
-	async recordUsage(review: ReviewRef, usage: ModelUsage[]) {
-		this.calls.push({ method: 'recordUsage', review, usage: usage.splice(0) });
+	async listReviews(_pull: PullRef): Promise<ReviewRecord[]> {
+		return this.reviews.map((review) => ({ ...review }));
 	}
 
-	async completeReview(review: ReviewRef, outcome: ReviewOutcome) {
-		this.calls.push({ method: 'completeReview', review, outcome });
+	async listFindings(_pull: PullRef, options: { limit?: number } = {}): Promise<FindingRecord[]> {
+		const completed = new Set(
+			this.reviews.filter((review) => review.status === 'completed').map((review) => review.id)
+		);
+		return this.findings
+			.filter((finding) => completed.has(finding.reviewId))
+			.slice(0, options.limit ?? 200)
+			.map((finding) => ({ ...finding }));
 	}
 
-	async skipReview(review: ReviewRef, reason: string) {
-		this.calls.push({ method: 'skipReview', review, reason });
+	async updateFindings(
+		_pull: PullRef,
+		ids: string[],
+		update: { status: FindingStatus; reason: string; from?: FindingStatus }
+	): Promise<void> {
+		for (const finding of this.findings) {
+			if (!ids.includes(finding.id)) continue;
+			if (update.from && finding.status !== update.from) continue;
+			finding.status = update.status;
+			finding.dropReason = update.reason;
+		}
 	}
 
-	async failReview(review: ReviewRef, reason: string) {
-		this.calls.push({ method: 'failReview', review, reason });
+	async listLearnings(): Promise<string[]> {
+		return this.learnings.map((learning) => learning.body);
 	}
 
-	async recordChatUsage(chat: ChatRef, usage: ModelUsage[]) {
-		this.calls.push({ method: 'recordChatUsage', chat, usage: usage.splice(0) });
+	async createLearning(
+		_repository: { projectId: string; repositoryId: string },
+		learning: { body: string; author: string; sourceUrl: string }
+	): Promise<void> {
+		this.learnings.push(learning);
+	}
+
+	async startReview(ref: ReviewRef, input: { headSha: string; baseSha: string }): Promise<boolean> {
+		const review = this.review(ref.reviewId);
+		if (!review) throw new Error(`review ${ref.reviewId} not found`);
+		if (review.status !== 'queued' && review.status !== 'processing') return false;
+		review.status = 'processing';
+		review.headSha = input.headSha;
+		return true;
+	}
+
+	async recordEvents(_ref: ReviewRef, events: TraceEvent[]): Promise<void> {
+		this.events.push(...events.splice(0));
+	}
+
+	async recordUsage(_ref: ReviewRef, usage: ModelUsage[]): Promise<void> {
+		this.usage.push(...usage.splice(0));
+	}
+
+	async completeReview(ref: ReviewRef, outcome: ReviewOutcome): Promise<void> {
+		const review = this.end(ref, 'completed');
+		review.verdict = outcome.verdict;
+		review.tier = outcome.tier;
+		review.tierReason = outcome.tierReason;
+		review.summary = outcome.summary;
+		review.walkthrough = outcome.walkthrough;
+		for (const finding of outcome.findings) {
+			this.findings.push({
+				...finding,
+				id: `finding-${++this.ids}`,
+				reviewId: ref.reviewId,
+				createdAt: new Date(this.clock).toISOString()
+			});
+		}
+	}
+
+	async updateGrade(ref: ReviewRef, grade: { tier: Tier; tierReason: string }): Promise<void> {
+		const review = this.review(ref.reviewId);
+		if (!review || review.status !== 'completed') throw new Error('review is not completed');
+		review.tier = grade.tier;
+		review.tierReason = grade.tierReason;
+	}
+
+	async skipReview(ref: ReviewRef, reason: string, headSha?: string): Promise<void> {
+		const review = this.end(ref, 'skipped');
+		review.summary = reason;
+		if (headSha) review.headSha = headSha;
+		this.skipped.push({ reviewId: ref.reviewId, reason });
+	}
+
+	async failReview(ref: ReviewRef, reason: string): Promise<void> {
+		this.end(ref, 'failed');
+		this.failed.push({ reviewId: ref.reviewId, reason });
+	}
+
+	async recordChatUsage(chat: ChatRef, usage: ModelUsage[]): Promise<void> {
+		this.chatUsage.push({ chat, usage: usage.splice(0) });
+	}
+
+	private end(ref: ReviewRef, status: ReviewRecord['status']): ReviewRecord {
+		const review = this.review(ref.reviewId) ?? this.queue({ id: ref.reviewId });
+		if (review.status !== 'queued' && review.status !== 'processing') {
+			throw new Error(`review ${ref.reviewId} is already ${review.status}`);
+		}
+		review.status = status;
+		review.completedAt = new Date(++this.clock).toISOString();
+		return review;
 	}
 }
 
-/** One model response: text that ends the turn, or tool calls. */
-export type ScriptedTurn = { text: string } | { calls: { tool: string; input: unknown }[] };
+export interface MemoryCheckRun {
+	id: number;
+	name: string;
+	headSha: string;
+	status: 'in_progress' | 'completed';
+	conclusion?: CheckConclusion;
+	title?: string;
+	summary?: string;
+	detailsUrl?: string;
+	/** Every output it showed, in order. */
+	outputs: { title: string; summary: string }[];
+}
+
+export interface MemoryReview {
+	id: number;
+	commitId: string;
+	event: ReviewEvent;
+	body: string;
+	comments: ReviewComment[];
+	state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED';
+}
+
+export interface MemoryIssueComment {
+	id: number;
+	body: string;
+	author: string;
+	isBot: boolean;
+}
+
+export interface MemoryReviewComment extends ThreadComment {
+	inReplyToId?: number;
+	reviewId?: number;
+	subjectType?: 'file';
+}
 
 /**
- * A model that replays `turns` in order, one per call, and throws when they run out. Its
- * `doGenerateCalls` show what each call was sent.
+ * One repository on GitHub, kept in memory: a pull request, its comments, reviews, threads and
+ * check runs. Its factory returns itself for any repository.
  */
-export function scriptedModel(turns: ScriptedTurn[]): MockLanguageModelV4 {
-	let next = 0;
-	return new MockLanguageModelV4({
-		provider: 'scripted',
-		modelId: 'scripted-model',
-		doGenerate: async () => {
-			const turn = turns[next++];
-			if (!turn) throw new Error(`The script has no turn ${next}`);
-			const usage = {
-				inputTokens: { total: 100, noCache: 80, cacheRead: 20, cacheWrite: 0 },
-				outputTokens: { total: 10, text: 8, reasoning: 2 }
-			};
-			if ('text' in turn) {
-				return {
-					content: [{ type: 'text', text: turn.text }],
-					finishReason: { unified: 'stop', raw: undefined },
-					usage,
-					warnings: []
-				};
-			}
-			return {
-				content: turn.calls.map((call, i) => ({
-					type: 'tool-call' as const,
-					toolCallId: `call-${next}-${i}`,
-					toolName: call.tool,
-					input: JSON.stringify(call.input)
-				})),
-				finishReason: { unified: 'tool-calls', raw: undefined },
-				usage,
-				warnings: []
-			};
-		}
-	});
-}
-
-/** A GitHub repository in memory, with one pull request. Records what the engine posts. */
 export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
-	/** `bot: false` for a review a person posted; the ones created here are the app's. */
-	readonly reviews: {
-		pullNumber: number;
-		review: Parameters<GitHubClient['createReview']>[1];
-		bot?: boolean;
-	}[] = [];
-	/** Review comments, replies included. Add a person's with `bot: false`. */
-	readonly reviewComments: ReviewComment[] = [];
-	/** Comments on the conversation. Add a person's with `bot: false`. */
-	readonly issueComments: IssueComment[] = [];
-	readonly reactions: { comment: { id: number; kind: 'issue' | 'review' }; reaction: Reaction }[] =
-		[];
-	readonly checkRuns: CheckRun[] = [];
-	/** Set to make check runs fail, as for an installation without the permission. */
-	checksForbidden = false;
-	private nextCommentId = 1000;
+	readonly app: GitHubApp = { id: '123', slug: 'hansi' };
+	readonly files = new Map<string, string>();
+	readonly issueComments: MemoryIssueComment[] = [];
+	readonly reviewComments: MemoryReviewComment[] = [];
+	readonly reviews: MemoryReview[] = [];
+	readonly checkRuns: MemoryCheckRun[] = [];
+	readonly reactions: { id: number; kind: 'issue' | 'review' }[] = [];
+	readonly resolved = new Set<number>();
+	readonly writers = new Set<string>();
+	/** Heads `getPullRequest` reports after the first read, in order, e.g. a push mid-review. */
+	readonly nextHeads: string[] = [];
+	private ids = 1000;
 
-	constructor(
-		public pullRequest: PullRequest,
-		public files: PullRequestFile[],
-		private readonly remote: GitRemote
-	) {}
+	constructor(public pullRequest: PullRequest) {}
 
-	async forRepository(): Promise<GitHubClient> {
-		return this;
+	async forRepository(): Promise<GitHubConnection> {
+		return { github: this, app: this.app };
 	}
 
-	async gitRemote(): Promise<GitRemote> {
-		return this.remote;
+	async getInstallationToken(): Promise<string> {
+		return '';
 	}
 
 	async getPullRequest(): Promise<PullRequest> {
-		return this.pullRequest;
+		const next = this.nextHeads.shift();
+		if (next) this.pullRequest = { ...this.pullRequest, headSha: next };
+		return { ...this.pullRequest };
 	}
 
-	async listPullRequestFiles(): Promise<PullRequestFile[]> {
-		return this.files;
+	async isTrustedAuthor(pr: { author: string; authorAssociation: string }): Promise<boolean> {
+		if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation)) return true;
+		return this.hasWriteAccess(pr.author);
+	}
+
+	async hasWriteAccess(username: string): Promise<boolean> {
+		return this.writers.has(username);
 	}
 
 	async getArchiveUrl(ref: string): Promise<string> {
-		return `memory://archive/${ref}`;
+		return `https://codeload.github.test/${ref}.tar.gz`;
 	}
 
-	async listFailedChecks(): Promise<FailedCheck[]> {
-		return [];
+	async getFileContent(path: string): Promise<string | null> {
+		return this.files.get(path) ?? null;
 	}
 
-	async listReviews(): Promise<SubmittedReview[]> {
-		return this.reviews.map(({ review, bot = true }, i) => ({
-			id: i + 1,
-			body: review.body,
-			commitId: review.commitId,
-			url: `memory://review/${i + 1}`,
-			bot
-		}));
-	}
-
-	async listReviewComments(): Promise<ReviewComment[]> {
-		return this.reviewComments.map((comment) => ({ ...comment }));
-	}
-
-	async createReview(
-		pullNumber: number,
-		review: Parameters<GitHubClient['createReview']>[1]
-	): Promise<{ id: number; url: string }> {
-		this.reviews.push({ pullNumber, review });
-		return { id: this.reviews.length, url: `memory://review/${this.reviews.length}` };
-	}
-
-	async replyToReviewComment(
-		_pullNumber: number,
-		commentId: number,
-		body: string
-	): Promise<{ id: number }> {
-		const root = this.reviewComments.find((comment) => comment.id === commentId);
-		if (!root) throw new Error(`No review comment ${commentId}`);
-		const id = this.nextCommentId++;
-		this.reviewComments.push({
+	async createReview(input: {
+		pullNumber: number;
+		commitId: string;
+		body: string;
+		comments: ReviewComment[];
+		event: ReviewEvent;
+	}): Promise<{ id: number }> {
+		const id = ++this.ids;
+		const state = {
+			APPROVE: 'APPROVED',
+			REQUEST_CHANGES: 'CHANGES_REQUESTED',
+			COMMENT: 'COMMENTED'
+		} as const;
+		this.reviews.push({
 			id,
-			path: root.path,
-			line: root.line,
-			body,
-			author: 'hansi[bot]',
-			bot: true,
-			inReplyToId: root.inReplyToId ?? root.id,
-			url: `memory://comment/${id}`
+			commitId: input.commitId,
+			event: input.event,
+			body: input.body,
+			comments: input.comments,
+			state: state[input.event]
 		});
+		for (const comment of input.comments) {
+			this.reviewComments.push({
+				id: ++this.ids,
+				reviewId: id,
+				author: `${this.app.slug}[bot]`,
+				isBot: true,
+				body: comment.body,
+				path: comment.path,
+				line: comment.line
+			});
+		}
 		return { id };
 	}
 
-	async resolveThread(): Promise<void> {
-		throw new Error('MemoryGitHub.resolveThread is not implemented');
+	async createFileComment(input: { path: string; body: string }): Promise<number> {
+		const id = ++this.ids;
+		this.reviewComments.push({
+			id,
+			author: `${this.app.slug}[bot]`,
+			isBot: true,
+			body: input.body,
+			path: input.path,
+			line: null,
+			subjectType: 'file'
+		});
+		return id;
 	}
 
-	async listIssueComments(): Promise<IssueComment[]> {
-		return this.issueComments.map((comment) => ({ ...comment }));
+	/** What GitHub's file list shows. Unset, the list fails, and findings stay where git put them. */
+	patches?: { path: string; patch?: string }[];
+
+	async listPullRequestPatches(): Promise<{ path: string; patch?: string }[]> {
+		if (!this.patches) throw new Error('no file list');
+		return this.patches;
 	}
 
-	async createIssueComment(
+	async listReviewComments(_pullNumber: number, reviewId: number): Promise<PostedReviewComment[]> {
+		return this.reviewComments
+			.filter((comment) => comment.reviewId === reviewId)
+			.map(({ id, path, line, body }) => ({ id, path: path ?? '', line, body }));
+	}
+
+	async dismissChangeRequests(
+		_pullNumber: number,
+		input: { botLogin: string; message: string }
+	): Promise<number> {
+		const open = this.reviews.filter((review) => review.state === 'CHANGES_REQUESTED');
+		for (const review of open) review.state = 'DISMISSED';
+		return input.botLogin ? open.length : 0;
+	}
+
+	async createIssueComment(_issueNumber: number, body: string): Promise<void> {
+		this.issueComments.push({ id: ++this.ids, body, author: `${this.app.slug}[bot]`, isBot: true });
+	}
+
+	async updateIssueComment(commentId: number, body: string): Promise<void> {
+		const comment = this.issueComments.find((c) => c.id === commentId);
+		if (!comment) throw new Error(`comment ${commentId} not found`);
+		comment.body = body;
+	}
+
+	async getMarkedComment(
 		_issueNumber: number,
+		marker: string
+	): Promise<{ id: number; url: string; body: string } | null> {
+		const comment = this.issueComments.find((c) => c.isBot && c.body.includes(marker));
+		return comment ? { id: comment.id, url: this.urlOf(comment.id), body: comment.body } : null;
+	}
+
+	async upsertMarkedComment(
+		issueNumber: number,
+		marker: string,
 		body: string
 	): Promise<{ id: number; url: string }> {
-		const id = this.nextCommentId++;
-		const url = `memory://comment/${id}`;
-		this.issueComments.push({ id, body, author: 'hansi[bot]', bot: true, url });
-		return { id, url };
+		const existing = await this.getMarkedComment(issueNumber, marker);
+		if (existing) {
+			await this.updateIssueComment(existing.id, body);
+			return { id: existing.id, url: existing.url };
+		}
+		await this.createIssueComment(issueNumber, body);
+		const id = this.ids;
+		return { id, url: this.urlOf(id) };
 	}
 
-	async updateIssueComment(): Promise<void> {
-		throw new Error('MemoryGitHub.updateIssueComment is not implemented');
+	/** The summary comment's body, or null before the first write. */
+	summary(marker = '<!-- hans:summary -->'): string | null {
+		return this.issueComments.find((c) => c.isBot && c.body.includes(marker))?.body ?? null;
 	}
 
-	async addReaction(
-		comment: { id: number; kind: 'issue' | 'review' },
-		reaction: Reaction
+	async acknowledgeComment(comment: { id: number; kind: 'issue' | 'review' }): Promise<void> {
+		this.reactions.push(comment);
+	}
+
+	async getReviewThread(_pullNumber: number, rootCommentId: number): Promise<ThreadComment[]> {
+		return this.reviewComments
+			.filter((c) => c.id === rootCommentId || c.inReplyToId === rootCommentId)
+			.map(({ inReplyToId: _, reviewId: __, subjectType: ___, ...comment }) => comment);
+	}
+
+	async getRecentIssueComments(
+		_issueNumber: number,
+		limit = 20,
+		untilId?: number
+	): Promise<ThreadComment[]> {
+		return this.issueComments
+			.filter((comment) => untilId === undefined || comment.id <= untilId)
+			.slice(-limit)
+			.map((comment) => ({ ...comment }));
+	}
+
+	async replyToReviewComment(_pullNumber: number, commentId: number, body: string): Promise<void> {
+		this.reviewComments.push({
+			id: ++this.ids,
+			inReplyToId: commentId,
+			author: `${this.app.slug}[bot]`,
+			isBot: true,
+			body
+		});
+	}
+
+	async listReviewThreads(): Promise<ReviewThread[]> {
+		return this.reviewComments
+			.filter((comment) => comment.inReplyToId === undefined)
+			.map((comment) => ({
+				id: `thread-${comment.id}`,
+				isResolved: this.resolved.has(comment.id),
+				resolvedBy: this.resolved.has(comment.id)
+					? (this.resolvedBy.get(comment.id) ?? null)
+					: null,
+				rootCommentId: comment.id
+			}));
+	}
+
+	/** Who resolved a thread, by its root comment, when a person did. */
+	readonly resolvedBy = new Map<number, string>();
+
+	async resolveReviewThreads(_pullNumber: number, rootCommentIds: number[]): Promise<number> {
+		let count = 0;
+		for (const id of rootCommentIds) {
+			if (this.resolved.has(id)) continue;
+			this.resolved.add(id);
+			this.resolvedBy.set(id, `${this.app.slug}[bot]`);
+			count++;
+		}
+		return count;
+	}
+
+	async getLinkedIssues(): Promise<{ number: number; title: string; body: string }[]> {
+		return [];
+	}
+
+	async getFailedChecks(): Promise<
+		{ name: string; conclusion: string; output: string; annotations: [] }[]
+	> {
+		return [];
+	}
+
+	async startCheckRun(input: {
+		headSha: string;
+		name: string;
+		detailsUrl?: string;
+		output?: { title: string; summary: string };
+	}): Promise<number> {
+		const id = this.checkRuns.length + 1;
+		this.checkRuns.push({
+			id,
+			name: input.name,
+			headSha: input.headSha,
+			status: 'in_progress',
+			detailsUrl: input.detailsUrl,
+			...input.output,
+			outputs: input.output ? [input.output] : []
+		});
+		return id;
+	}
+
+	async updateCheckRun(checkRunId: number, output: { title: string; summary: string }) {
+		const run = this.checkRun(checkRunId);
+		Object.assign(run, output);
+		run.outputs.push(output);
+	}
+
+	async completeCheckRun(
+		checkRunId: number,
+		input: { conclusion: CheckConclusion; title: string; summary: string }
 	): Promise<void> {
-		this.reactions.push({ comment, reaction });
+		const run = this.checkRun(checkRunId);
+		Object.assign(run, input, { status: 'completed' });
+		run.outputs.push({ title: input.title, summary: input.summary });
 	}
 
-	async createCheckRun(run: CheckRun): Promise<{ id: number }> {
-		if (this.checksForbidden) throw new Error('Resource not accessible by integration');
-		this.checkRuns.push({ ...run });
-		return { id: this.checkRuns.length - 1 };
+	private checkRun(id: number): MemoryCheckRun {
+		const run = this.checkRuns.find((r) => r.id === id);
+		if (!run) throw new Error(`check run ${id} not found`);
+		return run;
 	}
 
-	async updateCheckRun(id: number, run: Partial<CheckRun>): Promise<void> {
-		Object.assign(this.checkRuns[id]!, run);
+	private urlOf(commentId: number): string {
+		return `https://github.test/pull/${this.pullRequest.number}#issuecomment-${commentId}`;
 	}
 }
 
 /** Answers one command in a `MemorySandboxes` sandbox. */
-export type CommandHandler = (command: string) => CommandResult | Promise<CommandResult>;
+export type CommandHandler = (command: string) => SandboxResult | Promise<SandboxResult>;
 
 /** Sandboxes that answer commands with `handler` and record what they were asked. */
 export class MemorySandboxes implements SandboxClient {

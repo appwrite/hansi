@@ -77,20 +77,14 @@ describe('Worker', () => {
 		const { worker: w, sink } = worker(failing(new Error('rate limited')));
 
 		expect(await w.run(first(review))).toEqual({ outcome: 'failed', retry: true });
-		expect(sink.calls).toEqual([]);
+		expect(sink.failed).toEqual([]);
 	});
 
 	test('marks a review failed on its last attempt', async () => {
 		const { worker: w, sink } = worker(failing(new Error('boom')));
 
 		expect(await w.run(last(review))).toEqual({ outcome: 'failed', retry: false });
-		expect(sink.calls).toEqual([
-			{
-				method: 'failReview',
-				review: { projectId: 'project1', reviewId: 'review1' },
-				reason: FAILURE_REASON
-			}
-		]);
+		expect(sink.failed).toEqual([{ reviewId: 'review1', reason: FAILURE_REASON }]);
 	});
 
 	test('treats a rejection without a reason as a failure', async () => {
@@ -103,7 +97,7 @@ describe('Worker', () => {
 		const { worker: w, sink } = worker(failing(new NotImplementedError('review engine')));
 
 		expect(await w.run(first(review))).toEqual({ outcome: 'failed', retry: false });
-		expect(sink.calls.map((c) => c.method)).toEqual(['failReview']);
+		expect(sink.failed).toHaveLength(1);
 	});
 
 	test('retries a review whose failure could not be recorded, past its attempts', async () => {
@@ -114,6 +108,27 @@ describe('Worker', () => {
 		const { worker: w } = worker(failing(new Error('boom')), sink);
 
 		expect(await w.run(last(review))).toEqual({ outcome: 'failed', retry: true });
+	});
+
+	test('counts attempts from one, and gives an answer two', async () => {
+		const seen: unknown[] = [];
+		const { worker: w } = worker({
+			review: async (_job, { attempt }) => void seen.push(attempt),
+			chat: async (_job, { attempt }) => {
+				seen.push(attempt);
+				throw new Error('provider down');
+			}
+		});
+
+		await w.run(first(review));
+		expect(await w.run({ payload: chat, attempts: 1, maxAttempts: 5 })).toEqual({
+			outcome: 'failed',
+			retry: false
+		});
+		expect(seen).toEqual([
+			{ attempts: 1, maxAttempts: 3 },
+			{ attempts: 2, maxAttempts: 2 }
+		]);
 	});
 
 	test('takes no more jobs than it has slots, and drains', async () => {
@@ -141,7 +156,7 @@ describe('Worker', () => {
 
 	test('tells running jobs to stop on abort', async () => {
 		const { worker: w } = worker({
-			review: (_job, signal) =>
+			review: (_job, { signal }) =>
 				new Promise((_resolve, reject) =>
 					signal.addEventListener('abort', () => reject(new Error('aborted')))
 				),

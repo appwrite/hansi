@@ -1,4 +1,4 @@
-import type { CommandResult, Sandbox, SandboxClient, SandboxSpec } from '@hansi/engine';
+import type { Sandbox, SandboxClient, SandboxResult, SandboxSpec } from '@hansi/engine';
 
 // Sandboxes on the open-runtimes orchestrator (docs/sandboxes.md there). The control plane
 // creates and deletes them; commands go straight to the sandbox's own URL, served by the
@@ -118,7 +118,7 @@ class OrchestratorSandbox implements Sandbox {
 		private readonly teardown: () => Promise<void>
 	) {}
 
-	async run(command: string, { timeoutMs }: { timeoutMs: number }): Promise<CommandResult> {
+	async run(command: string, { timeoutMs }: { timeoutMs: number }): Promise<SandboxResult> {
 		if (this.closed || !this.url) throw new SandboxError(`sandbox ${this.id} is closed`);
 
 		const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));

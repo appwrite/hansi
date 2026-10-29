@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { finalTier, standing, tierCap } from './tier';
+import { finalTier, standingFromOpenFindings, tierCap } from './tier';
 
 describe('tierCap', () => {
-	test('lets the worst open finding decide', () => {
+	test('the worst open severity decides', () => {
 		expect(tierCap([])).toBe('S');
 		expect(tierCap(['info'])).toBe('S');
 		expect(tierCap(['minor', 'info'])).toBe('A');
@@ -12,30 +12,39 @@ describe('tierCap', () => {
 });
 
 describe('finalTier', () => {
-	test('keeps a model tier the findings allow', () => {
-		expect(finalTier('C', ['minor'])).toBe('C');
-	});
-
-	test('caps a model tier that is too good', () => {
-		expect(finalTier('S', ['major'])).toBe('B');
-	});
-
-	test('uses the cap without a model tier', () => {
-		expect(finalTier(undefined, ['critical'])).toBe('D');
+	test('never grades better than the cap', () => {
+		expect(finalTier('S', 'A')).toBe('A');
+		expect(finalTier('C', 'A')).toBe('C');
+		expect(finalTier(undefined, 'B')).toBe('B');
 	});
 });
 
-describe('standing', () => {
-	test('is S with nothing open', () => {
-		expect(standing([])).toEqual({ tier: 'S', reason: '' });
+describe('standingFromOpenFindings', () => {
+	test('with nothing open the pull request is mergeable', () => {
+		expect(standingFromOpenFindings([])).toEqual({ tier: 'S', tierReason: '' });
 	});
 
-	test('names the worst open finding', () => {
+	test('an open finding caps the tier and explains why', () => {
 		expect(
-			standing([
-				{ severity: 'minor', title: 'Typo' },
-				{ severity: 'major', title: 'Leaks the token' }
+			standingFromOpenFindings([
+				{ severity: 'info', title: 'Naming' },
+				{ severity: 'minor', title: '/api responses bypass robots meta' }
 			])
-		).toEqual({ tier: 'B', reason: 'Limited by an open major finding: Leaks the token' });
+		).toEqual({
+			tier: 'A',
+			tierReason: 'Limited by an open minor finding: /api responses bypass robots meta'
+		});
+	});
+
+	test('the worst severity wins when several findings remain', () => {
+		expect(
+			standingFromOpenFindings([
+				{ severity: 'minor', title: 'Typos' },
+				{ severity: 'major', title: 'Off by one' }
+			])
+		).toEqual({
+			tier: 'B',
+			tierReason: 'Limited by an open major finding: Off by one'
+		});
 	});
 });

@@ -1,25 +1,29 @@
 import {
 	runChatJob,
 	runReviewJob,
+	type Attempt,
 	type ChatJob,
 	type EngineContext,
+	type Log,
 	type ReviewJob
 } from '@hansi/engine';
-import type { LanguageModel } from 'ai';
+
+/** One delivery's run: which attempt it is, the job's own logger, and when to stop. */
+export interface Run {
+	attempt: Attempt;
+	log: Log;
+	signal: AbortSignal;
+}
 
 export interface Handlers {
-	review(job: ReviewJob, signal: AbortSignal): Promise<void>;
-	chat(job: ChatJob, signal: AbortSignal): Promise<void>;
+	review(job: ReviewJob, run: Run): Promise<void>;
+	chat(job: ChatJob, run: Run): Promise<void>;
 }
 
-export interface Models {
-	reviewer: LanguageModel;
-	verifier?: LanguageModel;
-}
-
-export function createHandlers(context: EngineContext, models: Models): Handlers {
+export function createHandlers(context: Omit<EngineContext, 'log'>): Handlers {
 	return {
-		review: (job, signal) => runReviewJob(job, context, { ...models, signal }),
-		chat: (job, signal) => runChatJob(job, context, { model: models.reviewer, signal })
+		review: (job, { attempt, log, signal }) =>
+			runReviewJob(job, { ...context, log }, attempt, signal),
+		chat: (job, { attempt, log, signal }) => runChatJob(job, { ...context, log }, attempt, signal)
 	};
 }
