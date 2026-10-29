@@ -4,7 +4,7 @@ AI code review for Appwrite Cloud. A TypeScript service on Bun that takes review
 
 Appwrite owns everything around it: the GitHub App and its webhooks, which project reviews a repository (a `repositories` row with `resourceType = 'reviews'`), accounts, billing, model keys and the Console. This service owns everything between "review PR #N at SHA X" and "posted on GitHub".
 
-Reviews here must behave exactly like `TorstenDittmann/hansi` (hansi.codes): the engine, the review and chat jobs and the GitHub helpers are ported from it, file for file. Port a change made there rather than writing a different one here, and never import from it. What differs on purpose: Appwrite's internal Reviews API stands in for its database, models come from the environment, jobs come from Appwrite's queue, sandboxes run on the open-runtimes orchestrator, and there is no product analytics.
+Reviews here must behave exactly like `TorstenDittmann/hansi` (hansi.codes): the engine, the review and chat jobs and the GitHub helpers are ported from it, file for file. Port a change made there rather than writing a different one here, and never import from it. What differs on purpose: Appwrite's internal Reviews API stands in for its database, models come from the environment, jobs come from Appwrite's queue, sandboxes run on the open-runtimes orchestrator, there is no product analytics, and two chat-job fixes are ahead of it: the conversation given to the model ends at the comment being answered, and answers carry a `hans:reply` marker so a retried delivery does not answer twice.
 
 ## Commands
 

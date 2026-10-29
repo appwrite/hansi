@@ -138,8 +138,8 @@ export class OctokitGitHubClient implements GitHubClient {
 		return pulls.getReviewThread(this.octokit, this.ref, pullNumber, rootCommentId);
 	}
 
-	getRecentIssueComments(issueNumber: number, limit?: number) {
-		return pulls.getRecentIssueComments(this.octokit, this.ref, issueNumber, limit);
+	getRecentIssueComments(issueNumber: number, limit?: number, untilId?: number) {
+		return pulls.getRecentIssueComments(this.octokit, this.ref, issueNumber, limit, untilId);
 	}
 
 	replyToReviewComment(pullNumber: number, commentId: number, body: string) {

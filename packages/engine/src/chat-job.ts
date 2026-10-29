@@ -21,6 +21,11 @@ import { refreshSummaryAfterSettlement } from './summary';
 // One answer to a comment on a pull request. It follows hansi.codes' worker step for step;
 // Appwrite's Reviews API stands in for hansi.codes' database.
 
+/** Hidden in every answer, so a retry can tell the comment was already answered. */
+export function replyMarker(commentId: number): string {
+	return `<!-- hans:reply:${commentId} -->`;
+}
+
 export async function runChatJob(
 	job: ChatJob,
 	context: EngineContext,
@@ -47,10 +52,14 @@ export async function runChatJob(
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;
 
-	const threadOf = () =>
+	// The conversation up to the comment being answered: replies posted after it was queued are
+	// not part of the question, and the prompt answers the last message it is given.
+	const threadOf = async () =>
 		comment.kind === 'review'
-			? github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)
-			: github.getRecentIssueComments(job.pullNumber);
+			? (await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)).filter(
+					(c) => c.id <= comment.id
+				)
+			: github.getRecentIssueComments(job.pullNumber, undefined, comment.id);
 	// A reply without a mention is answered only when it replies to Hansi. Checked before the 👀,
 	// so people talking among themselves in a review thread see nothing from Hansi.
 	const early = job.unmentioned || bodyFindings.length > 0 ? await threadOf() : undefined;
@@ -64,6 +73,19 @@ export async function runChatJob(
 	if (job.unmentioned && comment.kind === 'issue' && named.length === 0) {
 		log.info('conversation comment does not name an open finding, skipping');
 		return;
+	}
+
+	// A retry after GitHub took the answer but the delivery did not settle must not answer twice.
+	const marker = replyMarker(comment.id);
+	if (attempt.attempts > 1) {
+		const posted =
+			comment.kind === 'review'
+				? await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)
+				: await github.getRecentIssueComments(job.pullNumber);
+		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
+			log.info('chat reply already posted, skipping');
+			return;
+		}
 	}
 
 	if (attempt.attempts === 1) {
@@ -171,7 +193,7 @@ export async function runChatJob(
 			}).finally(() => sandbox?.close());
 		});
 
-		await reply(answer);
+		await reply(`${answer}\n\n${marker}`);
 		// A finding settled in the conversation (fixed, or intended) closes its thread after the answer.
 		if (settled) {
 			if (comment.rootCommentId) {

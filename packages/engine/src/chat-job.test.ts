@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import type { EngineContext } from './context';
 import { git } from './git';
-import { runChatJob } from './chat-job';
+import { replyMarker, runChatJob } from './chat-job';
 import type { ChatJob } from './jobs';
 import { MemoryGitHub, MemoryResultsSink } from './testing';
 
@@ -183,7 +183,7 @@ describe('runChatJob', () => {
 		expect(github.reactions).toEqual([{ id: 501, kind: 'review' }]);
 		const reply = github.reviewComments.at(-1);
 		expect(reply?.inReplyToId).toBe(rootId);
-		expect(reply?.body).toBe('Makes sense, dismissing it.');
+		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker(501)}`);
 		expect(results.learnings).toEqual([
 			{
 				body: 'Callers never pass 0 to divide.',
@@ -253,6 +253,67 @@ describe('runChatJob', () => {
 
 		expect(github.reactions).toEqual([]);
 		expect(github.issueComments).toEqual([]);
+	});
+
+	test('the answer is to the queued comment, not to a reply posted after it', async () => {
+		const model = new MockLanguageModelV4({ doGenerate: [text('It returns a / b.')] });
+		const { github, context } = setup([model]);
+		github.issueComments.push(
+			{ id: 900, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{ id: 901, author: 'carol', isBot: false, body: 'Unrelated: ship it on Friday?' }
+		);
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: 900,
+				kind: 'issue',
+				author: 'bob',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#issuecomment-900'
+			}
+		};
+
+		await runChatJob(job, context, first);
+
+		const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+		expect(prompt).toContain('what does divide return?');
+		expect(prompt).not.toContain('ship it on Friday');
+		expect(github.issueComments.at(-1)?.body).toBe(`It returns a / b.\n\n${replyMarker(900)}`);
+	});
+
+	test('a retry after the answer was posted does not answer again', async () => {
+		const { github, results, context } = setup();
+		github.issueComments.push(
+			{ id: 950, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{
+				id: 951,
+				author: 'hansi[bot]',
+				isBot: true,
+				body: `It returns a / b.\n\n${replyMarker(950)}`
+			}
+		);
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 950,
+					kind: 'issue',
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-950'
+				}
+			},
+			context,
+			{ attempts: 2, maxAttempts: 2 }
+		);
+
+		expect(github.issueComments).toHaveLength(2);
+		expect(results.chatUsage).toEqual([]);
 	});
 
 	test('the last attempt that fails says so in a fixed reply', async () => {

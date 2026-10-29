@@ -372,8 +372,15 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 			.map(({ inReplyToId: _, reviewId: __, subjectType: ___, ...comment }) => comment);
 	}
 
-	async getRecentIssueComments(_issueNumber: number, limit = 20): Promise<ThreadComment[]> {
-		return this.issueComments.slice(-limit).map((comment) => ({ ...comment }));
+	async getRecentIssueComments(
+		_issueNumber: number,
+		limit = 20,
+		untilId?: number
+	): Promise<ThreadComment[]> {
+		return this.issueComments
+			.filter((comment) => untilId === undefined || comment.id <= untilId)
+			.slice(-limit)
+			.map((comment) => ({ ...comment }));
 	}
 
 	async replyToReviewComment(_pullNumber: number, commentId: number, body: string): Promise<void> {

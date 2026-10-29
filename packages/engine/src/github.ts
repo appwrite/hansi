@@ -127,8 +127,15 @@ export interface GitHubClient {
 
 	/** A review comment thread: the root comment and its replies, oldest first. */
 	getReviewThread(pullNumber: number, rootCommentId: number): Promise<ThreadComment[]>;
-	/** The most recent conversation comments, oldest first. */
-	getRecentIssueComments(issueNumber: number, limit?: number): Promise<ThreadComment[]>;
+	/**
+	 * The most recent conversation comments, oldest first. With `untilId`, the most recent ones up
+	 * to and including that comment.
+	 */
+	getRecentIssueComments(
+		issueNumber: number,
+		limit?: number,
+		untilId?: number
+	): Promise<ThreadComment[]>;
 	replyToReviewComment(pullNumber: number, commentId: number, body: string): Promise<void>;
 	listReviewThreads(pullNumber: number): Promise<ReviewThread[]>;
 	/** Resolves the threads that start with these comments. Returns how many it resolved. */

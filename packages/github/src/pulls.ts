@@ -326,19 +326,24 @@ export async function getReviewThread(
 		}));
 }
 
-/** The most recent conversation comments on a pull request, oldest first. */
+/**
+ * The most recent conversation comments on a pull request, oldest first. With `untilId`, the most
+ * recent ones up to and including that comment (comment ids only grow).
+ */
 export async function getRecentIssueComments(
 	octokit: Octokit,
 	ref: RepoRef,
 	issueNumber: number,
-	limit = 20
+	limit = 20,
+	untilId?: number
 ): Promise<ThreadComment[]> {
 	const comments = await octokit.paginate(octokit.rest.issues.listComments, {
 		...ref,
 		issue_number: issueNumber,
 		per_page: 100
 	});
-	return comments.slice(-limit).map((c) => ({
+	const upTo = untilId === undefined ? comments : comments.filter((c) => c.id <= untilId);
+	return upTo.slice(-limit).map((c) => ({
 		id: c.id,
 		author: c.user?.login ?? 'unknown',
 		body: c.body ?? '',
