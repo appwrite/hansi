@@ -109,9 +109,9 @@ services:
       - HANSI_AI_SECRET
 ```
 
-Then start it with `docker compose up -d hansi`. Without an orchestrator, as above, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`. To let them run commands, point `HANSI_ORCHESTRATOR_ENDPOINT` at an [open-runtimes orchestrator](https://github.com/open-runtimes/orchestrator) and set `HANSI_SANDBOX_IMAGE`.
+Then start it with `docker compose up -d hansi`. Without an orchestrator, as above, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`. To let them run commands, point `HANSI_ORCHESTRATOR_ENDPOINT` at an [open-runtimes orchestrator](https://github.com/open-runtimes/orchestrator) and set `HANSI_SANDBOX_IMAGE`, e.g. to `ghcr.io/appwrite/hansi-sandbox`: Node 22, Python 3, PHP with Composer, Go and a C toolchain (`sandbox/Dockerfile`).
 
-Images are published to `ghcr.io/appwrite/hansi` for amd64 and arm64: `main` and `sha-<commit>` from every push to `main`, and a version tag for every release.
+Images are published to `ghcr.io/appwrite/hansi` and `ghcr.io/appwrite/hansi-sandbox` for amd64 and arm64: `main` and `sha-<commit>` from every push to `main`, and a version tag for every release.
 
 ### Environment variables
 
@@ -135,6 +135,7 @@ The service validates its environment on start (`apps/service/src/env.ts`) and e
 | `HANSI_ORCHESTRATOR_ENDPOINT` |               | open-runtimes orchestrator API. Without it, reviews only read the code.                        |
 | `HANSI_ORCHESTRATOR_KEY`      |               | Orchestrator API key, when it has one.                                                         |
 | `HANSI_SANDBOX_IMAGE`         |               | Toolchain image for sandboxes. Required with an orchestrator.                                  |
+| `HANSI_SANDBOX_RUNTIME_CLASS` | `gvisor`      | Sandbox isolation: `gvisor`, `kata`, or `runc` where the cluster has neither.                  |
 | `HANSI_CONCURRENCY`           | `4`           | Jobs one container runs at once. Each holds a checkout, and a sandbox if it runs commands.     |
 | `HANSI_PORT`                  | `8080`        | Port for `/healthz` and `/readyz`.                                                             |
 | `HANSI_JOBS_PORT`             | `8081`        | Loopback port where the consumer hands over jobs.                                              |
