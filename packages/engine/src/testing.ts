@@ -25,6 +25,7 @@ import type {
 } from './results';
 import type { Sandbox, SandboxClient, SandboxResult, SandboxSpec } from './sandboxes';
 import type { Tier } from './config';
+import { SUMMARY_MARKER } from './format';
 
 // In-memory stand-ins for the contracts, for tests here and in the adapters and the service.
 
@@ -358,7 +359,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	}
 
 	/** The summary comment's body, or null before the first write. */
-	summary(marker = '<!-- hans:summary -->'): string | null {
+	summary(marker = SUMMARY_MARKER): string | null {
 		return this.issueComments.find((c) => c.isBot && c.body.includes(marker))?.body ?? null;
 	}
 

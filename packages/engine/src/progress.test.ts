@@ -36,11 +36,11 @@ test('trace events move the review into its phases', () => {
 test('the status block says what is running and links to the live trace', () => {
 	expect(block(true)).toBe(
 		[
-			'<!-- hans:status -->',
+			'<!-- appwrite-hansi:status -->',
 			'> ⏳ **Reviewing `abcdef1`** · Reviewing 3 files…',
 			'>',
 			'> <sub>The summary below is from the previous review. · [Follow along](https://hansi.test/r/1)</sub>',
-			'<!-- /hans:status -->'
+			'<!-- /appwrite-hansi:status -->'
 		].join('\n')
 	);
 	const failed = statusBlock(
@@ -66,7 +66,7 @@ test('a later review puts the status above the previous summary and removes it c
 	expect(withoutStatusBlock(body)).toBe(summary);
 	// Replacing the block keeps one, not two.
 	const again = withStatusBlock(body, block(false));
-	expect(again.match(/<!-- hans:status -->/g)).toHaveLength(1);
+	expect(again.match(/<!-- appwrite-hansi:status -->/g)).toHaveLength(1);
 	expect(withStatusBlock(body, null)).toBe(summary);
 });
 

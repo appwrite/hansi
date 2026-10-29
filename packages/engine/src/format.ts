@@ -2,15 +2,22 @@ import type { Severity, Tier, Verdict } from './config';
 import { isUnattachedDrop, type DroppedFinding, type Finding } from './findings';
 import { tierMeaning } from './tier';
 
+/**
+ * Namespace of every hidden marker Hansi writes into GitHub comments. It differs from
+ * hansi.codes' `hans`, so both can review the same pull request without either one finding and
+ * editing the other's comments.
+ */
+export const MARKER_NAMESPACE = 'appwrite-hansi';
+
 /** Hidden marker that identifies Hansi's summary comment, so each review edits it in place. */
-export const SUMMARY_MARKER = '<!-- hans:summary -->';
+export const SUMMARY_MARKER = `<!-- ${MARKER_NAMESPACE}:summary -->`;
 
 /**
  * Hidden marker on the summary note that the pull request head moved during the review.
  * Settlement rebuilds the comment from its body, and this keeps the note distinct from a
  * withheld-approval note.
  */
-export const STALE_HEAD_NOTE_MARK = '<!-- hans:stale-head -->';
+export const STALE_HEAD_NOTE_MARK = `<!-- ${MARKER_NAMESPACE}:stale-head -->`;
 
 const severityIcon: Record<Severity, string> = {
 	critical: '🔴',

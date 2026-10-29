@@ -148,7 +148,7 @@ describe('runReviewJob', () => {
 		expect(summary).toContain('Divides for real.');
 		expect(summary).toContain('| Verdict |');
 		expect(summary).toContain('<code>@hansi review</code>');
-		expect(summary).not.toContain('hans:status');
+		expect(summary).not.toContain('appwrite-hansi:status');
 
 		expect(github.reviews).toHaveLength(1);
 		const [review] = github.reviews;
@@ -175,6 +175,25 @@ describe('runReviewJob', () => {
 		expect(posted[0]?.providerCommentId).toBe(github.reviewComments[0]!.id);
 		expect(results.usage.map((u) => u.role)).toEqual(['review', 'verify']);
 		expect(results.events.some((e) => e.type === 'review.posted')).toBe(true);
+	});
+
+	test("hansi.codes' comments on the same pull request are left alone", async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCall('submit_review', { summary: 'Divides for real.', findings: [], tier: 'S' })
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const theirs =
+			'<!-- hans:summary -->\n\n<!-- hans:status -->\n> Reviewing\n<!-- /hans:status -->';
+		github.issueComments.push({ id: 1, author: 'hansi-codes[bot]', isBot: true, body: theirs });
+		results.queue({ id: 'review1' });
+
+		await runReviewJob(job(), context, first);
+
+		expect(github.issueComments[0]?.body).toBe(theirs);
+		expect(github.issueComments).toHaveLength(2);
+		expect(github.summary()).toContain('Divides for real.');
 	});
 
 	test('a mention of a closed pull request reacts and says why it is skipped', async () => {
