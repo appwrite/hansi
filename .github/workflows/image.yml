@@ -1,7 +1,7 @@
 name: Image
 
-# Publishes the service image for amd64 and arm64: `main` and `sha-<commit>` from main, the
-# version from a `v*` tag.
+# Publishes the service image and the sandbox toolchain image (`-sandbox`) for amd64 and arm64:
+# `main` and `sha-<commit>` from main, the version from a `v*` tag.
 on:
   push:
     branches: [main]
@@ -13,7 +13,14 @@ permissions:
 
 jobs:
   publish:
-    runs-on: gcrunner=${{ github.run_id }}-publish/runner=image
+    strategy:
+      matrix:
+        include:
+          - image: ghcr.io/${{ github.repository }}
+            context: .
+          - image: ghcr.io/${{ github.repository }}-sandbox
+            context: sandbox
+    runs-on: gcrunner=${{ github.run_id }}-publish-${{ strategy.job-index }}/runner=image
     steps:
       - uses: actions/checkout@v5
       # arm64 under emulation: the build only installs packages, it compiles nothing.
@@ -27,17 +34,17 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ${{ matrix.image }}
           tags: |
             type=ref,event=branch
             type=sha,prefix=sha-
             type=semver,pattern={{version}}
       - uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context }}
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.context }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.context }}

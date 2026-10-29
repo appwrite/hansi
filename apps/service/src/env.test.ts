@@ -18,6 +18,16 @@ describe('parseEnv', () => {
 		expect(env.HANSI_CONCURRENCY).toBe(4);
 		expect(env.HANSI_JOBS_PORT).toBe(8081);
 		expect(env.HANSI_CONSUMER_COMMAND).toBeUndefined();
+		expect(env.HANSI_SANDBOX_RUNTIME_CLASS).toBe('gvisor');
+	});
+
+	test('takes a known sandbox isolation tier only', () => {
+		expect(
+			parseEnv({ ...required, HANSI_SANDBOX_RUNTIME_CLASS: 'runc' }).HANSI_SANDBOX_RUNTIME_CLASS
+		).toBe('runc');
+		expect(() => parseEnv({ ...required, HANSI_SANDBOX_RUNTIME_CLASS: 'docker' })).toThrow(
+			/HANSI_SANDBOX_RUNTIME_CLASS/
+		);
 	});
 
 	test('runs without sandboxes, but not sandboxes without an image', () => {

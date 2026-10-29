@@ -27,7 +27,8 @@ const sandboxes =
 		? new OrchestratorSandboxClient({
 				endpoint: env.HANSI_ORCHESTRATOR_ENDPOINT,
 				apiKey: env.HANSI_ORCHESTRATOR_KEY,
-				image: env.HANSI_SANDBOX_IMAGE
+				image: env.HANSI_SANDBOX_IMAGE,
+				runtimeClass: env.HANSI_SANDBOX_RUNTIME_CLASS
 			})
 		: undefined;
 const handlers = createHandlers({ github, sandboxes, results: sink }, createModels(env));

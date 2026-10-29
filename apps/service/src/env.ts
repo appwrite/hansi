@@ -37,6 +37,11 @@ const schema = z
 		HANSI_ORCHESTRATOR_ENDPOINT: z.url().optional(),
 		HANSI_ORCHESTRATOR_KEY: z.string().min(1).optional(),
 		HANSI_SANDBOX_IMAGE: z.string().min(1).optional(),
+		/**
+		 * The sandboxes' isolation tier. Reviews run code from pull requests, so `gvisor` unless the
+		 * orchestrator's cluster has no gVisor RuntimeClass.
+		 */
+		HANSI_SANDBOX_RUNTIME_CLASS: z.enum(['runc', 'gvisor', 'kata']).default('gvisor'),
 
 		/**
 		 * Model ids as `provider:model`, e.g. `bedrock:global.anthropic.claude-sonnet-4-5-20250929-v1:0`.
