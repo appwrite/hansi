@@ -1,5 +1,5 @@
 import type { Log } from './context';
-import { SUMMARY_MARKER } from './format';
+import { MARKER_NAMESPACE, SUMMARY_MARKER } from './format';
 import type { ReviewEvent as TraceEvent } from './tools';
 
 /**
@@ -25,9 +25,9 @@ export type ReviewStatus =
 	| { kind: 'failed' }
 	| { kind: 'skipped'; reason: string };
 
-const STATUS_START = '<!-- hans:status -->';
-const STATUS_END = '<!-- /hans:status -->';
-const STATUS_BLOCK = /<!-- hans:status -->[\s\S]*?<!-- \/hans:status -->\n*/;
+const STATUS_START = `<!-- ${MARKER_NAMESPACE}:status -->`;
+const STATUS_END = `<!-- /${MARKER_NAMESPACE}:status -->`;
+const STATUS_BLOCK = new RegExp(`${STATUS_START}[\\s\\S]*?${STATUS_END}\n*`);
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 

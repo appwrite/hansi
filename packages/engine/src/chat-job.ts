@@ -9,7 +9,7 @@ import {
 } from './chat-finding';
 import { repliesToBot } from './chat-reply';
 import type { Attempt, EngineContext } from './context';
-import { absolutizeLinks } from './format';
+import { absolutizeLinks, MARKER_NAMESPACE } from './format';
 import { checkoutPullRequest } from './git';
 import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
@@ -23,7 +23,7 @@ import { refreshSummaryAfterSettlement } from './summary';
 
 /** Hidden in every answer, so a retry can tell the comment was already answered. */
 export function replyMarker(commentId: number): string {
-	return `<!-- hans:reply:${commentId} -->`;
+	return `<!-- ${MARKER_NAMESPACE}:reply:${commentId} -->`;
 }
 
 export async function runChatJob(

@@ -161,7 +161,7 @@ describe('formatSummaryComment', () => {
 			approvalWithheld: '@stranger does not have write access to this repository.'
 		});
 		expect(body).toContain(
-			'> [!NOTE]\n> <!-- hans:stale-head --> Newer commits exist (`8c9e110`) and will be reviewed. This review is of `410aa75` and does not approve it.'
+			'> [!NOTE]\n> <!-- appwrite-hansi:stale-head --> Newer commits exist (`8c9e110`) and will be reviewed. This review is of `410aa75` and does not approve it.'
 		);
 		expect(body).toContain('> [!NOTE]\n> @stranger does not have write access to this repository.');
 		expect(body).toContain('| 💬 Commented |');
