@@ -314,6 +314,28 @@ describe('runChatJob', () => {
 
 		expect(github.issueComments).toHaveLength(2);
 		expect(results.chatUsage).toEqual([]);
+
+		// It still finds the answer once more than 20 newer comments follow it.
+		for (let id = 952; id < 980; id++) {
+			github.issueComments.push({ id, author: 'carol', isBot: false, body: 'More talk.' });
+		}
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: 950,
+					kind: 'issue',
+					author: 'bob',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-950'
+				}
+			},
+			context,
+			{ attempts: 2, maxAttempts: 2 }
+		);
+		expect(github.issueComments).toHaveLength(30);
 	});
 
 	test('the last attempt that fails says so in a fixed reply', async () => {

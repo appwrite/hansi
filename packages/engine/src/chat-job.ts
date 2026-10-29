@@ -81,7 +81,8 @@ export async function runChatJob(
 		const posted =
 			comment.kind === 'review'
 				? await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)
-				: await github.getRecentIssueComments(job.pullNumber);
+				: // Every conversation comment: an answer can be followed by many newer ones.
+					await github.getRecentIssueComments(job.pullNumber, Number.MAX_SAFE_INTEGER);
 		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
 			log.info('chat reply already posted, skipping');
 			return;
