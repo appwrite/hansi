@@ -9,38 +9,67 @@ import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
 import { createHandlers } from './handlers';
 import { createLogger } from './logger';
+import { startMetrics } from './metrics';
 import { createModels } from './models';
 import { startHealthServer, startJobsServer } from './server';
 import { Worker } from './worker';
 
 const env = parseEnv(process.env);
 const logger = createLogger(env.HANSI_LOG_LEVEL, { service: 'hansi' });
+const { metrics, shutdown: stopMetrics } = startMetrics(env, {
+	concurrency: env.HANSI_CONCURRENCY
+});
 
 const appwrite: AppwriteConfig = {
 	endpoint: env.HANSI_APPWRITE_ENDPOINT,
-	secret: env.HANSI_APPWRITE_SECRET
+	secret: env.HANSI_APPWRITE_SECRET,
+	fetch: metrics.instrumentFetch('appwrite')
 };
 const sink = new AppwriteResultsSink(appwrite);
-const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite));
+const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite), {
+	fetch: metrics.instrumentFetch('github')
+});
 // Self-hosted Appwrite has no orchestrator: reviews there read the code without running it.
 const sandboxes =
 	env.HANSI_ORCHESTRATOR_ENDPOINT && env.HANSI_SANDBOX_IMAGE
-		? new OrchestratorSandboxClient({
-				endpoint: env.HANSI_ORCHESTRATOR_ENDPOINT,
-				apiKey: env.HANSI_ORCHESTRATOR_KEY,
-				image: env.HANSI_SANDBOX_IMAGE,
-				runtimeClass: env.HANSI_SANDBOX_RUNTIME_CLASS
-			})
+		? metrics.instrumentSandboxes(
+				new OrchestratorSandboxClient({
+					endpoint: env.HANSI_ORCHESTRATOR_ENDPOINT,
+					apiKey: env.HANSI_ORCHESTRATOR_KEY,
+					image: env.HANSI_SANDBOX_IMAGE,
+					runtimeClass: env.HANSI_SANDBOX_RUNTIME_CLASS
+				})
+			)
 		: undefined;
 // Checkouts a previous run of this process left behind, e.g. after it was killed mid-review.
 await clearWorkdir(undefined);
-const handlers = createHandlers({ github, sandboxes, results: sink, models: createModels(env) });
+const models = createModels(env);
+// Without a verify model the engine verifies with the review model; measured as verification.
+const verify = models.verify ?? models.review;
+const context = { github, sandboxes, results: sink };
+const handlers = createHandlers(
+	{
+		...context,
+		models: {
+			review: metrics.instrumentModel(models.review, 'review'),
+			verify: metrics.instrumentModel(verify, 'verify')
+		}
+	},
+	{
+		...context,
+		models: {
+			review: metrics.instrumentModel(models.review, 'chat'),
+			verify: metrics.instrumentModel(verify, 'chat')
+		}
+	}
+);
 
 const worker = new Worker({
 	sink,
 	handlers,
 	logger,
-	concurrency: env.HANSI_CONCURRENCY
+	concurrency: env.HANSI_CONCURRENCY,
+	metrics
 });
 
 const jobs = startJobsServer({ port: env.HANSI_JOBS_PORT, worker });
@@ -96,5 +125,8 @@ if (consumer) {
 await worker.drained();
 await jobs.stop();
 await server.stop();
+await stopMetrics().catch((error: unknown) =>
+	logger.warn('could not flush metrics', { err: error })
+);
 logger.info('service stopped');
 process.exit();

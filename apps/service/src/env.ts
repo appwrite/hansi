@@ -62,7 +62,13 @@ const schema = z
 		/** The AWS region, for Bedrock. */
 		HANSI_AI_REGION: z.string().min(1).optional(),
 		/** The provider's API, instead of its default. Required for openai-compatible. */
-		HANSI_AI_BASE_URL: z.url().optional()
+		HANSI_AI_BASE_URL: z.url().optional(),
+
+		/**
+		 * Where metrics go over OTLP (HTTP, protobuf), e.g. the cluster's collector. Unset, nothing is
+		 * exported. The standard `OTEL_*` variables (service name, resource attributes, headers) apply.
+		 */
+		OTEL_EXPORTER_OTLP_ENDPOINT: z.url().optional()
 	})
 	.refine((env) => !env.HANSI_ORCHESTRATOR_ENDPOINT || env.HANSI_SANDBOX_IMAGE, {
 		message: 'Sandboxes need an image',
