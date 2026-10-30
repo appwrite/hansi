@@ -119,31 +119,32 @@ Images are published to `ghcr.io/appwrite/hansi` and `ghcr.io/appwrite/hansi-san
 
 The service validates its environment on start (`apps/service/src/env.ts`) and exits with the reason when something is missing. The `HANSI_QUEUE_*` variables are read by the queue consumer (`apps/consumer/consumer.php`).
 
-| Variable                      | Default       | Description                                                                                    |
-| ----------------------------- | ------------- | ---------------------------------------------------------------------------------------------- |
-| `HANSI_APPWRITE_ENDPOINT`     | **required**  | Appwrite's internal API, e.g. `http://appwrite/v1`. Never the public endpoint.                 |
-| `HANSI_APPWRITE_SECRET`       | **required**  | The `_APP_REVIEWS_SECRET` of that Appwrite.                                                    |
-| `HANSI_QUEUE_URL`             | **required**  | Appwrite's queue: `redis://` on self-hosted, `nats://` on Cloud.                               |
-| `HANSI_QUEUE_NAME`            | `v1-reviews`  | The queue Appwrite publishes review jobs to.                                                   |
-| `HANSI_QUEUE_USER`            |               | Queue user, instead of in the URL.                                                             |
-| `HANSI_QUEUE_PASSWORD`        |               | Queue password, instead of in the URL.                                                         |
-| `HANSI_REVIEW_MODEL`          | **required**  | The reviewer's model, as `provider:model`. See [Models](#models).                              |
-| `HANSI_VERIFY_MODEL`          | review model  | The verifier's model, as `provider:model` with the review model's provider.                    |
-| `HANSI_REVIEW_REASONING`      | provider's    | The reviewer's reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`. |
-| `HANSI_VERIFY_REASONING`      | review effort | The verifier's reasoning effort.                                                               |
-| `HANSI_AI_SECRET`             |               | The provider's key. Required except for `openai-compatible`. See [Models](#models).            |
-| `HANSI_AI_REGION`             |               | AWS region. Required for `bedrock`.                                                            |
-| `HANSI_AI_BASE_URL`           | provider's    | The provider's API, instead of its default. Required for `openai-compatible`.                  |
-| `HANSI_ORCHESTRATOR_ENDPOINT` |               | open-runtimes orchestrator API. Without it, reviews only read the code.                        |
-| `HANSI_ORCHESTRATOR_KEY`      |               | Orchestrator API key, when it has one.                                                         |
-| `HANSI_SANDBOX_IMAGE`         |               | Toolchain image for sandboxes. Required with an orchestrator.                                  |
-| `HANSI_SANDBOX_RUNTIME_CLASS` | `gvisor`      | Sandbox isolation: `gvisor`, `kata`, or `runc` where the cluster has neither.                  |
-| `HANSI_CONCURRENCY`           | `4`           | Jobs one container runs at once. Each holds a checkout, and a sandbox if it runs commands.     |
-| `HANSI_PORT`                  | `8080`        | Port for `/healthz` and `/readyz`.                                                             |
-| `HANSI_JOBS_PORT`             | `8081`        | Loopback port where the consumer hands over jobs.                                              |
-| `HANSI_SHUTDOWN_TIMEOUT`      | `3600`        | Seconds a stopping consumer waits for running jobs.                                            |
-| `HANSI_CONSUMER_COMMAND`      | set by image  | Starts the queue consumer. Unset, jobs only arrive from whoever calls the jobs port.           |
-| `HANSI_LOG_LEVEL`             | `info`        | `debug`, `info`, `warn` or `error`.                                                            |
+| Variable                      | Default       | Description                                                                                       |
+| ----------------------------- | ------------- | ------------------------------------------------------------------------------------------------- |
+| `HANSI_APPWRITE_ENDPOINT`     | **required**  | Appwrite's internal API, e.g. `http://appwrite/v1`. Never the public endpoint.                    |
+| `HANSI_APPWRITE_SECRET`       | **required**  | The `_APP_REVIEWS_SECRET` of that Appwrite.                                                       |
+| `HANSI_QUEUE_URL`             | **required**  | Appwrite's queue: `redis://` on self-hosted, `nats://` on Cloud.                                  |
+| `HANSI_QUEUE_NAME`            | `v1-reviews`  | The queue Appwrite publishes review jobs to.                                                      |
+| `HANSI_QUEUE_USER`            |               | Queue user, instead of in the URL.                                                                |
+| `HANSI_QUEUE_PASSWORD`        |               | Queue password, instead of in the URL.                                                            |
+| `HANSI_REVIEW_MODEL`          | **required**  | The reviewer's model, as `provider:model`. See [Models](#models).                                 |
+| `HANSI_VERIFY_MODEL`          | review model  | The verifier's model, as `provider:model` with the review model's provider.                       |
+| `HANSI_REVIEW_REASONING`      | provider's    | The reviewer's reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`.    |
+| `HANSI_VERIFY_REASONING`      | review effort | The verifier's reasoning effort.                                                                  |
+| `HANSI_AI_SECRET`             |               | The provider's key. Required except for `openai-compatible`. See [Models](#models).               |
+| `HANSI_AI_REGION`             |               | AWS region. Required for `bedrock`.                                                               |
+| `HANSI_AI_BASE_URL`           | provider's    | The provider's API, instead of its default. Required for `openai-compatible`.                     |
+| `HANSI_ORCHESTRATOR_ENDPOINT` |               | open-runtimes orchestrator API. Without it, reviews only read the code.                           |
+| `HANSI_ORCHESTRATOR_KEY`      |               | Orchestrator API key, when it has one.                                                            |
+| `HANSI_SANDBOX_IMAGE`         |               | Toolchain image for sandboxes. Required with an orchestrator.                                     |
+| `HANSI_SANDBOX_RUNTIME_CLASS` | `gvisor`      | Sandbox isolation: `gvisor`, `kata`, or `runc` where the cluster has neither.                     |
+| `HANSI_CONCURRENCY`           | `4`           | Jobs one container runs at once. Each holds a checkout, and a sandbox if it runs commands.        |
+| `HANSI_PORT`                  | `8080`        | Port for `/healthz` and `/readyz`.                                                                |
+| `HANSI_JOBS_PORT`             | `8081`        | Loopback port where the consumer hands over jobs.                                                 |
+| `HANSI_SHUTDOWN_TIMEOUT`      | `3600`        | Seconds a stopping consumer waits for running jobs.                                               |
+| `HANSI_CONSUMER_COMMAND`      | set by image  | Starts the queue consumer. Unset, jobs only arrive from whoever calls the jobs port.              |
+| `HANSI_LOG_LEVEL`             | `info`        | `debug`, `info`, `warn` or `error`.                                                               |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` |               | OTLP collector for metrics (HTTP, protobuf). Unset, nothing is exported. See [Metrics](#metrics). |
 
 On Redis, which counts no deliveries, the consumer gives a job 3 attempts: the second 10 s after the first, the third 60 s after the second. On NATS the attempts and backoff are the ones Appwrite provisioned on the queue's work consumer.
 
@@ -174,6 +175,24 @@ The image runs as the unprivileged `hansi` user with a read-only root filesystem
 - Liveness on `/healthz` and readiness on `/readyz`, port 8080. Readiness drops as soon as shutdown starts.
 - No Service: Hansi pulls jobs, nothing connects to it.
 - A termination grace period long enough for running jobs to finish (a repository's setup command alone may take 15 minutes), with `HANSI_SHUTDOWN_TIMEOUT` below it.
+
+### Metrics
+
+With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the service pushes OpenTelemetry metrics every 60 seconds and once more on shutdown. The standard `OTEL_SERVICE_NAME` (default `hansi`), `OTEL_RESOURCE_ATTRIBUTES` and `OTEL_EXPORTER_OTLP_HEADERS` apply. Labels never carry a project, repository, pull request or sandbox.
+
+| Metric                                                 | Labels                                                   | What it measures                                        |
+| ------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- |
+| `hansi_jobs_total`                                     | `type`, `outcome` (`done`, `failed`, `invalid`), `retry` | Deliveries run to an outcome                            |
+| `hansi_job_duration_seconds`                           | `type`, `outcome`                                        | A job from start to outcome                             |
+| `hansi_jobs_active`, `hansi_jobs_capacity`             | `type`                                                   | Jobs running now, and how many one process runs at once |
+| `hansi_model_call_duration_seconds`                    | `role`, `provider`, `model`, `outcome`, `finish_reason`  | One model call                                          |
+| `hansi_model_tokens_total`                             | `role`, `provider`, `model`, `type`                      | Input, output, cache read and write, reasoning tokens   |
+| `hansi_sandbox_create_duration_seconds`                | `outcome`                                                | Until a sandbox is ready with the code                  |
+| `hansi_sandbox_command_duration_seconds`               | `outcome` (`ok`, `exit_nonzero`, `timeout`, `error`)     | One command in a sandbox                                |
+| `hansi_sandboxes_active`, `hansi_sandbox_closes_total` | `outcome`                                                | Sandboxes held now, and teardowns                       |
+| `hansi_http_client_request_duration_seconds`           | `peer` (`github`, `appwrite`), `method`, `status`        | One request attempt                                     |
+
+`role` is `review`, `verify` or `chat`. The queue's depth is the broker's to report: on NATS, `nats_consumer_num_pending` for the `Q_V1-REVIEWS` stream.
 
 ## Architecture
 

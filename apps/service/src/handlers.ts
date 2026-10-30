@@ -20,10 +20,14 @@ export interface Handlers {
 	chat(job: ChatJob, run: Run): Promise<void>;
 }
 
-export function createHandlers(context: Omit<EngineContext, 'log'>): Handlers {
+/** Chat jobs may take their own context, e.g. models measured apart from reviews. */
+export function createHandlers(
+	review: Omit<EngineContext, 'log'>,
+	chat: Omit<EngineContext, 'log'> = review
+): Handlers {
 	return {
 		review: (job, { attempt, log, signal }) =>
-			runReviewJob(job, { ...context, log }, attempt, signal),
-		chat: (job, { attempt, log, signal }) => runChatJob(job, { ...context, log }, attempt, signal)
+			runReviewJob(job, { ...review, log }, attempt, signal),
+		chat: (job, { attempt, log, signal }) => runChatJob(job, { ...chat, log }, attempt, signal)
 	};
 }

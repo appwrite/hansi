@@ -2,6 +2,7 @@ import { InvalidJobError, parseJob } from '@hansi/appwrite';
 import { NotImplementedError, type Job, type ResultsSink } from '@hansi/engine';
 import type { Handlers } from './handlers';
 import type { Logger } from './logger';
+import type { Metrics } from './metrics';
 
 // Runs the jobs the queue consumer hands over. The consumer owns the queue: it receives, keeps
 // the delivery alive and settles it by the outcome this returns. What a failure means for the
@@ -39,6 +40,7 @@ export interface WorkerOptions {
 	logger: Logger;
 	/** Jobs that run at once. */
 	concurrency: number;
+	metrics?: Metrics;
 }
 
 export class Worker {
@@ -63,13 +65,25 @@ export class Worker {
 		} catch (error) {
 			if (!(error instanceof InvalidJobError)) throw error;
 			this.options.logger.error('invalid job', { attempt: delivery.attempts + 1, err: error });
+			this.options.metrics?.jobFinished('unknown', 'invalid', false);
 			return { outcome: 'invalid', reason: error.message };
 		}
 
 		this.running++;
+		this.options.metrics?.jobStarted(job.type);
+		const started = performance.now();
+		let outcome: Outcome | undefined;
 		try {
-			return await this.runJob(job, delivery);
+			outcome = await this.runJob(job, delivery);
+			return outcome;
 		} finally {
+			// No outcome: the process stopped under the job, and its delivery goes back unsettled.
+			this.options.metrics?.jobFinished(
+				job.type,
+				outcome?.outcome ?? 'failed',
+				outcome === undefined || (outcome.outcome === 'failed' && outcome.retry),
+				(performance.now() - started) / 1000
+			);
 			this.running--;
 			if (this.running === 0) this.idle.splice(0).forEach((resolve) => resolve());
 		}
