@@ -150,14 +150,23 @@ test("dismissChangeRequests withdraws only the bot's own change requests", async
 	expect(count).toBe(2);
 });
 
-function checksOctokit(runs: { id: number; status: string; app: { id: number } }[]) {
-	const calls = { created: 0, updated: [] as number[] };
+function checksOctokit(
+	runs: { id: number; status: string; app: { id: number }; external_id?: string }[]
+) {
+	const calls = { created: 0, updated: [] as number[], tagged: [] as string[] };
 	const octokit = {
 		rest: {
 			checks: {
 				listForRef: async () => ({ data: { check_runs: runs } }),
-				update: async ({ check_run_id }: { check_run_id: number }) => {
+				update: async ({
+					check_run_id,
+					external_id
+				}: {
+					check_run_id: number;
+					external_id?: string;
+				}) => {
 					calls.updated.push(check_run_id);
+					if (external_id) calls.tagged.push(external_id);
 				},
 				create: async () => {
 					calls.created++;
@@ -181,7 +190,7 @@ test('startCheckRun takes over a run the app left in progress on the commit', as
 		{ headSha: 'abc', name: 'Hansi', ownAppId: '7' }
 	);
 	expect(id).toBe(3);
-	expect(calls).toEqual({ created: 0, updated: [3] });
+	expect(calls).toEqual({ created: 0, updated: [3], tagged: [] });
 });
 
 test("startCheckRun creates a run when none of the app's is still in progress", async () => {
@@ -195,5 +204,68 @@ test("startCheckRun creates a run when none of the app's is still in progress", 
 		{ headSha: 'abc', name: 'Hansi', ownAppId: '7' }
 	);
 	expect(id).toBe(500);
-	expect(calls).toEqual({ created: 1, updated: [] });
+	expect(calls).toEqual({ created: 1, updated: [], tagged: [] });
+});
+
+test('startCheckRun with an external id takes over only its own or an untagged run', async () => {
+	const runs = [
+		{ id: 1, status: 'in_progress', app: { id: 7 }, external_id: 'repoB' },
+		{ id: 2, status: 'in_progress', app: { id: 7 }, external_id: 'repoA' }
+	];
+	const own = checksOctokit(runs);
+	expect(
+		await startCheckRun(
+			own.octokit,
+			{ owner: 'o', repo: 'r' },
+			{ headSha: 'abc', name: 'Hansi', ownAppId: '7', externalId: 'repoA' }
+		)
+	).toBe(2);
+
+	const other = checksOctokit([runs[0]!]);
+	expect(
+		await startCheckRun(
+			other.octokit,
+			{ owner: 'o', repo: 'r' },
+			{ headSha: 'abc', name: 'Hansi', ownAppId: '7', externalId: 'repoA' }
+		)
+	).toBe(500);
+	expect(other.calls).toEqual({ created: 1, updated: [], tagged: [] });
+
+	const legacy = checksOctokit([{ id: 3, status: 'in_progress', app: { id: 7 } }]);
+	expect(
+		await startCheckRun(
+			legacy.octokit,
+			{ owner: 'o', repo: 'r' },
+			{ headSha: 'abc', name: 'Hansi', ownAppId: '7', externalId: 'repoA' }
+		)
+	).toBe(3);
+	// The untagged run is tagged on takeover, so another row does not take it over too.
+	expect(legacy.calls.tagged).toEqual(['repoA']);
+});
+
+test('dismissChangeRequests with `only` leaves the reviews it rejects', async () => {
+	const reviews = [
+		{ id: 1, state: 'CHANGES_REQUESTED', user: { login: 'hansi[bot]' }, body: 'mine' },
+		{ id: 2, state: 'CHANGES_REQUESTED', user: { login: 'hansi[bot]' }, body: 'theirs' }
+	];
+	const dismissed: number[] = [];
+	const octokit = {
+		paginate: async () => reviews,
+		rest: {
+			pulls: {
+				listReviews: {},
+				dismissReview: async (input: { review_id: number }) => {
+					dismissed.push(input.review_id);
+				}
+			}
+		}
+	} as unknown as Octokit;
+
+	const count = await dismissChangeRequests(octokit, { owner: 'o', repo: 'r' }, 7, {
+		botLogin: 'hansi[bot]',
+		message: 'Resolved.',
+		only: (body) => body === 'mine'
+	});
+	expect(dismissed).toEqual([1]);
+	expect(count).toBe(1);
 });

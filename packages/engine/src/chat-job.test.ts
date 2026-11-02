@@ -199,6 +199,38 @@ describe('runChatJob', () => {
 		expect(results.chatUsage[0]?.usage.map((u) => u.role)).toEqual(['chat']);
 	});
 
+	test("a thread on another project's finding is left to that project", async () => {
+		const { github, results, context } = setup();
+		const rootId = seedFinding(github, results);
+		// The finding belongs to another repository row, so it is not in this project's database.
+		results.findings.length = 0;
+		github.reviewComments.push({
+			id: 501,
+			inReplyToId: rootId,
+			author: 'octocat',
+			isBot: false,
+			body: '@hansi is this really a bug?'
+		});
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: 501,
+				kind: 'review',
+				rootCommentId: rootId,
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#discussion_r501'
+			}
+		};
+
+		await runChatJob(job, context, first);
+
+		expect(github.reactions).toEqual([]);
+		expect(github.reviewComments.at(-1)?.id).toBe(501);
+	});
+
 	test('a reply between people in a thread Hansi did not start gets nothing', async () => {
 		const { github, results, context } = setup();
 		github.reviewComments.push(

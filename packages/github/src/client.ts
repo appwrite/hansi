@@ -110,7 +110,10 @@ export class OctokitGitHubClient implements GitHubClient {
 		return comments.map((c) => ({ id: c.id, path: c.path, line: c.line, body: c.body }));
 	}
 
-	dismissChangeRequests(pullNumber: number, input: { botLogin: string; message: string }) {
+	dismissChangeRequests(
+		pullNumber: number,
+		input: Parameters<GitHubClient['dismissChangeRequests']>[1]
+	) {
 		return pulls.dismissChangeRequests(this.octokit, this.ref, pullNumber, input);
 	}
 

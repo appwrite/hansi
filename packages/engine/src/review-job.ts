@@ -47,6 +47,7 @@ import {
 import { checkRunProgress, createReviewProgress, type ReviewProgress } from './progress';
 import { REVIEW_FAILURE_SUMMARY } from './public-failure';
 import { dismissFindingsResolvedOnGitHub } from './resolved-threads';
+import { scopeToRepository } from './scope';
 import type {
 	FindingOutcome,
 	ModelUsage,
@@ -168,7 +169,10 @@ async function executeReview(
 	signal?: AbortSignal
 ): Promise<Outcome> {
 	const { results, log } = context;
-	const connection = await context.github.forRepository(job.repository);
+	const connection = scopeToRepository(
+		await context.github.forRepository(job.repository),
+		job.repository
+	);
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;
 	const repository = `${job.repository.owner}/${job.repository.name}`;

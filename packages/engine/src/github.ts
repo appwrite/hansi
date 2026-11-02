@@ -103,10 +103,13 @@ export interface GitHubClient {
 	/** The pull request's files as GitHub shows them; `patch` is missing where GitHub shows none. */
 	listPullRequestPatches(pullNumber: number): Promise<{ path: string; patch?: string }[]>;
 	listReviewComments(pullNumber: number, reviewId: number): Promise<PostedReviewComment[]>;
-	/** Dismisses the bot's own "changes requested" reviews. Returns how many it dismissed. */
+	/**
+	 * Dismisses the bot's own "changes requested" reviews. With `only`, just those whose body it
+	 * accepts. Returns how many it dismissed.
+	 */
 	dismissChangeRequests(
 		pullNumber: number,
-		input: { botLogin: string; message: string }
+		input: { botLogin: string; message: string; only?: (body: string) => boolean }
 	): Promise<number>;
 
 	createIssueComment(issueNumber: number, body: string): Promise<void>;
@@ -146,12 +149,16 @@ export interface GitHubClient {
 	/** Check runs that already failed on a commit, excluding the app's own. */
 	getFailedChecks(headSha: string, ownAppId: string): Promise<FailedCheckRun[]>;
 
-	/** Starts the app's check run, taking over one it left in progress. */
+	/**
+	 * Starts the app's check run, taking over one it left in progress. With `externalId`, the run
+	 * carries it and only a run with the same one (or none) is taken over.
+	 */
 	startCheckRun(input: {
 		headSha: string;
 		name: string;
 		detailsUrl?: string;
 		ownAppId?: string;
+		externalId?: string;
 		output?: { title: string; summary: string };
 	}): Promise<number>;
 	updateCheckRun(checkRunId: number, output: { title: string; summary: string }): Promise<void>;

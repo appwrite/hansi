@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import type { EngineContext } from './context';
-import { SUMMARY_MARKER } from './format';
+import { summaryMarkerFor } from './scope';
 import { git } from './git';
 import type { ReviewJob } from './jobs';
 import { runReviewJob } from './review-job';
@@ -144,7 +144,7 @@ describe('runReviewJob', () => {
 		await runReviewJob(job(), context, first);
 
 		const summary = github.summary();
-		expect(summary).toStartWith(SUMMARY_MARKER);
+		expect(summary).toStartWith(summaryMarkerFor('repo1'));
 		expect(summary).toContain('Divides for real.');
 		expect(summary).toContain('| Verdict |');
 		expect(summary).toContain('<code>@hansi review</code>');
