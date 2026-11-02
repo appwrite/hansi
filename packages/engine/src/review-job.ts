@@ -171,7 +171,7 @@ async function executeReview(
 	const { results, log } = context;
 	const connection = scopeToRepository(
 		await context.github.forRepository(job.repository),
-		job.repository.repositoryId
+		job.repository
 	);
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;

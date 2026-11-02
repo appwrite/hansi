@@ -24,8 +24,8 @@ function setup() {
 	const connection = { github, app: github.app };
 	return {
 		github,
-		a: scopeToRepository(connection, 'repoA').github,
-		b: scopeToRepository(connection, 'repoB').github
+		a: scopeToRepository(connection, { projectId: 'projectA', repositoryId: 'repoA' }).github,
+		b: scopeToRepository(connection, { projectId: 'projectB', repositoryId: 'repoB' }).github
 	};
 }
 
@@ -61,6 +61,18 @@ describe('scopeToRepository', () => {
 		expect(await b.getMarkedComment(7, SUMMARY_MARKER)).toBeNull();
 		await b.upsertMarkedComment(7, SUMMARY_MARKER, `${SUMMARY_MARKER}\n\nB`);
 		expect(github.issueComments).toHaveLength(2);
+	});
+
+	test('a summary from before keyed markers that links another project is left to it', async () => {
+		const { github, a, b } = setup();
+		const link = 'https://cloud.test/console/projects/projectA/reviews/review1';
+		await github.createIssueComment(7, `${SUMMARY_MARKER}\n\nold · <a href="${link}">Details</a>`);
+
+		expect(await b.getMarkedComment(7, SUMMARY_MARKER)).toBeNull();
+		await b.upsertMarkedComment(7, SUMMARY_MARKER, `${SUMMARY_MARKER}\n\nB`);
+		expect(github.issueComments[0]?.body).toStartWith(SUMMARY_MARKER);
+
+		expect((await a.getMarkedComment(7, SUMMARY_MARKER))?.id).toBe(github.issueComments[0]?.id);
 	});
 
 	test('a change request is withdrawn only by the row that made it', async () => {

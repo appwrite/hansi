@@ -31,16 +31,28 @@ export function isOwnReview(body: string, repositoryId: string): boolean {
 }
 
 /**
+ * Whether a summary written before markers were keyed may be taken over by this project. Its
+ * Console links name the project that wrote it; one naming another project is left to that one.
+ * Without links (no Console URL) the first project to review takes it over.
+ */
+export function isOwnLegacySummary(body: string, projectId: string): boolean {
+	return (
+		body.includes(`/projects/${encodeURIComponent(projectId)}/reviews/`) ||
+		!body.includes('/projects/')
+	);
+}
+
+/**
  * The connection as one `repositories` row sees it. The engine keeps reading and writing the
  * legacy summary marker; here it becomes the row's own. A summary comment written before markers
- * were keyed is taken over by the first row that reviews the pull request, which is the project
- * that wrote it unless a second one enabled the repository in between.
+ * were keyed is taken over by the project that wrote it (see `isOwnLegacySummary`).
  */
 export function scopeToRepository(
 	connection: GitHubConnection,
-	repositoryId: string
+	repository: { projectId: string; repositoryId: string }
 ): GitHubConnection {
 	const { github } = connection;
+	const { projectId, repositoryId } = repository;
 	const marker = summaryMarkerFor(repositoryId);
 	const toRow = (body: string) => body.replace(SUMMARY_MARKER, marker);
 	const toEngine = (body: string) => body.replace(marker, SUMMARY_MARKER);
@@ -48,7 +60,8 @@ export function scopeToRepository(
 	const summary = async (issueNumber: number) => {
 		const own = await github.getMarkedComment(issueNumber, marker);
 		if (own) return { ...own, body: toEngine(own.body) };
-		return github.getMarkedComment(issueNumber, SUMMARY_MARKER);
+		const legacy = await github.getMarkedComment(issueNumber, SUMMARY_MARKER);
+		return legacy && isOwnLegacySummary(legacy.body, projectId) ? legacy : null;
 	};
 
 	const overrides = {

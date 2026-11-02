@@ -230,7 +230,13 @@ export async function startCheckRun(
 				(!input.externalId || !run.external_id || run.external_id === input.externalId)
 		);
 		if (orphan) {
-			await octokit.rest.checks.update({ ...ref, check_run_id: orphan.id, ...fields });
+			// Tag an untagged run on takeover, so another owner does not take it over too.
+			await octokit.rest.checks.update({
+				...ref,
+				check_run_id: orphan.id,
+				...(input.externalId ? { external_id: input.externalId } : {}),
+				...fields
+			});
 			return orphan.id;
 		}
 	}
