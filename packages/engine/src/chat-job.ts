@@ -7,7 +7,7 @@ import {
 	openBodyFindings,
 	type ChatFindingRow
 } from './chat-finding';
-import { repliesToBot } from './chat-reply';
+import { isBotAuthor, repliesToBot } from './chat-reply';
 import type { Attempt, EngineContext } from './context';
 import { absolutizeLinks, MARKER_NAMESPACE } from './format';
 import { checkoutPullRequest } from './git';
@@ -15,6 +15,7 @@ import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
 import { lazySandbox, openSandbox } from './review-sandbox';
+import { scopeToRepository } from './scope';
 import { modelUsage, withWorkdir } from './shared';
 import { refreshSummaryAfterSettlement } from './summary';
 
@@ -48,7 +49,10 @@ export async function runChatJob(
 		return;
 	}
 
-	const connection = await context.github.forRepository(job.repository);
+	const connection = scopeToRepository(
+		await context.github.forRepository(job.repository),
+		job.repository.repositoryId
+	);
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;
 
@@ -62,9 +66,29 @@ export async function runChatJob(
 			: github.getRecentIssueComments(job.pullNumber, undefined, comment.id);
 	// A reply without a mention is answered only when it replies to Hansi. Checked before the 👀,
 	// so people talking among themselves in a review thread see nothing from Hansi.
-	const early = job.unmentioned || bodyFindings.length > 0 ? await threadOf() : undefined;
-	if (early && comment.kind === 'review' && !repliesToBot(early, comment.id, mention)) {
+	const early =
+		job.unmentioned || bodyFindings.length > 0 || comment.kind === 'review'
+			? await threadOf()
+			: undefined;
+	if (
+		early &&
+		comment.kind === 'review' &&
+		job.unmentioned &&
+		!repliesToBot(early, comment.id, mention)
+	) {
 		log.info('review-thread reply is not to Hansi, skipping');
+		return;
+	}
+	// Every project reviewing the repository gets this job. A thread on a finding is answered by
+	// the project that posted it; another project's finding is not in this one's database.
+	const root = early?.[0];
+	if (
+		comment.kind === 'review' &&
+		root &&
+		isBotAuthor(root, mention) &&
+		!chatFinding(findings, root.id)
+	) {
+		log.info("thread is on another project's finding, skipping");
 		return;
 	}
 	// The comment being answered can settle a body-listed finding by quoting its title or line.

@@ -176,6 +176,7 @@ export interface MemoryCheckRun {
 	title?: string;
 	summary?: string;
 	detailsUrl?: string;
+	externalId?: string;
 	/** Every output it showed, in order. */
 	outputs: { title: string; summary: string }[];
 }
@@ -318,9 +319,11 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 
 	async dismissChangeRequests(
 		_pullNumber: number,
-		input: { botLogin: string; message: string }
+		input: { botLogin: string; message: string; only?: (body: string) => boolean }
 	): Promise<number> {
-		const open = this.reviews.filter((review) => review.state === 'CHANGES_REQUESTED');
+		const open = this.reviews.filter(
+			(review) => review.state === 'CHANGES_REQUESTED' && (!input.only || input.only(review.body))
+		);
 		for (const review of open) review.state = 'DISMISSED';
 		return input.botLogin ? open.length : 0;
 	}
@@ -358,9 +361,14 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return { id, url: this.urlOf(id) };
 	}
 
-	/** The summary comment's body, or null before the first write. */
-	summary(marker = SUMMARY_MARKER): string | null {
-		return this.issueComments.find((c) => c.isBot && c.body.includes(marker))?.body ?? null;
+	/**
+	 * The summary comment's body, or null before the first write. Without a marker, the first
+	 * summary comment, keyed to a repository row or not.
+	 */
+	summary(marker?: string): string | null {
+		const matches = (body: string) =>
+			marker ? body.includes(marker) : body.includes(SUMMARY_MARKER.replace(' -->', ''));
+		return this.issueComments.find((c) => c.isBot && matches(c.body))?.body ?? null;
 	}
 
 	async acknowledgeComment(comment: { id: number; kind: 'issue' | 'review' }): Promise<void> {
@@ -435,6 +443,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		headSha: string;
 		name: string;
 		detailsUrl?: string;
+		externalId?: string;
 		output?: { title: string; summary: string };
 	}): Promise<number> {
 		const id = this.checkRuns.length + 1;
@@ -444,6 +453,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 			headSha: input.headSha,
 			status: 'in_progress',
 			detailsUrl: input.detailsUrl,
+			...(input.externalId ? { externalId: input.externalId } : {}),
 			...input.output,
 			outputs: input.output ? [input.output] : []
 		});

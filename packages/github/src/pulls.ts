@@ -159,7 +159,7 @@ export async function dismissChangeRequests(
 	octokit: Octokit,
 	ref: RepoRef,
 	pullNumber: number,
-	input: { botLogin: string; message: string }
+	input: { botLogin: string; message: string; only?: (body: string) => boolean }
 ): Promise<number> {
 	const reviews = await octokit.paginate(octokit.rest.pulls.listReviews, {
 		...ref,
@@ -168,7 +168,10 @@ export async function dismissChangeRequests(
 	});
 	const login = input.botLogin.toLowerCase();
 	const open = reviews.filter(
-		(r) => r.state === 'CHANGES_REQUESTED' && r.user?.login.toLowerCase() === login
+		(r) =>
+			r.state === 'CHANGES_REQUESTED' &&
+			r.user?.login.toLowerCase() === login &&
+			(!input.only || input.only(r.body ?? ''))
 	);
 	for (const review of open) {
 		await octokit.rest.pulls.dismissReview({
@@ -202,6 +205,7 @@ export async function startCheckRun(
 		name: string;
 		detailsUrl?: string;
 		ownAppId?: string;
+		externalId?: string;
 		output?: { title: string; summary: string };
 	}
 ) {
@@ -218,8 +222,12 @@ export async function startCheckRun(
 			check_name: input.name,
 			per_page: 100
 		});
+		// A run tagged for another owner belongs to a review that is still running elsewhere.
 		const orphan = runs.check_runs.find(
-			(run) => run.status !== 'completed' && String(run.app?.id) === input.ownAppId
+			(run) =>
+				run.status !== 'completed' &&
+				String(run.app?.id) === input.ownAppId &&
+				(!input.externalId || !run.external_id || run.external_id === input.externalId)
 		);
 		if (orphan) {
 			await octokit.rest.checks.update({ ...ref, check_run_id: orphan.id, ...fields });
@@ -230,6 +238,7 @@ export async function startCheckRun(
 		...ref,
 		name: input.name,
 		head_sha: input.headSha,
+		...(input.externalId ? { external_id: input.externalId } : {}),
 		...fields
 	});
 	return data.id;
