@@ -166,7 +166,7 @@ describe('Metrics', () => {
 			}))
 		);
 
-		const sandbox = await sandboxes.create({ archiveUrl: 'https://github.test/tarball' });
+		const sandbox = await sandboxes.create({ workspace: Promise.resolve(new Blob([])) });
 		for (const command of ['true', 'false', 'sleep']) await sandbox.run(command, { timeoutMs: 1 });
 		expect((await reader.points('hansi_sandboxes_active'))[0]?.value).toBe(1);
 		await sandbox.close();

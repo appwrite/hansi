@@ -66,7 +66,7 @@ export function createSandboxTools(
 ) {
 	return {
 		run_command: tool({
-			description: `Run a shell command (sh -c) in an isolated sandbox, in a writable copy of the repository at the PR head. Returns the exit code and output (long output keeps its start and end). Default timeout ${DEFAULT_TIMEOUT_MS / 1000}s, at most ${MAX_TIMEOUT_MS / 1000}s with timeoutSeconds. At most ${MAX_COMMANDS} commands in total, so use it for lightweight checks, not builds or test suites.`,
+			description: `Run a shell command (sh -c) in an isolated sandbox, in a writable copy of the repository at the PR head, without its binary files (images, videos, archives) and files over 10 MB. Returns the exit code and output (long output keeps its start and end). Default timeout ${DEFAULT_TIMEOUT_MS / 1000}s, at most ${MAX_TIMEOUT_MS / 1000}s with timeoutSeconds. At most ${MAX_COMMANDS} commands in total, so use it for lightweight checks, not builds or test suites.`,
 			inputSchema: z.object({
 				command: z.string().min(1),
 				timeoutSeconds: z

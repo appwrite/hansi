@@ -1,8 +1,8 @@
 import type { Sandbox, SandboxClient, SandboxResult, SandboxSpec } from '@hansi/engine';
 
 // Sandboxes on the open-runtimes orchestrator (docs/sandboxes.md there). The control plane
-// creates and deletes them; commands go straight to the sandbox's own URL, served by the
-// sandbox agent the orchestrator installs into every sandbox.
+// creates and deletes them; commands and the workspace upload go straight to the sandbox's own
+// URL, served by the sandbox agent the orchestrator installs into every sandbox.
 
 export interface OrchestratorConfig {
 	/** Orchestrator API, e.g. `http://orchestrator:8080`. */
@@ -36,7 +36,10 @@ interface ExecuteResponse {
 
 /** Margin past a command's own timeout before the request carrying it is given up on. */
 const REQUEST_GRACE_MS = 10_000;
-const ARCHIVE = 'pr.tar.gz';
+/** Where the workspace archive is uploaded to, in the workspace, until it is unpacked. */
+const ARCHIVE = '.hansi-workspace.tar.gz';
+/** Bounds the upload and the unpack each. */
+const UNPACK_TIMEOUT_MS = 120_000;
 /** What the sandbox agent exits with when it kills a command at its timeout, as `timeout(1)` does. */
 const TIMEOUT_EXIT_CODE = 124;
 
@@ -61,12 +64,7 @@ export class OrchestratorSandboxClient implements SandboxClient {
 			environment: spec.environment,
 			// Requests carry one command each; the per-command timeout bounds them.
 			timeoutSeconds: 0,
-			idleTimeoutSeconds: spec.idleTimeoutSeconds ?? 3600,
-			artifacts: [
-				{ id: 'archive', type: 'download', in: spec.archiveUrl, out: ARCHIVE },
-				// GitHub wraps the tree in an <owner>-<repo>-<sha> directory.
-				{ id: 'unpack', type: 'unarchive', in: ARCHIVE, out: '.', strip: true, depends: 'archive' }
-			]
+			idleTimeoutSeconds: spec.idleTimeoutSeconds ?? 3600
 		});
 		const status = (await response.json()) as SandboxStatus;
 
@@ -76,6 +74,12 @@ export class OrchestratorSandboxClient implements SandboxClient {
 		if (status.status !== 'ready' || !status.url) {
 			await sandbox.close();
 			throw new SandboxError(`sandbox ${status.id} is ${status.status}: ${status.error ?? ''}`);
+		}
+		try {
+			await sandbox.unpack(await spec.workspace);
+		} catch (error) {
+			await sandbox.close();
+			throw error;
 		}
 		return sandbox;
 	}
@@ -150,6 +154,28 @@ class OrchestratorSandbox implements Sandbox {
 				result.durationMillis >= timeoutSeconds * 1000,
 			truncated: result.truncated ?? false
 		};
+	}
+
+	/** Uploads the workspace archive and unpacks it into the workspace. */
+	async unpack(workspace: Blob): Promise<void> {
+		if (!this.url) throw new SandboxError(`sandbox ${this.id} has no URL`);
+		const upload = await this.http(new URL(`/files/${ARCHIVE}`, this.url), {
+			method: 'PUT',
+			headers: { 'content-type': 'application/gzip' },
+			body: workspace,
+			signal: AbortSignal.timeout(UNPACK_TIMEOUT_MS)
+		});
+		if (!upload.ok) {
+			throw new SandboxError(`sandbox ${this.id} upload: ${upload.status} ${await upload.text()}`);
+		}
+		const result = await this.run(`tar -xzf ${ARCHIVE} && rm -f ${ARCHIVE}`, {
+			timeoutMs: UNPACK_TIMEOUT_MS
+		});
+		if (result.exitCode !== 0) {
+			throw new SandboxError(
+				`sandbox ${this.id} unpack: exit ${result.exitCode} ${result.stderr.trim().slice(0, 500)}`
+			);
+		}
 	}
 
 	close(): Promise<void> {
