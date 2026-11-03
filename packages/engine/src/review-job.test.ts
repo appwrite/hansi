@@ -177,6 +177,66 @@ describe('runReviewJob', () => {
 		expect(results.events.some((e) => e.type === 'review.posted')).toBe(true);
 	});
 
+	test('a push that changes nothing after the blocking finding settled stops blocking the PR', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCall('submit_review', {
+					summary: 'Divides for real.',
+					findings: [finding],
+					tier: 'B',
+					tier_reason: 'Division by zero is not handled.',
+					walkthrough: [{ path: 'src/math.ts', change: 'Returns a / b.' }]
+				}),
+				toolCall('submit_verdicts', {
+					verdicts: [{ id: 'F1', keep: true, reason: 'b is not checked' }]
+				})
+			]
+		});
+		const { github, results, context } = setup([model]);
+		github.patches = [
+			{
+				path: 'src/math.ts',
+				patch:
+					'@@ -1,3 +1,3 @@\n export function divide(a, b) {\n-  return 0;\n+  return a / b;\n }'
+			}
+		];
+		results.queue({ id: 'review1' });
+		await runReviewJob(job(), context, first);
+		expect(github.reviews[0]?.state).toBe('CHANGES_REQUESTED');
+		expect(github.checkRuns[0]?.conclusion).toBe('failure');
+
+		// A maintainer resolves the thread, then an empty commit re-runs the review.
+		const run = (...args: string[]) => git(args, { cwd: remote });
+		const rerun = (
+			await run('commit-tree', `${headSha}^{tree}`, '-p', headSha, '-m', 're-run review')
+		).trim();
+		await run('update-ref', 'refs/pull/7/head', rerun);
+		try {
+			github.writers.add('maintainer');
+			const root = github.reviewComments[0]!.id;
+			github.resolved.add(root);
+			github.resolvedBy.set(root, 'maintainer');
+			github.pullRequest = { ...github.pullRequest, headSha: rerun };
+			results.queue({ id: 'review2', trigger: 'synchronize' });
+
+			await runReviewJob(
+				job({ reviewId: 'review2', headSha: rerun, trigger: { kind: 'synchronize' } }),
+				context,
+				first
+			);
+		} finally {
+			await run('update-ref', 'refs/pull/7/head', headSha);
+		}
+
+		expect(results.events.some((e) => e.type === 'review.merge_only')).toBe(true);
+		const check = github.checkRuns.at(-1);
+		expect(check?.conclusion).toBe('neutral');
+		expect(check?.title).toStartWith('Tier S: ');
+		expect(github.summary()).toContain('Tier S');
+		expect(github.reviews[0]?.state).toBe('DISMISSED');
+		expect(results.review('review2')).toMatchObject({ tier: 'S', verdict: 'comment' });
+	});
+
 	test("hansi.codes' comments on the same pull request are left alone", async () => {
 		const model = new MockLanguageModelV4({
 			doGenerate: [

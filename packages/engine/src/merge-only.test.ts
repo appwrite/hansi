@@ -171,19 +171,62 @@ describe('settledCarriedReview', () => {
 			tier: 'D' as const,
 			tierReason: 'Limited by an open critical finding: X'
 		};
-		expect(settledCarriedReview(capped, [])).toMatchObject({ tier: 'S', tierReason: '' });
-		expect(settledCarriedReview(capped, [{ severity: 'minor', title: 'Y' }])).toMatchObject({
+		expect(settledCarriedReview(capped, [], 'major')).toMatchObject({ tier: 'S', tierReason: '' });
+		expect(
+			settledCarriedReview(capped, [{ severity: 'minor', title: 'Y' }], 'major')
+		).toMatchObject({
 			tier: 'A',
 			tierReason: 'Limited by an open minor finding: Y'
 		});
 	});
 
-	test("the model's own grade stays, but never better than open findings allow", () => {
+	test("the model's own grade stays while a finding is open, but never better than they allow", () => {
 		const graded = { ...review, tier: 'B' as const, tierReason: 'Untested edge cases.' };
-		expect(settledCarriedReview(graded, [])).toBe(graded);
-		expect(settledCarriedReview(graded, [{ severity: 'critical', title: 'Z' }])).toMatchObject({
+		expect(settledCarriedReview(graded, [{ severity: 'minor', title: 'Y' }], 'major')).toEqual(
+			graded
+		);
+		expect(
+			settledCarriedReview(graded, [{ severity: 'critical', title: 'Z' }], 'major')
+		).toMatchObject({
 			tier: 'D',
 			tierReason: 'Limited by an open critical finding: Z'
 		});
+	});
+
+	test("with nothing open the model's grade below S does not stand", () => {
+		// The model grades below S only for a finding; once that is settled, the PR is at S.
+		const graded = {
+			...review,
+			verdict: 'request_changes' as const,
+			tier: 'B' as const,
+			tierReason: 'The SDK pin predates the scopes model.'
+		};
+		expect(settledCarriedReview(graded, [], 'major')).toMatchObject({
+			verdict: 'comment',
+			tier: 'S',
+			tierReason: ''
+		});
+		const approved = {
+			...review,
+			verdict: 'approve' as const,
+			tier: 'S' as const,
+			tierReason: 'Holds.'
+		};
+		expect(settledCarriedReview(approved, [], 'major')).toEqual(approved);
+	});
+
+	test('a change request stands only while a blocking finding is open', () => {
+		const requested = {
+			...review,
+			verdict: 'request_changes' as const,
+			tier: 'B' as const,
+			tierReason: 'Limited by an open major finding: X'
+		};
+		expect(
+			settledCarriedReview(requested, [{ severity: 'major', title: 'X' }], 'major').verdict
+		).toBe('request_changes');
+		expect(
+			settledCarriedReview(requested, [{ severity: 'minor', title: 'Y' }], 'major')
+		).toMatchObject({ verdict: 'comment', tier: 'A' });
 	});
 });

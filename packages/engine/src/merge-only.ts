@@ -2,7 +2,7 @@ import type { Tier, Verdict } from './config';
 import type { SummaryInput } from './format';
 import type { PullRequestDelta } from './git';
 import { finalTier, standingFromOpenFindings } from './tier';
-import type { Severity } from './config';
+import { severityAtLeast, type Severity } from './config';
 import { summaryAfterSettlement, type SummaryExtras } from './summary';
 
 const verdicts = ['approve', 'request_changes', 'comment'] as const satisfies readonly Verdict[];
@@ -49,18 +49,36 @@ function isOneOf<T extends string>(
 }
 
 /**
- * The carried grade after findings settled since that review, e.g. a maintainer resolved a
- * thread. A grade that only an open finding held down follows the findings that are still open;
- * the model's own grade is kept, but never better than they allow.
+ * The carried grade and verdict after findings settled since that review, e.g. a maintainer
+ * resolved a thread. The model grades below S only for a finding, so with nothing open the pull
+ * request is at S, as a full review would grade it. A grade that only an open finding held down
+ * follows the findings that are still open; otherwise the model's own grade is kept, but never
+ * better than they allow. A change request stands only while a blocking finding is open; after
+ * that the verdict becomes a comment, so the check run no longer fails on settled findings.
  */
 export function settledCarriedReview(
 	review: CarriedReview,
-	open: { severity: Severity; title: string }[]
+	open: { severity: Severity; title: string }[],
+	blocking: Severity
 ): CarriedReview {
+	const verdict =
+		review.verdict === 'request_changes' && !open.some((f) => severityAtLeast(f.severity, blocking))
+			? 'comment'
+			: review.verdict;
 	const standing = standingFromOpenFindings(open);
-	if (review.tierReason.startsWith(CAPPED_REASON)) return { ...review, ...standing };
+	if (open.length === 0) {
+		return {
+			...review,
+			verdict,
+			tier: 'S',
+			tierReason: review.tier === 'S' ? review.tierReason : ''
+		};
+	}
+	if (review.tierReason.startsWith(CAPPED_REASON)) return { ...review, verdict, ...standing };
 	const tier = finalTier(review.tier, standing.tier);
-	return tier === review.tier ? review : { ...review, tier, tierReason: standing.tierReason };
+	return tier === review.tier
+		? { ...review, verdict }
+		: { ...review, verdict, tier, tierReason: standing.tierReason };
 }
 
 /** How `standingFromOpenFindings` starts a reason: the grade came from a finding, not the model. */

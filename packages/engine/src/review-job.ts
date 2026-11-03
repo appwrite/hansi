@@ -357,8 +357,11 @@ async function executeReview(
 						checkRunId,
 						detailsUrl,
 						decision,
+						blocking: blockingSeverity(config),
+						lastDecisiveVerdict: history.lastDecisiveVerdict,
 						record,
-						flush
+						flush,
+						log
 					});
 				}
 				if (decision.kind === 'incremental') {
@@ -856,8 +859,13 @@ async function finishMergeOnly(input: {
 	checkRunId: number;
 	detailsUrl?: string;
 	decision: Extract<IncrementalDecision, { kind: 'merge-only' }>;
+	/** Findings at or above this severity block the pull request (`reviews.requestChanges`). */
+	blocking: Severity;
+	/** Hansi's current approve / request-changes state on GitHub. */
+	lastDecisiveVerdict?: Verdict;
 	record: (event: TraceStep) => void;
 	flush: () => Promise<unknown>;
+	log: Log;
 }): Promise<Outcome> {
 	const { connection, decision } = input;
 	const { github, app } = connection;
@@ -866,7 +874,8 @@ async function finishMergeOnly(input: {
 		decision.review,
 		findings
 			.filter((f) => f.status === 'posted')
-			.map((f) => ({ severity: f.severity as Severity, title: f.title }))
+			.map((f) => ({ severity: f.severity as Severity, title: f.title })),
+		input.blocking
 	);
 	input.record({
 		type: 'review.mode',
@@ -899,6 +908,25 @@ async function finishMergeOnly(input: {
 		SUMMARY_MARKER,
 		formatSummaryComment(summaryInput)
 	);
+	// The findings that requested changes settled since that review: withdraw the change request,
+	// as a full review would, or the author stays blocked by findings that are no longer open.
+	if (
+		shouldDismissChangeRequest({
+			verdict: carried.verdict,
+			blockingOpen: findings.filter(
+				(f) => f.status === 'posted' && severityAtLeast(f.severity as Severity, input.blocking)
+			).length,
+			lastDecisiveVerdict: input.lastDecisiveVerdict,
+			headMoved: false
+		})
+	) {
+		await withdrawChangeRequests(
+			connection,
+			input.pull.pullNumber,
+			CHANGE_REQUEST_DISMISSAL,
+			input.log
+		);
+	}
 	await input.flush();
 	await input.results.completeReview(input.ref, {
 		verdict: carried.verdict,
