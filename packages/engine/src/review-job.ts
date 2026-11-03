@@ -44,7 +44,7 @@ import {
 	reviewMentionComment,
 	type MentionSkipReason
 } from './mention-ack';
-import { checkRunProgress, createReviewProgress, type ReviewProgress } from './progress';
+import { checkRunProgress, createReviewProgress } from './progress';
 import { REVIEW_FAILURE_SUMMARY } from './public-failure';
 import { dismissFindingsResolvedOnGitHub } from './resolved-threads';
 import { scopeToRepository } from './scope';
@@ -57,7 +57,7 @@ import type {
 	TraceEvent
 } from './results';
 import { placeOnGitHubDiff, runReview, type OpenFinding } from './review';
-import { openSandbox, type ReviewSandbox } from './review-sandbox';
+import { backgroundSandbox, openSandbox, type ReviewSandbox } from './review-sandbox';
 import {
 	mentionWantsSameHeadReply,
 	otherPullReviews,
@@ -385,7 +385,7 @@ async function executeReview(
 				}
 			});
 
-			const sandbox = await reviewSandbox(context, connection, config, pr, record, progress);
+			const sandbox = reviewSandbox(context, connection, config, pr, record);
 			const result = await runReview({
 				repoDir,
 				diff: reviewDiff,
@@ -652,35 +652,37 @@ async function loadPullRequestContext(
 }
 
 /**
- * The sandbox this review runs commands in. It starts before the review. When it cannot start,
- * the failure is recorded and the review reads code only.
+ * The sandbox this review runs commands in. It starts in the background while the review reads
+ * the code, and the first command waits for it. When it cannot start, the failure is recorded and
+ * every command fails with the reason.
  */
-async function reviewSandbox(
+function reviewSandbox(
 	context: EngineContext,
 	{ github }: GitHubConnection,
 	config: RepoConfig,
 	pr: PullRequest,
-	record: (event: TraceStep) => void,
-	progress: ReviewProgress
-): Promise<ReviewSandbox | undefined> {
-	if (!context.sandboxes) {
+	record: (event: TraceStep) => void
+): ReviewSandbox | undefined {
+	const { sandboxes, log } = context;
+	if (!sandboxes) {
 		record({ type: 'sandbox.skipped', data: { reason: 'no orchestrator configured' } });
 		return undefined;
 	}
-	progress.phase({ kind: 'sandbox' });
-	try {
-		return await openSandbox({
-			client: context.sandboxes,
-			archiveUrl: await github.getArchiveUrl(pr.headSha),
-			config,
-			emit: record,
-			log: context.log
-		});
-	} catch (error) {
-		context.log.warn('sandbox failed to start', { err: error });
-		record({ type: 'sandbox.failed', data: { error: (error as Error).message } });
-		return undefined;
-	}
+	return backgroundSandbox(async () => {
+		try {
+			return await openSandbox({
+				client: sandboxes,
+				archiveUrl: await github.getArchiveUrl(pr.headSha),
+				config,
+				emit: record,
+				log
+			});
+		} catch (error) {
+			log.warn('sandbox failed to start', { err: error });
+			record({ type: 'sandbox.failed', data: { error: (error as Error).message } });
+			throw error;
+		}
+	});
 }
 
 /**
