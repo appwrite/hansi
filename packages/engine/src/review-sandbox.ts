@@ -87,18 +87,52 @@ export async function openSandbox(options: OpenSandboxOptions): Promise<ReviewSa
  */
 export function lazySandbox(open: () => Promise<ReviewSandbox>): ReviewSandbox {
 	let opening: Promise<ReviewSandbox> | undefined;
+	return pendingSandbox(
+		() => (opening ??= open()),
+		() => opening
+	);
+}
+
+/**
+ * A sandbox that starts now and is waited for only by the first command, so the work that needs
+ * no commands is not held up by it. If it cannot start, every command fails with the reason.
+ */
+export function backgroundSandbox(open: () => Promise<ReviewSandbox>): ReviewSandbox {
+	let opened: ReviewSandbox | undefined;
+	const opening = open().then((sandbox) => (opened = sandbox));
+	// A failure surfaces on the first command, or not at all when none runs.
+	opening.catch(() => undefined);
+	const { runner } = pendingSandbox(
+		() => opening,
+		() => opening
+	);
+	return {
+		runner,
+		// A review that ran no command does not wait for a sandbox still starting: it is closed
+		// once it is up.
+		close: async () => {
+			if (opened) return opened.close();
+			void opening.then((sandbox) => sandbox.close()).catch(() => undefined);
+		}
+	};
+}
+
+/** A sandbox still opening: commands wait for it, and closing closes it once it has opened. */
+function pendingSandbox(
+	open: () => Promise<ReviewSandbox>,
+	started: () => Promise<ReviewSandbox> | undefined
+): ReviewSandbox {
 	return {
 		runner: {
 			run: async (command, options) => {
-				opening ??= open();
-				const sandbox = await opening.catch((error: unknown) => {
+				const sandbox = await open().catch((error: unknown) => {
 					throw new Error(`The sandbox could not start: ${(error as Error).message}`);
 				});
 				return sandbox.runner.run(command, options);
 			}
 		},
 		close: async () => {
-			const sandbox = await opening?.catch(() => undefined);
+			const sandbox = await started()?.catch(() => undefined);
 			await sandbox?.close();
 		}
 	};

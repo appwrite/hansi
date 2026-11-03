@@ -97,14 +97,14 @@ function fakeGitHub(initial: string | null) {
 test('progress follows the phases on the check run and the summary', async () => {
 	const { state, target } = fakeGitHub(summary);
 	const progress = createReviewProgress(target);
-	progress.phase({ kind: 'sandbox' });
+	progress.phase({ kind: 'reviewing', files: 0 });
 	progress.onEvent({ type: 'files.prompt', data: { shown: ['a.ts'], notShown: [] } });
 	progress.onEvent({ type: 'files.prompt', data: { shown: ['a.ts'], notShown: [] } });
 	progress.onEvent({ type: 'review.submitted', data: { findings: 1 } });
 	progress.phase({ kind: 'publishing' });
 	await progress.close();
 	expect(state.checkRun).toEqual([
-		'Starting the sandbox',
+		'Reviewing the changes',
 		'Reviewing 1 file',
 		'Verifying 1 possible finding',
 		'Posting the review'
@@ -121,7 +121,7 @@ test('progress follows the phases on the check run and the summary', async () =>
 test('a failed review never leaves the summary saying it is running', async () => {
 	const { state, target } = fakeGitHub(summary);
 	const progress = createReviewProgress(target);
-	progress.phase({ kind: 'sandbox' });
+	progress.phase({ kind: 'reviewing', files: 2 });
 	await progress.settle({ kind: 'failed' });
 	expect(state.comment?.body).not.toContain('⏳');
 	expect(state.comment?.body).toContain('could not finish reviewing');
@@ -166,6 +166,6 @@ test('a GitHub error while reporting progress does not fail the review', async (
 			throw new Error('502');
 		}
 	});
-	progress.phase({ kind: 'sandbox' });
+	progress.phase({ kind: 'preparing' });
 	await expect(progress.close()).resolves.toBeUndefined();
 });

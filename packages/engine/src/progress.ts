@@ -13,7 +13,6 @@ import type { ReviewEvent as TraceEvent } from './tools';
 
 export type ReviewPhase =
 	| { kind: 'preparing' }
-	| { kind: 'sandbox' }
 	| { kind: 'reviewing'; files: number }
 	| { kind: 'verifying'; findings: number }
 	| { kind: 'publishing' };
@@ -35,8 +34,6 @@ export function phaseText(phase: ReviewPhase): string {
 	switch (phase.kind) {
 		case 'preparing':
 			return 'Checking out the pull request';
-		case 'sandbox':
-			return 'Starting the sandbox';
 		case 'reviewing':
 			return phase.files ? `Reviewing ${plural(phase.files, 'file')}` : 'Reviewing the changes';
 		case 'verifying':
