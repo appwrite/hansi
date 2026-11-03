@@ -228,5 +228,9 @@ describe('settledCarriedReview', () => {
 		expect(
 			settledCarriedReview(requested, [{ severity: 'minor', title: 'Y' }], 'major')
 		).toMatchObject({ verdict: 'comment', tier: 'A' });
+		// `reviews.requestChanges: never`: an earlier change request does not stand.
+		expect(
+			settledCarriedReview(requested, [{ severity: 'major', title: 'X' }], null)
+		).toMatchObject({ verdict: 'comment', tier: 'B' });
 	});
 });

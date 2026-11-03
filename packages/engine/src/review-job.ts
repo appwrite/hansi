@@ -1,5 +1,6 @@
 import {
 	blockingSeverity,
+	changeRequestSeverity,
 	parseRepoConfig,
 	REPO_CONFIG_FILE,
 	severityAtLeast,
@@ -77,7 +78,7 @@ import {
 	shouldSubmitReview,
 	submissionForCurrentHead
 } from './submit-review';
-import { summaryExtrasFromBody, summaryFindings } from './summary';
+import { hasBlockingOpen, summaryExtrasFromBody, summaryFindings } from './summary';
 import type { ReviewEvent as TraceStep } from './tools';
 
 // One review job, from the queued pull request to the review on GitHub and the outcome in
@@ -357,7 +358,7 @@ async function executeReview(
 						checkRunId,
 						detailsUrl,
 						decision,
-						blocking: blockingSeverity(config),
+						blocking: changeRequestSeverity(config),
 						lastDecisiveVerdict: history.lastDecisiveVerdict,
 						record,
 						flush,
@@ -859,8 +860,8 @@ async function finishMergeOnly(input: {
 	checkRunId: number;
 	detailsUrl?: string;
 	decision: Extract<IncrementalDecision, { kind: 'merge-only' }>;
-	/** Findings at or above this severity block the pull request (`reviews.requestChanges`). */
-	blocking: Severity;
+	/** Findings at or above this keep a change request standing; null when it never requests changes. */
+	blocking: Severity | null;
 	/** Hansi's current approve / request-changes state on GitHub. */
 	lastDecisiveVerdict?: Verdict;
 	record: (event: TraceStep) => void;
@@ -913,9 +914,7 @@ async function finishMergeOnly(input: {
 	if (
 		shouldDismissChangeRequest({
 			verdict: carried.verdict,
-			blockingOpen: findings.filter(
-				(f) => f.status === 'posted' && severityAtLeast(f.severity as Severity, input.blocking)
-			).length,
+			blockingOpen: hasBlockingOpen(findings, input.blocking) ? 1 : 0,
 			lastDecisiveVerdict: input.lastDecisiveVerdict,
 			headMoved: false
 		})

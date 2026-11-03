@@ -55,14 +55,16 @@ function isOneOf<T extends string>(
  * follows the findings that are still open; otherwise the model's own grade is kept, but never
  * better than they allow. A change request stands only while a blocking finding is open; after
  * that the verdict becomes a comment, so the check run no longer fails on settled findings.
+ * `blocking` is null when the repository never requests changes: no change request stands.
  */
 export function settledCarriedReview(
 	review: CarriedReview,
 	open: { severity: Severity; title: string }[],
-	blocking: Severity
+	blocking: Severity | null
 ): CarriedReview {
 	const verdict =
-		review.verdict === 'request_changes' && !open.some((f) => severityAtLeast(f.severity, blocking))
+		review.verdict === 'request_changes' &&
+		!open.some((f) => blocking !== null && severityAtLeast(f.severity, blocking))
 			? 'comment'
 			: review.verdict;
 	const standing = standingFromOpenFindings(open);
