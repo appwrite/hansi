@@ -98,13 +98,23 @@ export function lazySandbox(open: () => Promise<ReviewSandbox>): ReviewSandbox {
  * no commands is not held up by it. If it cannot start, every command fails with the reason.
  */
 export function backgroundSandbox(open: () => Promise<ReviewSandbox>): ReviewSandbox {
-	const opening = open();
+	let opened: ReviewSandbox | undefined;
+	const opening = open().then((sandbox) => (opened = sandbox));
 	// A failure surfaces on the first command, or not at all when none runs.
 	opening.catch(() => undefined);
-	return pendingSandbox(
+	const { runner } = pendingSandbox(
 		() => opening,
 		() => opening
 	);
+	return {
+		runner,
+		// A review that ran no command does not wait for a sandbox still starting: it is closed
+		// once it is up.
+		close: async () => {
+			if (opened) return opened.close();
+			void opening.then((sandbox) => sandbox.close()).catch(() => undefined);
+		}
+	};
 }
 
 /** A sandbox still opening: commands wait for it, and closing closes it once it has opened. */

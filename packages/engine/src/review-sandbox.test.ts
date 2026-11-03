@@ -52,6 +52,23 @@ test('a background sandbox that cannot start fails every command with the reason
 	await expect(background.close()).resolves.toBeUndefined();
 });
 
+test('closing a background sandbox that is still starting does not wait for it', async () => {
+	const { state, sandbox } = fakeSandbox();
+	let ready!: () => void;
+	const opened = new Promise<void>((resolve) => (ready = resolve));
+	const background = backgroundSandbox(async () => {
+		await opened;
+		return sandbox;
+	});
+
+	await background.close();
+	expect(state.closed).toBe(0);
+	ready();
+	await opened;
+	await new Promise((resolve) => setTimeout(resolve, 0));
+	expect(state.closed).toBe(1);
+});
+
 test('a lazy sandbox starts only on its first command', async () => {
 	const { state, sandbox } = fakeSandbox();
 	let opens = 0;
