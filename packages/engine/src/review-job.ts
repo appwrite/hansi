@@ -1,5 +1,6 @@
 import {
 	blockingSeverity,
+	changeRequestSeverity,
 	parseRepoConfig,
 	REPO_CONFIG_FILE,
 	severityAtLeast,
@@ -77,7 +78,7 @@ import {
 	shouldSubmitReview,
 	submissionForCurrentHead
 } from './submit-review';
-import { summaryExtrasFromBody, summaryFindings } from './summary';
+import { hasBlockingOpen, summaryExtrasFromBody, summaryFindings } from './summary';
 import type { ReviewEvent as TraceStep } from './tools';
 
 // One review job, from the queued pull request to the review on GitHub and the outcome in
@@ -357,8 +358,11 @@ async function executeReview(
 						checkRunId,
 						detailsUrl,
 						decision,
+						blocking: changeRequestSeverity(config),
+						lastDecisiveVerdict: history.lastDecisiveVerdict,
 						record,
-						flush
+						flush,
+						log
 					});
 				}
 				if (decision.kind === 'incremental') {
@@ -856,8 +860,13 @@ async function finishMergeOnly(input: {
 	checkRunId: number;
 	detailsUrl?: string;
 	decision: Extract<IncrementalDecision, { kind: 'merge-only' }>;
+	/** Findings at or above this keep a change request standing; null when it never requests changes. */
+	blocking: Severity | null;
+	/** Hansi's current approve / request-changes state on GitHub. */
+	lastDecisiveVerdict?: Verdict;
 	record: (event: TraceStep) => void;
 	flush: () => Promise<unknown>;
+	log: Log;
 }): Promise<Outcome> {
 	const { connection, decision } = input;
 	const { github, app } = connection;
@@ -866,7 +875,8 @@ async function finishMergeOnly(input: {
 		decision.review,
 		findings
 			.filter((f) => f.status === 'posted')
-			.map((f) => ({ severity: f.severity as Severity, title: f.title }))
+			.map((f) => ({ severity: f.severity as Severity, title: f.title })),
+		input.blocking
 	);
 	input.record({
 		type: 'review.mode',
@@ -899,6 +909,23 @@ async function finishMergeOnly(input: {
 		SUMMARY_MARKER,
 		formatSummaryComment(summaryInput)
 	);
+	// The findings that requested changes settled since that review: withdraw the change request,
+	// as a full review would, or the author stays blocked by findings that are no longer open.
+	if (
+		shouldDismissChangeRequest({
+			verdict: carried.verdict,
+			blockingOpen: hasBlockingOpen(findings, input.blocking) ? 1 : 0,
+			lastDecisiveVerdict: input.lastDecisiveVerdict,
+			headMoved: false
+		})
+	) {
+		await withdrawChangeRequests(
+			connection,
+			input.pull.pullNumber,
+			CHANGE_REQUEST_DISMISSAL,
+			input.log
+		);
+	}
 	await input.flush();
 	await input.results.completeReview(input.ref, {
 		verdict: carried.verdict,

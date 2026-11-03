@@ -1,4 +1,4 @@
-import { blockingSeverity, parseRepoConfig, REPO_CONFIG_FILE } from './config';
+import { changeRequestSeverity, parseRepoConfig, REPO_CONFIG_FILE } from './config';
 import { runChat, type ThreadMessage } from './chat';
 import {
 	chatFinding,
@@ -233,7 +233,7 @@ export async function runChatJob(
 				pull,
 				repository,
 				consoleUrl: job.repository.consoleUrl,
-				blockingSeverity: blockingSeverity(config),
+				blockingSeverity: changeRequestSeverity(config),
 				log
 			}).catch((error: unknown) =>
 				log.warn('could not refresh summary after settlement', { err: error })

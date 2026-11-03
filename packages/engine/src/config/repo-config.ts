@@ -174,6 +174,14 @@ export function blockingSeverity(config: RepoConfig): Severity {
 	return config.reviews.requestChanges === 'never' ? 'major' : config.reviews.requestChanges;
 }
 
+/**
+ * The severity at which an open finding keeps a change request standing, or null when the
+ * repository never requests changes (`reviews.requestChanges: never`).
+ */
+export function changeRequestSeverity(config: RepoConfig): Severity | null {
+	return config.reviews.requestChanges === 'never' ? null : config.reviews.requestChanges;
+}
+
 export function severityAtLeast(severity: Severity, minimum: Severity): boolean {
 	return severities.indexOf(severity) >= severities.indexOf(minimum);
 }

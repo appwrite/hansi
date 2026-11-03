@@ -80,8 +80,11 @@ export async function refreshSummaryAfterSettlement(input: {
 	/** `owner/name`. */
 	repository: string;
 	consoleUrl?: string;
-	/** Findings at or above this severity block the pull request (`reviews.requestChanges`). */
-	blockingSeverity: Severity;
+	/**
+	 * Findings at or above this severity keep a change request standing
+	 * (`reviews.requestChanges`); null when the repository never requests changes.
+	 */
+	blockingSeverity: Severity | null;
 	log: Log;
 }): Promise<void> {
 	const { results, connection, pull } = input;
@@ -134,8 +137,9 @@ export async function refreshSummaryAfterSettlement(input: {
 /** Whether a finding at or above the blocking severity is still open on the pull request. */
 export function hasBlockingOpen(
 	findings: Pick<FindingRow, 'status' | 'severity'>[],
-	blockingSeverity: Severity
+	blockingSeverity: Severity | null
 ): boolean {
+	if (blockingSeverity === null) return false;
 	return findings.some(
 		(f) => f.status === 'posted' && severityAtLeast(f.severity as Severity, blockingSeverity)
 	);

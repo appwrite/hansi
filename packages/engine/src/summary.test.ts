@@ -210,4 +210,5 @@ test('hasBlockingOpen counts only open findings at the blocking severity', () =>
 	expect(hasBlockingOpen([{ status: 'resolved', severity: 'critical' }], 'major')).toBe(false);
 	expect(hasBlockingOpen([{ status: 'dropped', severity: 'critical' }], 'major')).toBe(false);
 	expect(hasBlockingOpen([], 'major')).toBe(false);
+	expect(hasBlockingOpen([{ status: 'posted', severity: 'critical' }], null)).toBe(false);
 });
