@@ -13,7 +13,7 @@ RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
 FROM oven/bun:1.4.4-alpine AS bun
 
 # PHP 8.5 with Swoole, Redis and igbinary: the runtime Appwrite's own workers read queues on.
-FROM appwrite/base:2.2.7
+FROM appwrite/base:2.2.8
 
 # The review's tools run git (checkouts, history) and ripgrep (grep). Nothing from a reviewed
 # repository runs in this container: commands go to orchestrator sandboxes.
