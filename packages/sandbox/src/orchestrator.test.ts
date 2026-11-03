@@ -27,7 +27,7 @@ function serve(routes: Record<string, Handler>) {
 }
 
 const UPLOAD = 'PUT /files/.hansi-workspace.tar.gz';
-const UNPACK = 'tar -xzf .hansi-workspace.tar.gz && rm -f .hansi-workspace.tar.gz';
+const UNPACK = '{ rm -f .hansi-workspace.tar.gz && tar -xzf -; } < .hansi-workspace.tar.gz';
 const workspace = Promise.resolve(new Blob(['archive bytes']));
 
 /** The sandbox agent's answers to the upload and the unpack, unless a test's routes say otherwise. */

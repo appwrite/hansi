@@ -168,7 +168,8 @@ class OrchestratorSandbox implements Sandbox {
 		if (!upload.ok) {
 			throw new SandboxError(`sandbox ${this.id} upload: ${upload.status} ${await upload.text()}`);
 		}
-		const result = await this.run(`tar -xzf ${ARCHIVE} && rm -f ${ARCHIVE}`, {
+		// The archive is unlinked once open on stdin, so a tracked file at the same path survives.
+		const result = await this.run(`{ rm -f ${ARCHIVE} && tar -xzf -; } < ${ARCHIVE}`, {
 			timeoutMs: UNPACK_TIMEOUT_MS
 		});
 		if (result.exitCode !== 0) {
