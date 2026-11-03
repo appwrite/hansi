@@ -111,7 +111,7 @@ services:
       - HANSI_AI_SECRET
 ```
 
-Then start it with `docker compose up -d hansi`. Without an orchestrator, as above, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`. To let them run commands, point `HANSI_ORCHESTRATOR_ENDPOINT` at an [open-runtimes orchestrator](https://github.com/open-runtimes/orchestrator) and set `HANSI_SANDBOX_IMAGE`, e.g. to `ghcr.io/appwrite/hansi-sandbox`: Node 22, Python 3, PHP with Composer, Go and a C toolchain (`sandbox/Dockerfile`).
+Then start it with `docker compose up -d hansi`. Without an orchestrator, as above, reviews read the code with the same tools but cannot run commands, and the agents are not offered `run_command`. To let them run commands, point `HANSI_ORCHESTRATOR_ENDPOINT` at an [open-runtimes orchestrator](https://github.com/open-runtimes/orchestrator) and set `HANSI_SANDBOX_IMAGE`, e.g. to `ghcr.io/appwrite/hansi-sandbox`: Node 26, Python 3, PHP with Composer, Go and a C toolchain (`sandbox/Dockerfile`).
 
 Images are published to `ghcr.io/appwrite/hansi` and `ghcr.io/appwrite/hansi-sandbox` for amd64 and arm64: `main` and `sha-<commit>` from every push to `main`, and a version tag for every release.
 
@@ -239,7 +239,7 @@ Tests use in-memory fakes and a scripted model from `@hansi/engine/testing`, and
 The consumer runs on PHP 8.5 with Swoole. Without a local PHP 8.5, run its tests in the image it ships on:
 
 ```sh
-docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.7 \
+docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.8 \
   sh -c 'composer install && vendor/bin/phpunit tests'
 ```
 

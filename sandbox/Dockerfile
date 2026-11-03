@@ -2,9 +2,9 @@
 # test with, so the agents' commands need no setup first. Anything else installs over the network.
 # The orchestrator copies its sandbox agent into the workspace, so the image serves nothing itself.
 
-FROM golang:1.25-bookworm AS go
+FROM golang:1.27-bookworm AS go
 
-FROM node:22-bookworm-slim
+FROM node:26-bookworm-slim
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \

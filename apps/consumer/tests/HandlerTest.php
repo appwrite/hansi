@@ -66,6 +66,11 @@ final class MemoryPublisher implements Synchronous
         return 0;
     }
 
+    public function getQueueAge(Queue $queue): int
+    {
+        return 0;
+    }
+
     public function getFailedCount(Queue $queue): int
     {
         return 0;
