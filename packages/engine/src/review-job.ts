@@ -21,12 +21,7 @@ import {
 	SUMMARY_MARKER
 } from './format';
 import { checkoutPullRequest, mergeSecondParent, pullRequestDelta } from './git';
-import {
-	isUnprocessable,
-	type GitHubConnection,
-	type PullRequest,
-	type ReviewEvent
-} from './github';
+import { isUnprocessable, type GitHubConnection, type ReviewEvent } from './github';
 import type { ReviewJob } from './jobs';
 import {
 	carriedReview,
@@ -389,7 +384,7 @@ async function executeReview(
 				}
 			});
 
-			const sandbox = reviewSandbox(context, connection, config, pr, record);
+			const sandbox = reviewSandbox(context, config, repoDir, record);
 			const result = await runReview({
 				repoDir,
 				diff: reviewDiff,
@@ -662,9 +657,8 @@ async function loadPullRequestContext(
  */
 function reviewSandbox(
 	context: EngineContext,
-	{ github }: GitHubConnection,
 	config: RepoConfig,
-	pr: PullRequest,
+	repoDir: string,
 	record: (event: TraceStep) => void
 ): ReviewSandbox | undefined {
 	const { sandboxes, log } = context;
@@ -676,7 +670,7 @@ function reviewSandbox(
 		try {
 			return await openSandbox({
 				client: sandboxes,
-				archiveUrl: await github.getArchiveUrl(pr.headSha),
+				repoDir,
 				config,
 				emit: record,
 				log

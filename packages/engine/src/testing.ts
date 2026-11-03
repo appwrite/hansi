@@ -246,10 +246,6 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return this.writers.has(username);
 	}
 
-	async getArchiveUrl(ref: string): Promise<string> {
-		return `https://codeload.github.test/${ref}.tar.gz`;
-	}
-
 	async getFileContent(path: string): Promise<string | null> {
 		return this.files.get(path) ?? null;
 	}

@@ -81,8 +81,6 @@ export interface GitHubClient {
 	isTrustedAuthor(pr: { author: string; authorAssociation: string }): Promise<boolean>;
 	/** Whether an account can write to the repository. Errors count as no. */
 	hasWriteAccess(username: string): Promise<boolean>;
-	/** A short-lived URL to a tarball of the repository at `ref`, for the sandbox. */
-	getArchiveUrl(ref: string): Promise<string>;
 	/** Reads a file at a ref, or `null` when it does not exist. */
 	getFileContent(path: string, gitRef: string): Promise<string | null>;
 

@@ -77,17 +77,6 @@ export class OctokitGitHubClient implements GitHubClient {
 		return pulls.hasWriteAccess(this.octokit, this.ref, username);
 	}
 
-	/** GitHub answers the tarball endpoint with a redirect to a short-lived download URL. */
-	async getArchiveUrl(ref: string) {
-		const { headers } = await this.octokit.request('GET /repos/{owner}/{repo}/tarball/{ref}', {
-			...this.ref,
-			ref,
-			request: { redirect: 'manual' }
-		});
-		if (!headers.location) throw new Error(`GitHub returned no archive URL for ${ref}`);
-		return headers.location;
-	}
-
 	getFileContent(path: string, gitRef: string) {
 		return pulls.getFileContent(this.octokit, this.ref, path, gitRef);
 	}

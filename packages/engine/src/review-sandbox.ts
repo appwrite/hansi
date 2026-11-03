@@ -1,17 +1,27 @@
+import { rm } from 'node:fs/promises';
 import type { RepoConfig } from './config';
 import type { Log } from './context';
+import { git, GitError } from './git';
 import type { CommandResult, CommandRunner } from './sandbox';
-import type { SandboxClient } from './sandboxes';
+import type { Sandbox, SandboxClient } from './sandboxes';
 import type { EmitEvent } from './tools';
 
 // The sandbox a review or a reply runs commands in, on the open-runtimes orchestrator. It holds
-// the pull request head and no credentials; the repository's setup command runs once it is up.
+// the pull request head, uploaded from the service's own checkout, and no credentials; the
+// repository's setup command runs once it is up.
 
 const SETUP_TIMEOUT_MS = 10 * 60_000;
 /** The orchestrator deletes the sandbox after this long without a command, if close never comes. */
 const IDLE_TIMEOUT_SECONDS = 60 * 60;
 /** How long closing waits for the orchestrator, so a job settles even when it does not answer. */
 const CLOSE_TIMEOUT_MS = 30_000;
+/** Text files over this size stay out of the sandbox too: generated dumps and fixtures. */
+const MAX_FILE_BYTES = 10 * 1024 * 1024;
+/**
+ * Room for the paths left out, which go to `git archive` as arguments. Past it, the smallest
+ * binary files go into the archive after all.
+ */
+const MAX_OMITTED_CHARS = 512 * 1024;
 
 export interface ReviewSandbox {
 	runner: CommandRunner;
@@ -20,8 +30,8 @@ export interface ReviewSandbox {
 
 export interface OpenSandboxOptions {
 	client: SandboxClient;
-	/** A short-lived URL to a tarball of the pull request head. */
-	archiveUrl: string;
+	/** The service's checkout of the pull request head. */
+	repoDir: string;
 	config: RepoConfig;
 	emit: EmitEvent;
 	log: Log;
@@ -42,15 +52,86 @@ async function runSetup(
 	});
 }
 
+/**
+ * Writes the checkout at HEAD to a gzipped tar, without binary files or files over
+ * `maxFileBytes`, and returns the paths it left out. Commands build, test and lint text, while
+ * the images, videos and archives a repository carries can be most of its size (about 360 of
+ * appwrite/appwrite's 500 MiB), and the sandbox is ready only once its upload is in.
+ */
+export async function archiveCheckout(
+	repoDir: string,
+	output: string,
+	maxFileBytes = MAX_FILE_BYTES
+): Promise<string[]> {
+	// "<mode> <type> <object> <size>\t<path>"; the size is "-" for submodules. Symlinks stay in.
+	const sizes = new Map<string, number>();
+	const listing = await git(['ls-tree', '-r', '-l', '-z', 'HEAD'], { cwd: repoDir });
+	for (const entry of listing.split('\0')) {
+		const tab = entry.indexOf('\t');
+		const [mode, , , size] = entry.slice(0, tab).trim().split(/\s+/);
+		if (tab > 0 && mode !== '120000' && Number(size) > 0)
+			sizes.set(entry.slice(tab + 1), Number(size));
+	}
+	// git grep -I skips binary files, so the files it lists are the text ones. Empty files match
+	// nothing either, which is why only files with a size are candidates.
+	const text = new Set(
+		(
+			await git(['grep', '-I', '-l', '-z', '-e', ''], { cwd: repoDir }).catch((error: unknown) => {
+				if (error instanceof GitError && error.exitCode === 1) return '';
+				throw error;
+			})
+		).split('\0')
+	);
+
+	const candidates = [...sizes]
+		.filter(([path, size]) => size > maxFileBytes || !text.has(path))
+		.sort((a, b) => b[1] - a[1]);
+	const omitted: string[] = [];
+	let chars = 0;
+	for (const [path, size] of candidates) {
+		chars += path.length + 20;
+		if (chars > MAX_OMITTED_CHARS && size <= maxFileBytes) break;
+		omitted.push(path);
+	}
+	// A tree, not a commit, so the archive carries no pax header with the commit id.
+	await git(
+		[
+			'archive',
+			'--format=tar.gz',
+			// Fastest compression: the archive crosses a fast network once, and level 6 costs seconds.
+			'-1',
+			`--output=${output}`,
+			'HEAD^{tree}',
+			'--',
+			'.',
+			...omitted.map((path) => `:(exclude,literal)${path}`)
+		],
+		{ cwd: repoDir }
+	);
+	return omitted;
+}
+
 /** Starts a sandbox of the pull request head and runs the setup command in it. */
 export async function openSandbox(options: OpenSandboxOptions): Promise<ReviewSandbox> {
 	const { client, config, emit, log } = options;
 	const started = Date.now();
-	const sandbox = await client.create({
-		archiveUrl: options.archiveUrl,
-		environment: { CI: 'true' },
-		idleTimeoutSeconds: IDLE_TIMEOUT_SECONDS
-	});
+	const archive = `${options.repoDir}.sandbox.tar.gz`;
+	// The archive is written while the sandbox starts, and uploaded once both are done.
+	const archiving = archiveCheckout(options.repoDir, archive);
+	archiving.catch(() => undefined);
+	let sandbox: Sandbox;
+	let omitted: string[];
+	try {
+		sandbox = await client.create({
+			workspace: archiving.then(() => Bun.file(archive)),
+			environment: { CI: 'true' },
+			idleTimeoutSeconds: IDLE_TIMEOUT_SECONDS
+		});
+		omitted = await archiving;
+	} finally {
+		await archiving.catch(() => undefined);
+		await rm(archive, { force: true });
+	}
 
 	let closed = false;
 	const close = async () => {
@@ -71,7 +152,15 @@ export async function openSandbox(options: OpenSandboxOptions): Promise<ReviewSa
 	};
 
 	try {
-		emit({ type: 'sandbox.ready', data: { ms: Date.now() - started, id: sandbox.id } });
+		emit({
+			type: 'sandbox.ready',
+			data: {
+				ms: Date.now() - started,
+				id: sandbox.id,
+				omitted: omitted.length,
+				omittedFiles: omitted.slice(0, 20)
+			}
+		});
 		await runSetup(config, run, emit);
 	} catch (error) {
 		await close();

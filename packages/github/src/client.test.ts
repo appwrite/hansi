@@ -89,24 +89,6 @@ describe('InstallationGitHubClientFactory', () => {
 		expect(await github.getInstallationToken()).toBe('repo1-3');
 	});
 
-	test('reads the archive URL from the redirect without following it', async () => {
-		const apiUrl = serve({
-			'GET /repos/acme/app/tarball/h': () =>
-				new Response(null, {
-					status: 302,
-					headers: { location: 'https://codeload.github.test/acme/app/legacy.tar.gz/h?token=x' }
-				})
-		});
-		const { github } = await new InstallationGitHubClientFactory(tokens(3_600_000).source, {
-			apiUrl
-		}).forRepository(repository);
-
-		expect(await github.getArchiveUrl('h')).toBe(
-			'https://codeload.github.test/acme/app/legacy.tar.gz/h?token=x'
-		);
-		expect(seen).toHaveLength(1);
-	});
-
 	test('a missing file reads as null', async () => {
 		const apiUrl = serve({});
 		const { github } = await new InstallationGitHubClientFactory(tokens(3_600_000).source, {

@@ -177,7 +177,7 @@ export async function runChatJob(
 				? lazySandbox(async () =>
 						openSandbox({
 							client: sandboxes,
-							archiveUrl: await github.getArchiveUrl(pr.headSha),
+							repoDir,
 							config,
 							emit: () => {},
 							log
