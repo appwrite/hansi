@@ -13,6 +13,7 @@ function setup() {
 		body: '',
 		author: 'octocat',
 		authorAssociation: 'MEMBER',
+		botOnOwnBranch: false,
 		draft: false,
 		state: 'open',
 		merged: false,

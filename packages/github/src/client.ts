@@ -69,7 +69,7 @@ export class OctokitGitHubClient implements GitHubClient {
 		return pulls.getPullRequest(this.octokit, this.ref, pullNumber);
 	}
 
-	isTrustedAuthor(pr: { author: string; authorAssociation: string }) {
+	isTrustedAuthor(pr: { author: string; authorAssociation: string; botOnOwnBranch: boolean }) {
 		return pulls.isTrustedAuthor(this.octokit, this.ref, pr);
 	}
 

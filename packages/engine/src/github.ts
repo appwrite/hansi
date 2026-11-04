@@ -8,6 +8,8 @@ export interface PullRequest {
 	body: string;
 	author: string;
 	authorAssociation: string;
+	/** A bot whose branch is in this repository, which only write access could have pushed. */
+	botOnOwnBranch: boolean;
 	draft: boolean;
 	state: string;
 	/** True once the pull request has been merged. Closed-without-merge stays false. */
@@ -78,7 +80,11 @@ export interface GitHubClient {
 	 * Whether the PR author can write to the repository: the author association first, then the
 	 * actual repository permission. Errors count as untrusted.
 	 */
-	isTrustedAuthor(pr: { author: string; authorAssociation: string }): Promise<boolean>;
+	isTrustedAuthor(pr: {
+		author: string;
+		authorAssociation: string;
+		botOnOwnBranch: boolean;
+	}): Promise<boolean>;
 	/** Whether an account can write to the repository. Errors count as no. */
 	hasWriteAccess(username: string): Promise<boolean>;
 	/** Reads a file at a ref, or `null` when it does not exist. */

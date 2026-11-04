@@ -21,6 +21,8 @@ export async function getPullRequest(octokit: Octokit, ref: RepoRef, pullNumber:
 		body: data.body ?? '',
 		author: data.user?.login ?? 'unknown',
 		authorAssociation: data.author_association,
+		/** A bot whose branch is in this repository, which only write access could have pushed. */
+		botOnOwnBranch: data.user?.type === 'Bot' && data.head.repo?.id === data.base.repo.id,
 		draft: data.draft ?? false,
 		state: data.state,
 		/** True once the pull request has been merged. Closed-without-merge stays false. */
@@ -39,14 +41,16 @@ const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 /**
  * Whether the PR author can write to the repository. The author association is checked first;
  * members with private org membership can show up as CONTRIBUTOR there, so anyone else is
- * checked against their actual repository permission. Errors count as untrusted.
+ * checked against their actual repository permission, which GitHub reports as none for a GitHub
+ * App's bot however much access the App has, so a bot is trusted by its branch instead. Errors
+ * count as untrusted.
  */
 export async function isTrustedAuthor(
 	octokit: Octokit,
 	ref: RepoRef,
-	pr: { author: string; authorAssociation: string }
+	pr: { author: string; authorAssociation: string; botOnOwnBranch: boolean }
 ): Promise<boolean> {
-	if (TRUSTED_ASSOCIATIONS.has(pr.authorAssociation)) return true;
+	if (TRUSTED_ASSOCIATIONS.has(pr.authorAssociation) || pr.botOnOwnBranch) return true;
 	return hasWriteAccess(octokit, ref, pr.author);
 }
 
