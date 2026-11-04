@@ -5,6 +5,7 @@ import { MockLanguageModelV4 } from 'ai/test';
 import { MemoryResultsSink, MemorySandboxes } from '@hansi/engine/testing';
 import { createLogger } from './logger';
 import { Metrics } from './metrics';
+import type { PriceCatalog } from './pricing';
 import { Worker } from './worker';
 
 class Reader extends MetricReader {
@@ -21,10 +22,14 @@ class Reader extends MetricReader {
 	}
 }
 
-function setup() {
+function setup(prices: PriceCatalog = {}) {
 	const reader = new Reader();
 	const provider = new MeterProvider({ readers: [reader] });
-	return { reader, metrics: new Metrics(provider.getMeter('test'), { concurrency: 4 }) };
+	const metrics = new Metrics(provider.getMeter('test'), {
+		concurrency: 4,
+		prices: async () => prices
+	});
+	return { reader, metrics };
 }
 
 const silent = createLogger('error', {}, () => {});
@@ -131,6 +136,44 @@ describe('Metrics', () => {
 			['cache_read', 100],
 			['reasoning', 10]
 		]);
+	});
+
+	test('estimates what a model call cost, and nothing for an unpriced model', async () => {
+		const { reader, metrics } = setup({
+			'amazon-bedrock': {
+				'global.openai.gpt-6-luna': {
+					input: 0.1,
+					output: 0.5,
+					cache_read: 0.01,
+					cache_write: 0.125
+				}
+			}
+		});
+		const call = (modelId: string) =>
+			metrics.instrumentModel(
+				{
+					model: new MockLanguageModelV4({
+						doGenerate: {
+							content: [{ type: 'text', text: 'ok' }],
+							finishReason: { unified: 'stop', raw: 'end_turn' },
+							usage,
+							warnings: []
+						}
+					}),
+					provider: 'amazon-bedrock',
+					modelId
+				},
+				'review'
+			);
+
+		await generateText({ model: call('global.openai.gpt-6-luna').model, prompt: 'hi' });
+		await generateText({ model: call('global.anthropic.claude-x').model, prompt: 'hi' });
+		await Bun.sleep(0);
+
+		const costs = await reader.points('hansi_model_cost_usd_total');
+		expect(costs.map((p) => p.attributes.model)).toEqual(['global.openai.gpt-6-luna']);
+		// 20 uncached input, 100 read from the cache, 30 output, per million tokens.
+		expect(costs[0]?.value as number).toBeCloseTo((20 * 0.1 + 100 * 0.01 + 30 * 0.5) / 1e6, 12);
 	});
 
 	test('records a failed model call', async () => {
