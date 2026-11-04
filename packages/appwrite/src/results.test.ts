@@ -196,6 +196,38 @@ describe('AppwriteResultsSink', () => {
 		expect(sent.filter((event) => event.data.i === 100)).toHaveLength(2);
 	});
 
+	test('keeps the rest of the trace when Appwrite rejects one event', async () => {
+		const sink = new AppwriteResultsSink(
+			serve(async (request) => {
+				const { events } = (await request.json()) as { events: { type: string }[] };
+				return events.some((event) => event.type === 'bad')
+					? Response.json(
+							{ message: 'Event 9 is invalid.', code: 400, type: 'general_argument_invalid' },
+							{ status: 400 }
+						)
+					: new Response(null, { status: 204 });
+			})
+		);
+		const at = new Date('2026-10-27T12:00:00Z');
+		const events = Array.from({ length: 150 }, (_, i) => ({
+			type: i === 9 ? 'bad' : 'tool.grep',
+			at,
+			data: { i }
+		}));
+
+		await expect(sink.recordEvents(review, events)).rejects.toThrow(/rejected 1 trace event.*bad/);
+
+		// Nothing is left to hold back later flushes.
+		expect(events).toHaveLength(0);
+		const stored = requests
+			.filter((_, i) => i !== 0)
+			.flatMap((r) => (r.body as { events: { type: string; data: { i: number } }[] }).events)
+			.filter((event) => event.type !== 'bad');
+		expect(stored.map((event) => event.data.i)).toEqual(
+			Array.from({ length: 150 }, (_, i) => i).filter((i) => i !== 9)
+		);
+	});
+
 	test('waits out the abuse limit and sends the call again', async () => {
 		let calls = 0;
 		const sink = new AppwriteResultsSink(

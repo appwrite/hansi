@@ -270,10 +270,12 @@ async function executeReview(
 	const usage: ModelUsage[] = [];
 	let pendingWrites: Promise<unknown> = Promise.resolve();
 	const flush = () => {
+		// Usage is recorded even when the trace is not: one does not hold back the other.
 		pendingWrites = pendingWrites
 			.then(() => results.recordEvents(ref, events))
+			.catch((error: unknown) => log.warn('could not record review events', { err: error }))
 			.then(() => results.recordUsage(ref, usage))
-			.catch((error: unknown) => log.warn('could not record review events', { err: error }));
+			.catch((error: unknown) => log.warn('could not record review usage', { err: error }));
 		return pendingWrites;
 	};
 	const record = (event: TraceStep) => {
