@@ -90,14 +90,41 @@ export class AppwriteResultsSink implements ResultsSink {
 	}
 
 	async recordEvents(review: ReviewRef, events: TraceEvent[]) {
+		const rejected: string[] = [];
 		while (events.length) {
-			await this.api.request('POST', `${path(review)}/events`, {
-				projectId: review.projectId,
-				events: events.slice(0, BATCH).map((event) => ({ ...event, at: event.at.toISOString() }))
-			});
+			const batch = events.slice(0, BATCH);
+			try {
+				await this.sendEvents(review, batch);
+			} catch (error) {
+				// Appwrite stores none of a batch with one event it rejects. Sent again on its own,
+				// that event would fail every later flush too and hold back the rest of the trace.
+				if (!(error instanceof AppwriteError) || error.status !== 400) throw error;
+				for (const event of batch) {
+					try {
+						await this.sendEvents(review, [event]);
+					} catch (single) {
+						if (!(single instanceof AppwriteError) || single.status !== 400) throw single;
+						rejected.push(`${event.type}: ${single.message}`);
+					}
+					events.shift();
+				}
+				continue;
+			}
 			// Stored: a later batch that fails leaves only the rest to send again.
-			events.splice(0, BATCH);
+			events.splice(0, batch.length);
 		}
+		if (rejected.length) {
+			throw new Error(
+				`Appwrite rejected ${rejected.length} trace event(s): ${rejected.join('; ')}`
+			);
+		}
+	}
+
+	private async sendEvents(review: ReviewRef, events: TraceEvent[]) {
+		await this.api.request('POST', `${path(review)}/events`, {
+			projectId: review.projectId,
+			events: events.map((event) => ({ ...event, at: event.at.toISOString() }))
+		});
 	}
 
 	async recordUsage(review: ReviewRef, usage: ModelUsage[]) {
