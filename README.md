@@ -131,6 +131,7 @@ The service validates its environment on start (`apps/service/src/env.ts`) and e
 | `HANSI_VERIFY_MODEL`          | review model  | The verifier's model, as `provider:model` with the review model's provider.                       |
 | `HANSI_REVIEW_REASONING`      | provider's    | The reviewer's reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` or `max`.    |
 | `HANSI_VERIFY_REASONING`      | review effort | The verifier's reasoning effort.                                                                  |
+| `HANSI_SUBAGENTS`             | `enabled`     | `disabled` stops the reviewer from handing parts of a review to subagents.                        |
 | `HANSI_AI_SECRET`             |               | The provider's key. Required except for `openai-compatible`. See [Models](#models).               |
 | `HANSI_AI_REGION`             |               | AWS region. Required for `bedrock`.                                                               |
 | `HANSI_AI_BASE_URL`           | provider's    | The provider's API, instead of its default. Required for `openai-compatible`.                     |

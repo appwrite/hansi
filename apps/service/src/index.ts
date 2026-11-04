@@ -46,7 +46,12 @@ await clearWorkdir(undefined);
 const models = createModels(env);
 // Without a verify model the engine verifies with the review model; measured as verification.
 const verify = models.verify ?? models.review;
-const context = { github, sandboxes, results: sink };
+const context = {
+	github,
+	sandboxes,
+	results: sink,
+	subagents: env.HANSI_SUBAGENTS === 'enabled'
+};
 const handlers = createHandlers(
 	{
 		...context,
