@@ -5,6 +5,10 @@ declare(strict_types=1);
 // Reads review jobs from Appwrite's queue with Appwrite's own queue library and hands each one
 // to the Hansi service in the same container (apps/service), which starts this process.
 
+// A stack trace prints each frame's arguments, and the queue's URL and password pass through
+// the broker's: a consumer that dies before it reads the queue would write them to the logs.
+ini_set('zend.exception_ignore_args', '1');
+
 require __DIR__ . '/vendor/autoload.php';
 
 use Hansi\Consumer\Adapter;
