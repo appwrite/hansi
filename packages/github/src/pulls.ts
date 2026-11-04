@@ -21,6 +21,8 @@ export async function getPullRequest(octokit: Octokit, ref: RepoRef, pullNumber:
 		body: data.body ?? '',
 		author: data.user?.login ?? 'unknown',
 		authorAssociation: data.author_association,
+		/** A bot's pull request from a branch in this repository, not a fork. */
+		botOnOwnBranch: data.user?.type === 'Bot' && data.head.repo?.id === data.base.repo.id,
 		draft: data.draft ?? false,
 		state: data.state,
 		/** True once the pull request has been merged. Closed-without-merge stays false. */
@@ -39,15 +41,33 @@ const TRUSTED_ASSOCIATIONS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 /**
  * Whether the PR author can write to the repository. The author association is checked first;
  * members with private org membership can show up as CONTRIBUTOR there, so anyone else is
- * checked against their actual repository permission. Errors count as untrusted.
+ * checked against their actual repository permission, which GitHub reports as none for a GitHub
+ * App's bot however much access the App has. A bot is trusted instead when the head commit on
+ * its own branch in this repository is its own, since only write access can put it there.
+ * Errors count as untrusted.
  */
 export async function isTrustedAuthor(
 	octokit: Octokit,
 	ref: RepoRef,
-	pr: { author: string; authorAssociation: string }
+	pr: { author: string; authorAssociation: string; botOnOwnBranch: boolean; headSha: string }
 ): Promise<boolean> {
 	if (TRUSTED_ASSOCIATIONS.has(pr.authorAssociation)) return true;
+	if (pr.botOnOwnBranch) return isCommitBy(octokit, ref, pr.headSha, pr.author);
 	return hasWriteAccess(octokit, ref, pr.author);
+}
+
+async function isCommitBy(
+	octokit: Octokit,
+	ref: RepoRef,
+	sha: string,
+	login: string
+): Promise<boolean> {
+	try {
+		const { data } = await octokit.rest.repos.getCommit({ ...ref, ref: sha });
+		return data.author?.login === login;
+	} catch {
+		return false;
+	}
 }
 
 /** Reads a file at a ref, or `null` when it does not exist. */
