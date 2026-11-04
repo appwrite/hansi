@@ -180,17 +180,18 @@ The image runs as the unprivileged `hansi` user with a read-only root filesystem
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, the service pushes OpenTelemetry metrics every 60 seconds and once more on shutdown. The standard `OTEL_SERVICE_NAME` (default `hansi`), `OTEL_RESOURCE_ATTRIBUTES` and `OTEL_EXPORTER_OTLP_HEADERS` apply. Labels never carry a project, repository, pull request or sandbox.
 
-| Metric                                                 | Labels                                                   | What it measures                                        |
-| ------------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------- |
-| `hansi_jobs_total`                                     | `type`, `outcome` (`done`, `failed`, `invalid`), `retry` | Deliveries run to an outcome                            |
-| `hansi_job_duration_seconds`                           | `type`, `outcome`                                        | A job from start to outcome                             |
-| `hansi_jobs_active`, `hansi_jobs_capacity`             | `type`                                                   | Jobs running now, and how many one process runs at once |
-| `hansi_model_call_duration_seconds`                    | `role`, `provider`, `model`, `outcome`, `finish_reason`  | One model call                                          |
-| `hansi_model_tokens_total`                             | `role`, `provider`, `model`, `type`                      | Input, output, cache read and write, reasoning tokens   |
-| `hansi_sandbox_create_duration_seconds`                | `outcome`                                                | Until a sandbox is ready with the code                  |
-| `hansi_sandbox_command_duration_seconds`               | `outcome` (`ok`, `exit_nonzero`, `timeout`, `error`)     | One command in a sandbox                                |
-| `hansi_sandboxes_active`, `hansi_sandbox_closes_total` | `outcome`                                                | Sandboxes held now, and teardowns                       |
-| `hansi_http_client_request_duration_seconds`           | `peer` (`github`, `appwrite`), `method`, `status`        | One request attempt                                     |
+| Metric                                                 | Labels                                                   | What it measures                                                                                                                         |
+| ------------------------------------------------------ | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `hansi_jobs_total`                                     | `type`, `outcome` (`done`, `failed`, `invalid`), `retry` | Deliveries run to an outcome                                                                                                             |
+| `hansi_job_duration_seconds`                           | `type`, `outcome`                                        | A job from start to outcome                                                                                                              |
+| `hansi_jobs_active`, `hansi_jobs_capacity`             | `type`                                                   | Jobs running now, and how many one process runs at once                                                                                  |
+| `hansi_model_call_duration_seconds`                    | `role`, `provider`, `model`, `outcome`, `finish_reason`  | One model call                                                                                                                           |
+| `hansi_model_tokens_total`                             | `role`, `provider`, `model`, `type`                      | Input, output, cache read and write, reasoning tokens                                                                                    |
+| `hansi_model_cost_usd_total`                           | `role`, `provider`, `model`                              | Estimated cost in USD at [models.dev](https://models.dev) list prices, as hansi.codes estimates it. Models it does not price add nothing |
+| `hansi_sandbox_create_duration_seconds`                | `outcome`                                                | Until a sandbox is ready with the code                                                                                                   |
+| `hansi_sandbox_command_duration_seconds`               | `outcome` (`ok`, `exit_nonzero`, `timeout`, `error`)     | One command in a sandbox                                                                                                                 |
+| `hansi_sandboxes_active`, `hansi_sandbox_closes_total` | `outcome`                                                | Sandboxes held now, and teardowns                                                                                                        |
+| `hansi_http_client_request_duration_seconds`           | `peer` (`github`, `appwrite`), `method`, `status`        | One request attempt                                                                                                                      |
 
 `role` is `review`, `verify` or `chat`. The queue's depth is the broker's to report: on NATS, `nats_consumer_num_pending` for the `Q_V1-REVIEWS` stream.
 

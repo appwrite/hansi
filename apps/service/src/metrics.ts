@@ -4,6 +4,7 @@ import { detectResources, envDetector, resourceFromAttributes } from '@opentelem
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { wrapLanguageModel, type LanguageModelMiddleware } from 'ai';
 import type { ReviewModel, Sandbox, SandboxClient, SandboxResult } from '@hansi/engine';
+import { estimateCost, findPrice, loadPriceCatalog, type PriceCatalog } from './pricing';
 
 // Metrics, pushed over OTLP to the cluster's collector as the orchestrator's are. Names are
 // already Prometheus names, so they read the same in Grafana whatever the collector appends.
@@ -27,13 +28,25 @@ export class Metrics {
 	private readonly jobsActive: UpDownCounter;
 	private readonly modelCallDuration: Histogram;
 	private readonly modelTokens: Counter;
+	private readonly modelCost: Counter;
+	private readonly prices: () => Promise<PriceCatalog>;
+	/** Costs still waiting on the price catalog, so shutdown can flush them. */
+	private readonly pricing = new Set<Promise<void>>();
 	private readonly sandboxCreateDuration: Histogram;
 	private readonly sandboxCommandDuration: Histogram;
 	private readonly sandboxesActive: UpDownCounter;
 	private readonly sandboxCloses: Counter;
 	private readonly httpDuration: Histogram;
 
-	constructor(meter: Meter, options: { concurrency: number }) {
+	constructor(
+		meter: Meter,
+		options: {
+			concurrency: number;
+			/** Model prices, models.dev's by default, refreshed daily. */
+			prices?: () => Promise<PriceCatalog>;
+		}
+	) {
+		this.prices = options.prices ?? (() => loadPriceCatalog());
 		const seconds = (name: string, description: string, boundaries: number[]) =>
 			meter.createHistogram(name, {
 				description,
@@ -65,6 +78,9 @@ export class Metrics {
 		);
 		this.modelTokens = meter.createCounter('hansi_model_tokens_total', {
 			description: 'Tokens the provider reports, by type'
+		});
+		this.modelCost = meter.createCounter('hansi_model_cost_usd_total', {
+			description: "Estimated model cost in USD, from the tokens and models.dev's list prices"
 		});
 
 		this.sandboxCreateDuration = seconds(
@@ -120,6 +136,23 @@ export class Metrics {
 			for (const [type, count] of Object.entries(counts)) {
 				if (count) this.modelTokens.add(count, { ...labels, type });
 			}
+			// Off the call's path: the first call of a day waits on models.dev, the model's caller
+			// does not. A model models.dev does not price adds no cost rather than a wrong one.
+			const pending = this.prices()
+				.then((catalog) => {
+					const cost = estimateCost(findPrice(catalog, model.provider, model.modelId), {
+						inputTokens: counts.input,
+						outputTokens: counts.output,
+						inputTokenDetails: {
+							cacheReadTokens: counts.cache_read,
+							cacheWriteTokens: counts.cache_write
+						}
+					});
+					if (cost) this.modelCost.add(cost, labels);
+				})
+				.catch(() => {})
+				.finally(() => this.pricing.delete(pending));
+			this.pricing.add(pending);
 		};
 		const finished = (started: number, attributes: Attributes) =>
 			this.modelCallDuration.record(elapsed(started), { ...labels, ...attributes });
@@ -170,6 +203,11 @@ export class Metrics {
 			...model,
 			model: wrapLanguageModel({ model: providerModel(model.model), middleware })
 		};
+	}
+
+	/** Resolves once every cost waiting on the price catalog is recorded. */
+	async settled(): Promise<void> {
+		await Promise.all(this.pricing);
 	}
 
 	/** The client with every sandbox it creates, and every command run there, measured. */
@@ -272,10 +310,15 @@ export function startMetrics(
 			})
 		]
 	});
+	const metrics = new Metrics(provider.getMeter('hansi'), options);
 	return {
-		metrics: new Metrics(provider.getMeter('hansi'), options),
-		// Flushes what the last interval collected, so a rollout does not drop it.
-		shutdown: () => provider.shutdown()
+		metrics,
+		// Flushes what the last interval collected, costs still being priced included, so a
+		// rollout does not drop them. The catalog fetch gives up after 10 seconds.
+		shutdown: async () => {
+			await metrics.settled();
+			await provider.shutdown();
+		}
 	};
 }
 
