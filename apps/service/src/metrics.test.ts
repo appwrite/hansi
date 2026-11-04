@@ -168,7 +168,7 @@ describe('Metrics', () => {
 
 		await generateText({ model: call('global.openai.gpt-6-luna').model, prompt: 'hi' });
 		await generateText({ model: call('global.anthropic.claude-x').model, prompt: 'hi' });
-		await Bun.sleep(0);
+		await metrics.settled();
 
 		const costs = await reader.points('hansi_model_cost_usd_total');
 		expect(costs.map((p) => p.attributes.model)).toEqual(['global.openai.gpt-6-luna']);

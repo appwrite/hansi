@@ -30,6 +30,8 @@ export class Metrics {
 	private readonly modelTokens: Counter;
 	private readonly modelCost: Counter;
 	private readonly prices: () => Promise<PriceCatalog>;
+	/** Costs still waiting on the price catalog, so shutdown can flush them. */
+	private readonly pricing = new Set<Promise<void>>();
 	private readonly sandboxCreateDuration: Histogram;
 	private readonly sandboxCommandDuration: Histogram;
 	private readonly sandboxesActive: UpDownCounter;
@@ -136,7 +138,7 @@ export class Metrics {
 			}
 			// Off the call's path: the first call of a day waits on models.dev, the model's caller
 			// does not. A model models.dev does not price adds no cost rather than a wrong one.
-			void this.prices()
+			const pending = this.prices()
 				.then((catalog) => {
 					const cost = estimateCost(findPrice(catalog, model.provider, model.modelId), {
 						inputTokens: counts.input,
@@ -148,7 +150,9 @@ export class Metrics {
 					});
 					if (cost) this.modelCost.add(cost, labels);
 				})
-				.catch(() => {});
+				.catch(() => {})
+				.finally(() => this.pricing.delete(pending));
+			this.pricing.add(pending);
 		};
 		const finished = (started: number, attributes: Attributes) =>
 			this.modelCallDuration.record(elapsed(started), { ...labels, ...attributes });
@@ -199,6 +203,11 @@ export class Metrics {
 			...model,
 			model: wrapLanguageModel({ model: providerModel(model.model), middleware })
 		};
+	}
+
+	/** Resolves once every cost waiting on the price catalog is recorded. */
+	async settled(): Promise<void> {
+		await Promise.all(this.pricing);
 	}
 
 	/** The client with every sandbox it creates, and every command run there, measured. */
@@ -301,10 +310,15 @@ export function startMetrics(
 			})
 		]
 	});
+	const metrics = new Metrics(provider.getMeter('hansi'), options);
 	return {
-		metrics: new Metrics(provider.getMeter('hansi'), options),
-		// Flushes what the last interval collected, so a rollout does not drop it.
-		shutdown: () => provider.shutdown()
+		metrics,
+		// Flushes what the last interval collected, costs still being priced included, so a
+		// rollout does not drop them. The catalog fetch gives up after 10 seconds.
+		shutdown: async () => {
+			await metrics.settled();
+			await provider.shutdown();
+		}
 	};
 }
 
