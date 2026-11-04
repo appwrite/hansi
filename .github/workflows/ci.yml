@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # In the image the consumer runs on, with PHP 8.5 and Swoole.
       - run: |
-          docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.8 sh -ec '
+          docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.9 sh -ec '
             curl -fsSL https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
             composer validate --strict
             composer install --no-interaction --no-progress --prefer-dist
