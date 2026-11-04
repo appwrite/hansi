@@ -239,7 +239,7 @@ Tests use in-memory fakes and a scripted model from `@hansi/engine/testing`, and
 The consumer runs on PHP 8.5 with Swoole. Without a local PHP 8.5, run its tests in the image it ships on:
 
 ```sh
-docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.8 \
+docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.9 \
   sh -c 'composer install && vendor/bin/phpunit tests'
 ```
 

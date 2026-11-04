@@ -20,7 +20,7 @@ The engine, the review and chat jobs and the GitHub helpers started as a port of
 
 Run `bun run format`, `bun run lint`, `bun run check` and `bun run test` before pushing; CI runs the last three.
 
-The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwrite/base`. Without a local PHP 8.5, run its tests in that image: `docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.8 sh -c 'composer install && vendor/bin/phpunit tests'`.
+The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwrite/base`. Without a local PHP 8.5, run its tests in that image: `docker run --rm -v "$PWD/apps/consumer:/app" -w /app appwrite/base:2.2.9 sh -c 'composer install && vendor/bin/phpunit tests'`.
 
 ## Layout
 
