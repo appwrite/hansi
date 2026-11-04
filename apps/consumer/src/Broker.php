@@ -37,7 +37,12 @@ final class Broker
      * @return \Closure(): (Consumer&Synchronous) One broker per call: a connection belongs to
      *         the worker process that opened it.
      */
-    public static function factory(string $url, string $queue, ?string $user = null, ?string $password = null): \Closure
+    public static function factory(
+        #[\SensitiveParameter] string $url,
+        string $queue,
+        ?string $user = null,
+        #[\SensitiveParameter] ?string $password = null,
+    ): \Closure
     {
         $dsn = new DSN($url);
         $user = self::filled($user) ?? self::filled($dsn->getUser());
@@ -56,7 +61,7 @@ final class Broker
      *
      * @return \Closure(): Nats
      */
-    private static function nats(DSN $dsn, string $queue, ?string $user, ?string $password): \Closure
+    private static function nats(DSN $dsn, string $queue, ?string $user, #[\SensitiveParameter] ?string $password): \Closure
     {
         $options = new ConnectionOptions(
             servers: 'nats://' . $dsn->getHost() . ':' . ($dsn->getPort() ?? '4222'),
@@ -110,7 +115,7 @@ final class Broker
     /**
      * @return \Closure(): Redis
      */
-    private static function redis(DSN $dsn, ?string $user, ?string $password): \Closure
+    private static function redis(DSN $dsn, ?string $user, #[\SensitiveParameter] ?string $password): \Closure
     {
         $host = $dsn->getHost();
         $port = (int) ($dsn->getPort() ?? 6379);
@@ -124,7 +129,7 @@ final class Broker
     }
 
     /** Compose passes every variable it lists, so an empty one is unset. */
-    private static function filled(?string $value): ?string
+    private static function filled(#[\SensitiveParameter] ?string $value): ?string
     {
         return $value === null || $value === '' ? null : $value;
     }

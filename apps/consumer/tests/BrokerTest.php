@@ -48,6 +48,23 @@ final class BrokerTest extends TestCase
         Broker::factory('amqp://rabbit:5672', 'v1-reviews');
     }
 
+    public function testKeepsTheQueueCredentialsOutOfStackTraces(): void
+    {
+        $ignoring = ini_set('zend.exception_ignore_args', '0');
+        try {
+            Broker::factory('amqp://hansi:url-secret@rabbit:5672', 'v1-reviews', 'hansi', 'password-secret');
+            $this->fail('The broker accepted a queue it cannot read');
+        } catch (\InvalidArgumentException $error) {
+            $trace = $error->getTraceAsString();
+        } finally {
+            ini_set('zend.exception_ignore_args', (string) $ignoring);
+        }
+
+        $this->assertStringContainsString('Broker::factory(', $trace);
+        $this->assertStringNotContainsString('url-secret', $trace);
+        $this->assertStringNotContainsString('password-secret', $trace);
+    }
+
     public function testReadsTheServicesOutcomes(): void
     {
         $this->assertSame(Outcome::Done, Outcome::fromResponse(['outcome' => 'done']));
