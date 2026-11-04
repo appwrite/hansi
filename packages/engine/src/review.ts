@@ -310,7 +310,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 
 	const pathInstructions = config.pathInstructions.flatMap((entry) => {
 		const glob = new Bun.Glob(entry.path);
-		return shown.some((file) => glob.match(file.path))
+		return [...shown, ...removedShown].some((file) => glob.match(file.path))
 			? [`For files matching ${entry.path}: ${entry.instructions}`]
 			: [];
 	});
@@ -547,13 +547,18 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const stillOpenBlocking = stillOpen.filter((f) => severityAtLeast(f.severity, threshold)).length;
 	let verdict = decideVerdict({ posted, stillOpen, config });
 	// Approval is the one outcome an attacker would want: only grant it when it is safe to.
-	const truncated = shown.length < included.length;
+	const truncated =
+		shown.length < included.length || (deletionOnly && removedShown.length < removed.length);
 	// Nothing in a deletion-only pull request can carry an inline comment, so every finding is a
 	// placement miss listed in the summary. Those still decide whether Hansi approves.
 	const unplacedDefects =
 		deletionOnly &&
 		decideVerdict({
-			posted: dropped.filter((finding) => isUnattachedDrop(finding.dropReason)),
+			posted: dropped.filter(
+				(finding) =>
+					isUnattachedDrop(finding.dropReason) &&
+					severityAtLeast(finding.severity, config.reviews.minSeverity)
+			),
 			stillOpen: [],
 			config
 		}) !== 'approve';

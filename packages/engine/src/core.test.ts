@@ -609,7 +609,10 @@ deleted file mode 100644
 -updates:
 -  - package-ecosystem: npm
 `;
-		const review = (findings: unknown[]) => {
+		const review = (
+			findings: unknown[],
+			options: { config?: string; maxDiffChars?: number } = {}
+		) => {
 			const model = new MockLanguageModelV4({
 				doGenerate: [toolCall('submit_review', { summary: 'Removes Dependabot.', findings })]
 			});
@@ -619,8 +622,9 @@ deleted file mode 100644
 					repoDir,
 					diff: removal,
 					pullRequest: { title: 'Remove Dependabot', body: '', author: 'octocat' },
-					config: parseRepoConfig('').config,
-					models: { review: { model, provider: 'mock', modelId: 'mock-1' } }
+					config: parseRepoConfig(options.config ?? '').config,
+					models: { review: { model, provider: 'mock', modelId: 'mock-1' } },
+					...(options.maxDiffChars && { limits: { maxDiffChars: options.maxDiffChars } })
 				})
 			};
 		};
@@ -657,6 +661,47 @@ deleted file mode 100644
 			expect(completed.approvalWithheld).toBe(
 				'Hansi found problems with this deletion that it could not comment on inline, so it did not approve.'
 			);
+		});
+
+		test('ignores unplaced findings below minSeverity', async () => {
+			const { result } = review(
+				[
+					{
+						path: '.github/workflows/ci.yml',
+						startLine: 1,
+						endLine: 1,
+						severity: 'minor',
+						category: 'bug',
+						title: 'Stale comment mentions Dependabot',
+						body: 'b'
+					}
+				],
+				{ config: '{ "reviews": { "minSeverity": "major" } }' }
+			);
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.verdict).toBe('approve');
+		});
+
+		test('applies path instructions for removed files', async () => {
+			const { model, result } = review([], {
+				config:
+					'{ "pathInstructions": [{ "path": ".github/**", "instructions": "Check the release workflow." }] }'
+			});
+			await result;
+			const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+			expect(prompt).toContain('Check the release workflow.');
+		});
+
+		test('does not approve when the removed lines did not fit in the prompt', async () => {
+			const { model, result } = review([], { maxDiffChars: 10 });
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.verdict).toBe('comment');
+			expect(completed.approvalWithheld).toBe(
+				'Part of the diff was too large to review, so Hansi did not approve.'
+			);
+			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).not.toContain('package-ecosystem');
 		});
 	});
 
