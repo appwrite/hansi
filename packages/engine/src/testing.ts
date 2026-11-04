@@ -237,15 +237,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return { ...this.pullRequest };
 	}
 
-	async isTrustedAuthor(pr: {
-		author: string;
-		authorAssociation: string;
-		botOnOwnBranch: boolean;
-		headSha: string;
-	}): Promise<boolean> {
-		if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation) || pr.botOnOwnBranch) {
-			return true;
-		}
+	async isTrustedAuthor(pr: { author: string; authorAssociation: string }): Promise<boolean> {
+		if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation)) return true;
 		return this.hasWriteAccess(pr.author);
 	}
 

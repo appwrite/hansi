@@ -4,6 +4,8 @@ import {
 	dismissChangeRequests,
 	getFailedChecks,
 	getLinkedIssues,
+	getPullRequest,
+	isTrustedAuthor,
 	resolveReviewThreads,
 	startCheckRun
 } from './pulls';
@@ -268,4 +270,80 @@ test('dismissChangeRequests with `only` leaves the reviews it rejects', async ()
 	});
 	expect(dismissed).toEqual([1]);
 	expect(count).toBe(1);
+});
+
+const pullRequestWith = (type: string, headRepository: number | null) =>
+	({
+		rest: {
+			pulls: {
+				get: async () => ({
+					data: {
+						user: { login: 'renovate[bot]', type },
+						author_association: 'NONE',
+						base: { ref: 'main', sha: 'base', repo: { id: 1, clone_url: 'url' } },
+						head: { sha: 'head', repo: headRepository ? { id: headRepository } : null }
+					}
+				})
+			}
+		}
+	}) as unknown as Octokit;
+
+test('getPullRequest marks only a bot on a branch of this repository', async () => {
+	const ref = { owner: 'o', repo: 'r' };
+	const own = await getPullRequest(pullRequestWith('Bot', 1), ref, 1);
+	const fork = await getPullRequest(pullRequestWith('Bot', 2), ref, 1);
+	const deleted = await getPullRequest(pullRequestWith('Bot', null), ref, 1);
+	const person = await getPullRequest(pullRequestWith('User', 1), ref, 1);
+	expect(own.botOnOwnBranch).toBe(true);
+	expect(fork.botOnOwnBranch).toBe(false);
+	expect(deleted.botOnOwnBranch).toBe(false);
+	expect(person.botOnOwnBranch).toBe(false);
+});
+
+const trustOctokit = (commit: () => Promise<{ data: { author: { login: string } | null } }>) =>
+	({
+		rest: {
+			repos: {
+				getCommit: commit,
+				getCollaboratorPermissionLevel: async () => ({ data: { permission: 'none' } })
+			}
+		}
+	}) as unknown as Octokit;
+
+const botPullRequest = {
+	author: 'renovate[bot]',
+	authorAssociation: 'NONE',
+	botOnOwnBranch: true,
+	headSha: 'head'
+};
+
+test('isTrustedAuthor trusts a bot whose own commit heads its branch', async () => {
+	const octokit = trustOctokit(async () => ({ data: { author: { login: 'renovate[bot]' } } }));
+	expect(await isTrustedAuthor(octokit, { owner: 'o', repo: 'r' }, botPullRequest)).toBe(true);
+});
+
+test("isTrustedAuthor does not trust a bot on someone else's or an unattributed commit", async () => {
+	const ref = { owner: 'o', repo: 'r' };
+	const other = trustOctokit(async () => ({ data: { author: { login: 'someone' } } }));
+	const unattributed = trustOctokit(async () => ({ data: { author: null } }));
+	expect(await isTrustedAuthor(other, ref, botPullRequest)).toBe(false);
+	expect(await isTrustedAuthor(unattributed, ref, botPullRequest)).toBe(false);
+});
+
+test('isTrustedAuthor does not trust a bot when its commit cannot be read', async () => {
+	const octokit = trustOctokit(async () => {
+		throw new Error('not found');
+	});
+	expect(await isTrustedAuthor(octokit, { owner: 'o', repo: 'r' }, botPullRequest)).toBe(false);
+});
+
+test('isTrustedAuthor does not read the commit of a bot from a fork', async () => {
+	let read = false;
+	const octokit = trustOctokit(async () => {
+		read = true;
+		return { data: { author: { login: 'renovate[bot]' } } };
+	});
+	const fork = { ...botPullRequest, botOnOwnBranch: false };
+	expect(await isTrustedAuthor(octokit, { owner: 'o', repo: 'r' }, fork)).toBe(false);
+	expect(read).toBe(false);
 });
