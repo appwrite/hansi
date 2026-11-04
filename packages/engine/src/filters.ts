@@ -92,25 +92,26 @@ export function filterFiles(
 
 	const result: FilterResult = { included: [], excluded: [] };
 	for (const file of files) {
-		const reason = exclusionReason(file);
-		if (reason) {
-			result.excluded.push({ path: file.path, reason });
-		} else if (excludes.some((glob) => glob.match(file.path))) {
-			result.excluded.push({ path: file.path, reason: 'path filter' });
-		} else if (includes.length > 0) {
-			if (includes.some((glob) => glob.match(file.path))) result.included.push(file);
-			else result.excluded.push({ path: file.path, reason: 'not in path filters' });
-		} else if (defaults.some((glob) => glob.match(file.path))) {
-			result.excluded.push({ path: file.path, reason: 'ignored by default' });
-		} else {
-			result.included.push(file);
-		}
+		const reason = filterReason(file) ?? contentReason(file);
+		if (reason) result.excluded.push({ path: file.path, reason });
+		else result.included.push(file);
 	}
 	return result;
 
-	function exclusionReason(file: FileDiff) {
-		if (file.status === 'deleted') return 'deleted';
+	// Filters come before content, so `deleted` marks only a removal the review would otherwise
+	// cover: deleting a lockfile or an ignored path is not a reason to review.
+	function filterReason(file: FileDiff) {
 		if (file.binary) return 'binary';
+		if (excludes.some((glob) => glob.match(file.path))) return 'path filter';
+		if (includes.length > 0) {
+			return includes.some((glob) => glob.match(file.path)) ? null : 'not in path filters';
+		}
+		if (defaults.some((glob) => glob.match(file.path))) return 'ignored by default';
+		return null;
+	}
+
+	function contentReason(file: FileDiff) {
+		if (file.status === 'deleted') return 'deleted';
 		if (file.hunks.length === 0) return 'no content changes';
 		return null;
 	}
