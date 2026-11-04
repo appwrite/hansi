@@ -83,6 +83,30 @@ describe('filterFiles', () => {
 		expect(filterFiles(files, ['!src/**']).included).toHaveLength(0);
 		expect(filterFiles(files, ['bun.lock']).included.map((f) => f.path)).toEqual(['bun.lock']);
 	});
+	test('marks only removals the review would cover as deleted', () => {
+		const removals = parseUnifiedDiff(`diff --git a/.github/dependabot.yml b/.github/dependabot.yml
+deleted file mode 100644
+--- a/.github/dependabot.yml
++++ /dev/null
+@@ -1,2 +0,0 @@
+-version: 2
+-updates: []
+diff --git a/bun.lock b/bun.lock
+deleted file mode 100644
+--- a/bun.lock
++++ /dev/null
+@@ -1 +0,0 @@
+-{}
+`);
+		expect(filterFiles(removals).excluded).toEqual([
+			{ path: '.github/dependabot.yml', reason: 'deleted' },
+			{ path: 'bun.lock', reason: 'ignored by default' }
+		]);
+		expect(filterFiles(removals, ['!.github/**']).excluded[0]).toEqual({
+			path: '.github/dependabot.yml',
+			reason: 'path filter'
+		});
+	});
 });
 
 describe('placeFinding', () => {
@@ -573,6 +597,67 @@ describe('runReview', () => {
 			models: { review: { model: new MockLanguageModelV4(), provider: 'mock', modelId: 'mock-1' } }
 		});
 		expect(result).toEqual({ status: 'skipped', reason: 'No reviewable changes' });
+	});
+
+	describe('a pull request that only deletes files', () => {
+		const removal = `diff --git a/.github/dependabot.yml b/.github/dependabot.yml
+deleted file mode 100644
+--- a/.github/dependabot.yml
++++ /dev/null
+@@ -1,3 +0,0 @@
+-version: 2
+-updates:
+-  - package-ecosystem: npm
+`;
+		const review = (findings: unknown[]) => {
+			const model = new MockLanguageModelV4({
+				doGenerate: [toolCall('submit_review', { summary: 'Removes Dependabot.', findings })]
+			});
+			return {
+				model,
+				result: runReview({
+					repoDir,
+					diff: removal,
+					pullRequest: { title: 'Remove Dependabot', body: '', author: 'octocat' },
+					config: parseRepoConfig('').config,
+					models: { review: { model, provider: 'mock', modelId: 'mock-1' } }
+				})
+			};
+		};
+
+		test('is reviewed with the removed lines in the prompt, and approved when nothing breaks', async () => {
+			const { model, result } = review([]);
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.verdict).toBe('approve');
+			const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+			expect(prompt).toContain('This pull request only deletes files.');
+			expect(prompt).toContain('package-ecosystem: npm');
+		});
+
+		test('is not approved when the reviewer finds something that still depends on it', async () => {
+			const { result } = review([
+				{
+					path: '.github/workflows/dependabot-automerge.yml',
+					startLine: 4,
+					endLine: 4,
+					severity: 'major',
+					category: 'bug',
+					title: 'Auto-merge workflow still expects Dependabot',
+					body: 'The workflow only runs for Dependabot pull requests.'
+				}
+			]);
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.posted).toEqual([]);
+			expect(completed.dropped.map((f) => f.title)).toEqual([
+				'Auto-merge workflow still expects Dependabot'
+			]);
+			expect(completed.verdict).toBe('comment');
+			expect(completed.approvalWithheld).toBe(
+				'Hansi found problems with this deletion that it could not comment on inline, so it did not approve.'
+			);
+		});
 	});
 
 	test('reviews a lockfile-only bump when a sandbox can run it, and skips it otherwise', async () => {

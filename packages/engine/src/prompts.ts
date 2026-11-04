@@ -290,6 +290,8 @@ export function buildReviewPrompt(input: {
 	pathInstructions: string[];
 	diff: string;
 	excludedFiles: { path: string; reason: string }[];
+	/** The pull request only deletes files; the diff shows their removed lines. */
+	deletionOnly?: boolean;
 	/** Versions the changed lockfiles move. Only set when lockfiles are part of the review. */
 	dependencyChanges?: DependencyChange[];
 	/** Changed snapshots and generated code. Only set when the reviewer can run commands. */
@@ -388,6 +390,11 @@ Do not review them line by line. Check them by running something with run_comman
 	if (input.incrementalFrom) {
 		parts.push(
 			`This is an incremental review. The diff below only contains commits pushed since ${input.incrementalFrom.slice(0, 7)}, which was already reviewed. Use the tools to see the rest of the pull request when needed, but only report problems in the new changes.`
+		);
+	}
+	if (input.deletionOnly) {
+		parts.push(
+			'This pull request only deletes files. Removed lines cannot carry a comment, so review what the removal breaks: use grep and git to find code, configuration, workflows, scripts and docs that still reference what was deleted, and report each problem on the file and line that still depends on it.'
 		);
 	}
 	if (!input.diff) {

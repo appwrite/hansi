@@ -251,7 +251,14 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		excluded.push({ path: file.path, reason: 'not part of the pull request diff' });
 	}
 	emit({ type: 'files.filtered', data: { included: included.map((f) => f.path), excluded } });
-	if (included.length === 0) {
+	// A pull request that only deletes files is still reviewed: what matters is whether anything
+	// still depends on what it removes. Removed lines cannot carry a comment, so they are shown to
+	// the reviewer but not used for placement.
+	const removed = changed.filter((file) =>
+		excluded.some((entry) => entry.path === file.path && entry.reason === 'deleted')
+	);
+	const deletionOnly = included.length === 0 && removed.length > 0;
+	if (included.length === 0 && !deletionOnly) {
 		const reason = input.incrementalFrom
 			? 'No new reviewable changes since the last review'
 			: 'No reviewable changes';
@@ -278,8 +285,16 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		budget -= rendered.length;
 		shown.push(file);
 	}
-	// With a sandbox the reviewer can still read the files and run the build and tests.
-	if (shown.length === 0 && !input.sandbox) {
+	const removedShown: FileDiff[] = [];
+	for (const file of deletionOnly ? removed : []) {
+		const rendered = renderFileDiff(file);
+		if (rendered.length > budget) continue;
+		budget -= rendered.length;
+		removedShown.push(file);
+	}
+	// With a sandbox the reviewer can still read the files and run the build and tests. A
+	// deletion is reviewed by searching for what still uses it, which needs no diff.
+	if (shown.length === 0 && !deletionOnly && !input.sandbox) {
 		return { status: 'skipped', reason: 'Diff too large to review' };
 	}
 	// `shown` is only the prompt. Placement uses `included`, so record which files the model
@@ -324,8 +339,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		guidelines,
 		config,
 		pathInstructions,
-		diff: shown.map(renderFileDiff).join('\n\n'),
-		excludedFiles: notShown,
+		diff: [...shown, ...removedShown].map(renderFileDiff).join('\n\n'),
+		excludedFiles: notShown.filter((file) => !removedShown.some((f) => f.path === file.path)),
+		deletionOnly,
 		dependencyChanges: lockfiles.length ? dependencies : undefined,
 		generatedFiles: generated.map((file) => file.path),
 		incrementalFrom: input.incrementalFrom,
@@ -532,10 +548,23 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	let verdict = decideVerdict({ posted, stillOpen, config });
 	// Approval is the one outcome an attacker would want: only grant it when it is safe to.
 	const truncated = shown.length < included.length;
+	// Nothing in a deletion-only pull request can carry an inline comment, so every finding is a
+	// placement miss listed in the summary. Those still decide whether Hansi approves.
+	const unplacedDefects =
+		deletionOnly &&
+		decideVerdict({
+			posted: dropped.filter((finding) => isUnattachedDrop(finding.dropReason)),
+			stillOpen: [],
+			config
+		}) !== 'approve';
 	const approvalWithheld =
 		verdict === 'approve'
 			? (input.withholdApproval ??
-				(truncated ? 'Part of the diff was too large to review, so Hansi did not approve.' : null))
+				(truncated
+					? 'Part of the diff was too large to review, so Hansi did not approve.'
+					: unplacedDefects
+						? 'Hansi found problems with this deletion that it could not comment on inline, so it did not approve.'
+						: null))
 			: openDefectApprovalReason([...posted, ...stillOpen], config);
 	if (verdict === 'approve' && approvalWithheld) verdict = 'comment';
 	const presented = presentReview({
