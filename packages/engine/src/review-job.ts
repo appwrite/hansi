@@ -691,7 +691,7 @@ function reviewSandbox(
  */
 async function approvalRestriction(
 	{ github }: GitHubConnection,
-	pr: { author: string; authorAssociation: string; botOnOwnBranch: boolean },
+	pr: { author: string; authorAssociation: string; botOnOwnBranch: boolean; headSha: string },
 	config: RepoConfig
 ): Promise<string | undefined> {
 	if (config.reviews.approveOutsideContributors) return undefined;

@@ -241,6 +241,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		author: string;
 		authorAssociation: string;
 		botOnOwnBranch: boolean;
+		headSha: string;
 	}): Promise<boolean> {
 		if (['OWNER', 'MEMBER', 'COLLABORATOR'].includes(pr.authorAssociation) || pr.botOnOwnBranch) {
 			return true;
