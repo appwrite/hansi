@@ -19,6 +19,12 @@ describe('parseEnv', () => {
 		expect(env.HANSI_JOBS_PORT).toBe(8081);
 		expect(env.HANSI_CONSUMER_COMMAND).toBeUndefined();
 		expect(env.HANSI_SANDBOX_RUNTIME_CLASS).toBe('gvisor');
+		expect(env.HANSI_SUBAGENTS).toBe('enabled');
+	});
+
+	test('turns subagents off, and takes enabled or disabled only', () => {
+		expect(parseEnv({ ...required, HANSI_SUBAGENTS: 'disabled' }).HANSI_SUBAGENTS).toBe('disabled');
+		expect(() => parseEnv({ ...required, HANSI_SUBAGENTS: 'off' })).toThrow(/HANSI_SUBAGENTS/);
 	});
 
 	test('takes a known sandbox isolation tier only', () => {

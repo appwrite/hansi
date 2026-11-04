@@ -48,6 +48,11 @@ const schema = z
 		 * Appwrite takes over model choice once it serves keys and models.
 		 */
 		HANSI_REVIEW_MODEL: modelId,
+		/**
+		 * Whether the reviewer may hand parts of a review to subagents that run in parallel. Off, one
+		 * agent reviews the whole change: slower on large pull requests, but fewer model calls.
+		 */
+		HANSI_SUBAGENTS: z.enum(['enabled', 'disabled']).default('enabled'),
 		/** The verifier's model. Defaults to the reviewer's, and uses the same provider. */
 		HANSI_VERIFY_MODEL: modelId.optional(),
 		/** Reasoning effort per model. Unset leaves the provider's default. */
