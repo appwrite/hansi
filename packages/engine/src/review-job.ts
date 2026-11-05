@@ -387,30 +387,50 @@ async function executeReview(
 			});
 
 			const sandbox = reviewSandbox(context, config, repoDir, record);
-			const result = await runReview({
-				repoDir,
-				diff: reviewDiff,
-				pullRequestDiff: diff,
-				incrementalFrom,
-				previousFindings: history.findings,
-				openFindings: history.open,
-				previousSummary: history.previousSummary,
-				learnings,
-				trustedSource: { ref: pr.baseSha, token },
-				withholdApproval: await approvalRestriction(connection, pr, config),
-				pullRequest: pr,
-				linkedIssues,
-				failedChecks,
-				config,
-				models: context.models,
-				onEvent: record,
-				onModelCall: (call) => {
-					usage.push(modelUsage(call));
-				},
-				signal,
-				sandbox: sandbox?.runner,
-				limits: subagents ? undefined : { maxSubagents: 0 }
-			}).finally(() => sandbox?.close());
+			const withholdApproval = await approvalRestriction(connection, pr, config);
+			const review = (range: { diff: string; incrementalFrom?: string }) =>
+				runReview({
+					repoDir,
+					diff: range.diff,
+					pullRequestDiff: diff,
+					incrementalFrom: range.incrementalFrom,
+					previousFindings: history.findings,
+					openFindings: history.open,
+					previousSummary: history.previousSummary,
+					learnings,
+					trustedSource: { ref: pr.baseSha, token },
+					withholdApproval,
+					pullRequest: pr,
+					linkedIssues,
+					failedChecks,
+					config,
+					models: context.models,
+					onEvent: record,
+					onModelCall: (call) => {
+						usage.push(modelUsage(call));
+					},
+					signal,
+					sandbox: sandbox?.runner,
+					limits: subagents ? undefined : { maxSubagents: 0 }
+				});
+			let result: Awaited<ReturnType<typeof review>>;
+			try {
+				result = await review({ diff: reviewDiff, incrementalFrom });
+				// Nothing reviewable since the last review, e.g. a push that reverts a file to the base
+				// branch, still leaves this commit without a verdict: the last review may have held its
+				// approval back because the head moved under it, and its walkthrough may list files the
+				// pull request no longer changes. Review the whole pull request at this head instead.
+				if (result.status === 'skipped' && incrementalFrom) {
+					record({
+						type: 'review.widened',
+						data: { from: incrementalFrom, reason: result.reason }
+					});
+					incrementalFrom = undefined;
+					result = await review({ diff });
+				}
+			} finally {
+				await sandbox?.close();
+			}
 			await flush();
 
 			if (result.status === 'skipped') {
