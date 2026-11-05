@@ -238,6 +238,68 @@ describe('runReviewJob', () => {
 		expect(results.review('review2')).toMatchObject({ tier: 'S', verdict: 'comment' });
 	});
 
+	test('a push that reverts a file the stale review saw still gets a verdict', async () => {
+		// The first commit edits a test file too; the head moves to a commit that reverts that edit
+		// while the review runs, so the review of the first commit holds its approval back.
+		const run = (...args: string[]) => git(args, { cwd: remote });
+		await run('checkout', '--quiet', headSha);
+		await writeFile(join(remote, 'src/math.test.ts'), 'test("divides", () => {});\n');
+		await run('add', '.');
+		await run('commit', '--quiet', '-m', 'add a test');
+		const touched = (await run('rev-parse', 'HEAD')).trim();
+		await run('rm', '--quiet', 'src/math.test.ts');
+		await run('commit', '--quiet', '-m', 'drop the test');
+		const reverted = (await run('rev-parse', 'HEAD')).trim();
+		await run('checkout', '--quiet', baseSha);
+
+		const approve = () =>
+			toolCall('submit_review', {
+				summary: 'Divides for real.',
+				findings: [],
+				tier: 'S',
+				walkthrough: [{ path: 'src/math.ts', change: 'Returns a / b.' }]
+			});
+		const model = new MockLanguageModelV4({ doGenerate: [approve(), approve()] });
+		const { github, results, context } = setup([model]);
+		const mathPatch = {
+			path: 'src/math.ts',
+			patch: '@@ -1,3 +1,3 @@\n export function divide(a, b) {\n-  return 0;\n+  return a / b;\n }'
+		};
+		github.patches = [mathPatch, { path: 'src/math.test.ts', patch: '@@ -0,0 +1 @@\n+test' }];
+		github.pullRequest = { ...github.pullRequest, headSha: touched };
+		github.writers.add('octocat');
+		try {
+			await run('update-ref', 'refs/pull/7/head', touched);
+			github.nextHeads.push(touched, reverted);
+			results.queue({ id: 'review1' });
+			await runReviewJob(job(), context, first);
+			expect(results.review('review1')).toMatchObject({ headSha: touched, verdict: 'comment' });
+			expect(github.reviews).toHaveLength(0);
+
+			await run('update-ref', 'refs/pull/7/head', reverted);
+			github.patches = [mathPatch];
+			results.queue({ id: 'review2', trigger: 'synchronize' });
+			await runReviewJob(
+				job({ reviewId: 'review2', headSha: reverted, trigger: { kind: 'synchronize' } }),
+				context,
+				first
+			);
+		} finally {
+			await run('update-ref', 'refs/pull/7/head', headSha);
+		}
+
+		expect(results.events.some((e) => e.type === 'review.widened')).toBe(true);
+		expect(results.review('review2')).toMatchObject({
+			status: 'completed',
+			headSha: reverted,
+			tier: 'S',
+			verdict: 'approve'
+		});
+		expect(github.reviews.at(-1)).toMatchObject({ event: 'APPROVE', commitId: reverted });
+		expect(github.checkRuns.at(-1)?.conclusion).toBe('success');
+		expect(github.summary()).not.toContain('Newer commits exist');
+	});
+
 	test("hansi.codes' comments on the same pull request are left alone", async () => {
 		const model = new MockLanguageModelV4({
 			doGenerate: [
