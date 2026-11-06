@@ -72,6 +72,7 @@ Every setting is optional. Add a `.hansi.json` to the base branch to change them
 | `reviews.drafts`                     | `false`    | Review draft pull requests too.                                                                                                       |
 | `reviews.baseBranches`               | `[]`       | Only review pull requests into these branches. Empty means every branch.                                                              |
 | `reviews.pathFilters`                | `[]`       | Globs of files to review. A leading `!` excludes, e.g. `"!docs/**"`.                                                                  |
+| `reviews.generated`                  | `[]`       | Globs of generated files, e.g. `"src/sdk/**"`. Still reviewed, but one too large to show does not stop an approval.                   |
 | `reviews.profile`                    | `balanced` | `chill` reports only bugs it can show; `balanced` adds risky patterns, weak tests and broken docs; `strict` adds naming and style.    |
 | `reviews.minSeverity`                | `minor`    | Findings below this severity (`info`, `minor`, `major`, `critical`) are not posted.                                                   |
 | `reviews.maxComments`                | `15`       | The most inline comments one review posts, up to 100.                                                                                 |

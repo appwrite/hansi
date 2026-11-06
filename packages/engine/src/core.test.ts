@@ -1333,6 +1333,130 @@ ${upstream}`;
 		expect(truncated.approvalWithheld).toContain('too large');
 		expect(truncated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
 		expect(trusted.filesTooLargeForPrompt).toBeNull();
+
+		// The same file marked generated on the base branch no longer holds the approval back.
+		const generated = await review({
+			diff: bigger,
+			limits: { maxDiffChars: 700 },
+			config: parseRepoConfig('{ "reviews": { "generated": ["src/big.ts"] } }').config
+		});
+		if (generated.status !== 'completed') throw new Error('expected a completed review');
+		expect(generated.verdict).toBe('approve');
+		expect(generated.approvalWithheld).toBeNull();
+		expect(generated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
+
+		const otherGenerated = await review({
+			diff: bigger,
+			limits: { maxDiffChars: 700 },
+			config: parseRepoConfig('{ "reviews": { "generated": ["src/sdk/**"] } }').config
+		});
+		if (otherGenerated.status !== 'completed') throw new Error('expected a completed review');
+		expect(otherGenerated.verdict).toBe('comment');
+	});
+
+	describe('generated files', () => {
+		const sdk = (path: string, size: number) => `diff --git a/${path} b/${path}
+--- a/${path}
++++ b/${path}
+@@ -1 +1 @@
+-${'a'.repeat(size)}
++${'b'.repeat(size)}
+`;
+		const run = (
+			changes: string,
+			options: { config: string; maxDiffChars?: number; findings?: unknown[]; sandbox?: boolean }
+		) => {
+			const model = new MockLanguageModelV4({
+				doGenerate: [
+					toolCall('submit_review', {
+						summary: 'Fine.',
+						findings: options.findings ?? [],
+						tier: 'S'
+					})
+				]
+			});
+			return {
+				model,
+				result: runReview({
+					repoDir,
+					diff: changes,
+					pullRequest: { title: 'Regenerate the SDK', body: '', author: 'octocat' },
+					config: parseRepoConfig(options.config).config,
+					models: { review: { model, provider: 'mock', modelId: 'mock-1' } },
+					...(options.maxDiffChars && { limits: { maxDiffChars: options.maxDiffChars } }),
+					...(options.sandbox && {
+						sandbox: { run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }) }
+					})
+				})
+			};
+		};
+		const config = '{ "reviews": { "generated": ["src/sdk/**"] } }';
+		const sizeOf = (changes: string) => renderFileDiff(parseUnifiedDiff(changes)[0]!).length;
+
+		test('go into the prompt after the code, so they cannot crowd it out', async () => {
+			const generated = sdk('src/sdk/client.ts', 300);
+			const code = diff.slice(0, diff.indexOf('diff --git a/bun.lock'));
+			// Room for either file alone, not both.
+			const budget = Math.max(sizeOf(generated), sizeOf(code)) + 10;
+			expect(budget).toBeLessThan(sizeOf(generated) + sizeOf(code));
+			const { result } = run(`${generated}${code}`, { config, maxDiffChars: budget });
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.reviewedFiles).toEqual(['src/math.ts']);
+			expect(completed.verdict).toBe('approve');
+		});
+
+		test('do not exempt a lockfile that a generated glob also matches', async () => {
+			const code = diff.slice(0, diff.indexOf('diff --git a/bun.lock'));
+			const { result } = run(`${code}${sdk('src/sdk/package-lock.json', 400)}`, {
+				config,
+				maxDiffChars: sizeOf(code) + 10,
+				sandbox: true
+			});
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.reviewedFiles).toEqual(['src/math.ts']);
+			expect(completed.verdict).toBe('comment');
+			expect(completed.approvalWithheld).toContain('too large');
+		});
+
+		test('get the generator guidance when a sandbox can run it', async () => {
+			const { model, result } = run(sdk('src/sdk/client.ts', 10), { config, sandbox: true });
+			await result;
+			const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+			expect(prompt).toContain('<generated_files>');
+			expect(prompt).toContain('- src/sdk/client.ts');
+		});
+
+		test('are reviewed with the tools when none of them fits and there is no sandbox', async () => {
+			const { result } = run(sdk('src/sdk/client.ts', 400), { config, maxDiffChars: 10 });
+			const completed = await result;
+			if (completed.status !== 'completed') throw new Error('expected a completed review');
+			expect(completed.verdict).toBe('approve');
+			const handWritten = await run(sdk('src/client.ts', 400), { config, maxDiffChars: 10 }).result;
+			expect(handWritten).toEqual({ status: 'skipped', reason: 'Diff too large to review' });
+		});
+
+		test('keep their path instructions when left out of the prompt', async () => {
+			const { model, result } = run(sdk('src/sdk/client.ts', 400), {
+				config:
+					'{ "reviews": { "generated": ["src/sdk/**"] }, "pathInstructions": [{ "path": "src/sdk/**", "instructions": "Check the spec version." }] }',
+				maxDiffChars: 10
+			});
+			await result;
+			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Check the spec version.');
+		});
+
+		test('keep path instructions for built-in generated outputs left out of the prompt', async () => {
+			const { model, result } = run(sdk('api/client.generated.ts', 400), {
+				config:
+					'{ "pathInstructions": [{ "path": "api/**", "instructions": "Check the spec version." }] }',
+				maxDiffChars: 10,
+				sandbox: true
+			});
+			await result;
+			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Check the spec version.');
+		});
 	});
 
 	test('warns when most findings cannot be attached to a changed line', async () => {
