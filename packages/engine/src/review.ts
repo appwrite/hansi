@@ -318,7 +318,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const pathInstructions = config.pathInstructions.flatMap((entry) => {
 		const glob = new Bun.Glob(entry.path);
 		// Generated files left out of the prompt can still be approved, so their rules apply too.
-		const omittedGenerated = marked.filter((file) => !shown.includes(file));
+		const omittedGenerated = included.filter(
+			(file) => !shown.includes(file) && isGenerated(file.path)
+		);
 		return [...shown, ...removedShown, ...omittedGenerated].some((file) => glob.match(file.path))
 			? [`For files matching ${entry.path}: ${entry.instructions}`]
 			: [];

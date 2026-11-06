@@ -1446,6 +1446,17 @@ ${upstream}`;
 			await result;
 			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Check the spec version.');
 		});
+
+		test('keep path instructions for built-in generated outputs left out of the prompt', async () => {
+			const { model, result } = run(sdk('api/client.generated.ts', 400), {
+				config:
+					'{ "pathInstructions": [{ "path": "api/**", "instructions": "Check the spec version." }] }',
+				maxDiffChars: 10,
+				sandbox: true
+			});
+			await result;
+			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Check the spec version.');
+		});
 	});
 
 	test('warns when most findings cannot be attached to a changed line', async () => {
