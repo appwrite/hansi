@@ -272,7 +272,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const shown: FileDiff[] = [];
 	const notShown = [...excluded];
 	let budget = limits.maxDiffChars;
-	const isGenerated = generatedMatcher(config.reviews.generated);
+	// A lockfile stays a lockfile even under a generated glob: its versions are only listed.
+	const matchesGenerated = generatedMatcher(config.reviews.generated);
+	const isGenerated = (path: string) => !isLockfile(path) && matchesGenerated(path);
 	const lockfiles = included.filter((file) => isLockfile(file.path));
 	const generated = included.filter((file) => isGeneratedOutput(file.path));
 	const dependencies = dependencyChanges(lockfiles);
@@ -297,7 +299,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	}
 	// With a sandbox the reviewer can still read the files and run the build and tests. A
 	// deletion is reviewed by searching for what still uses it, which needs no diff.
-	if (shown.length === 0 && !deletionOnly && !input.sandbox) {
+	// Generated files are read with the repository tools; their source is what gets reviewed.
+	const onlyGenerated = included.length > 0 && included.every((file) => isGenerated(file.path));
+	if (shown.length === 0 && !deletionOnly && !onlyGenerated && !input.sandbox) {
 		return { status: 'skipped', reason: 'Diff too large to review' };
 	}
 	// `shown` is only the prompt. Placement uses `included`, so record which files the model
@@ -313,7 +317,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 
 	const pathInstructions = config.pathInstructions.flatMap((entry) => {
 		const glob = new Bun.Glob(entry.path);
-		return [...shown, ...removedShown].some((file) => glob.match(file.path))
+		// Generated files left out of the prompt can still be approved, so their rules apply too.
+		const omittedGenerated = marked.filter((file) => !shown.includes(file));
+		return [...shown, ...removedShown, ...omittedGenerated].some((file) => glob.match(file.path))
 			? [`For files matching ${entry.path}: ${entry.instructions}`]
 			: [];
 	});
@@ -346,7 +352,8 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		excludedFiles: notShown.filter((file) => !removedShown.some((f) => f.path === file.path)),
 		deletionOnly,
 		dependencyChanges: lockfiles.length ? dependencies : undefined,
-		generatedFiles: generated.map((file) => file.path),
+		// The guidance runs the generator, so configured generated files join it with a sandbox.
+		generatedFiles: [...generated, ...(input.sandbox ? marked : [])].map((file) => file.path),
 		incrementalFrom: input.incrementalFrom,
 		learnings: input.learnings,
 		previousFindings,
