@@ -43,6 +43,15 @@ export function isGeneratedOutput(path: string): boolean {
 }
 
 /**
+ * Whether a file is generated: built-in generated output, or a path the repository lists in
+ * `reviews.generated`. The globs come from the base branch's config, never from the pull request.
+ */
+export function generatedMatcher(globs: string[] = []): (path: string) => boolean {
+	const matchers = globs.map((g) => new Bun.Glob(g));
+	return (path) => isGeneratedOutput(path) || matchers.some((glob) => glob.match(path));
+}
+
+/**
  * Files that are almost never worth an LLM's attention. Build output, vendored code, minified
  * bundles, and media stay ignored even with a sandbox: there is nothing to run that checks them
  * which the review of their sources does not already cover.

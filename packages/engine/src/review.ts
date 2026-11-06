@@ -19,7 +19,7 @@ import {
 } from './diff';
 import { runToSubmission } from './agent-loop';
 import { dependencyChanges } from './dependencies';
-import { filterFiles, isGeneratedOutput, isLockfile } from './filters';
+import { filterFiles, generatedMatcher, isGeneratedOutput, isLockfile } from './filters';
 import { cachedPrompt, callModel, type ModelCall, type ModelFailure } from './model-call';
 import {
 	compareSeverity,
@@ -266,17 +266,20 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	}
 	const previousFindings = input.previousFindings ?? [];
 
-	// Keep the prompt within budget; files that don't fit are listed but not shown. Files checked
-	// by running something go last so a large one cannot crowd out code. Lockfile versions are
-	// listed separately.
+	// Keep the prompt within budget; files that don't fit are listed but not shown. Files the
+	// repository marks as generated, then files checked by running something, go last so a large
+	// one cannot crowd out code. Lockfile versions are listed separately.
 	const shown: FileDiff[] = [];
 	const notShown = [...excluded];
 	let budget = limits.maxDiffChars;
+	const isGenerated = generatedMatcher(config.reviews.generated);
 	const lockfiles = included.filter((file) => isLockfile(file.path));
 	const generated = included.filter((file) => isGeneratedOutput(file.path));
 	const dependencies = dependencyChanges(lockfiles);
 	const checked = new Set([...lockfiles, ...generated]);
-	for (const file of [...included.filter((f) => !checked.has(f)), ...checked]) {
+	const marked = included.filter((f) => !checked.has(f) && isGenerated(f.path));
+	const code = included.filter((f) => !checked.has(f) && !isGenerated(f.path));
+	for (const file of [...code, ...marked, ...checked]) {
 		const rendered = renderFileDiff(file);
 		if (rendered.length > budget) {
 			notShown.push({ path: file.path, reason: 'too large to show' });
@@ -547,8 +550,11 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const stillOpenBlocking = stillOpen.filter((f) => severityAtLeast(f.severity, threshold)).length;
 	let verdict = decideVerdict({ posted, stillOpen, config });
 	// Approval is the one outcome an attacker would want: only grant it when it is safe to.
+	// Generated files left out of the prompt do not hold it back: their source is what gets
+	// reviewed. Lockfiles still do; their versions are only listed.
 	const truncated =
-		shown.length < included.length || (deletionOnly && removedShown.length < removed.length);
+		included.some((file) => !shown.includes(file) && !isGenerated(file.path)) ||
+		(deletionOnly && removedShown.length < removed.length);
 	// Nothing in a deletion-only pull request can carry an inline comment, so every finding is a
 	// placement miss listed in the summary. Those still decide whether Hansi approves.
 	const unplacedDefects =

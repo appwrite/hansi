@@ -1333,6 +1333,35 @@ ${upstream}`;
 		expect(truncated.approvalWithheld).toContain('too large');
 		expect(truncated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
 		expect(trusted.filesTooLargeForPrompt).toBeNull();
+
+		// The same file marked generated on the base branch no longer holds the approval back.
+		const generated = await review({
+			diff: bigger,
+			limits: { maxDiffChars: 700 },
+			config: parseRepoConfig('{ "reviews": { "generated": ["src/big.ts"] } }').config
+		});
+		if (generated.status !== 'completed') throw new Error('expected a completed review');
+		expect(generated.verdict).toBe('approve');
+		expect(generated.approvalWithheld).toBeNull();
+		expect(generated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
+
+		// A generated file listed first goes into the prompt after the code, so it cannot crowd the
+		// code out; a hand-written file that still does not fit keeps holding the approval back.
+		const generatedFirst = await review({
+			diff: `${bigger.slice(diff.length)}${diff}`,
+			limits: { maxDiffChars: 700 },
+			config: parseRepoConfig('{ "reviews": { "generated": ["src/big.ts"] } }').config
+		});
+		if (generatedFirst.status !== 'completed') throw new Error('expected a completed review');
+		expect(generatedFirst.reviewedFiles).not.toContain('src/big.ts');
+		expect(generatedFirst.verdict).toBe('approve');
+		const otherGenerated = await review({
+			diff: bigger,
+			limits: { maxDiffChars: 700 },
+			config: parseRepoConfig('{ "reviews": { "generated": ["src/sdk/**"] } }').config
+		});
+		if (otherGenerated.status !== 'completed') throw new Error('expected a completed review');
+		expect(otherGenerated.verdict).toBe('comment');
 	});
 
 	test('warns when most findings cannot be attached to a changed line', async () => {
