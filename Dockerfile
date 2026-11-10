@@ -2,7 +2,7 @@
 # starts the queue consumer, which reads Appwrite's queue with Appwrite's own PHP queue library
 # and hands each job to the service on loopback.
 
-FROM composer:2 AS consumer
+FROM composer:2@sha256:8de2184c6de224f4689e8f80ed5f5edaf0030b6b8b7839a22a2bcb6722ac87d0 AS consumer
 
 WORKDIR /app/apps/consumer
 COPY apps/consumer/composer.json apps/consumer/composer.lock ./
@@ -10,10 +10,10 @@ COPY apps/consumer/composer.json apps/consumer/composer.lock ./
 RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
 	--ignore-platform-reqs --optimize-autoloader
 
-FROM oven/bun:1.4.4-alpine AS bun
+FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS bun
 
 # PHP 8.5 with Swoole, Redis and igbinary: the runtime Appwrite's own workers read queues on.
-FROM appwrite/base:2.2.9
+FROM appwrite/base:2.2.9@sha256:ff6285b8621dd4863c6522737727904e109bd81f05e46b46dc2ef7e86d806b86
 
 # The review's tools run git (checkouts, history) and ripgrep (grep). Nothing from a reviewed
 # repository runs in this container: commands go to orchestrator sandboxes.
