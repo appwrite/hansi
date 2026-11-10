@@ -3,14 +3,14 @@ import {
 	AppwriteResultsSink,
 	type AppwriteConfig
 } from '@hansi/appwrite';
-import { clearWorkdir } from '@hansi/engine';
+import { clearWorkdir, type Strength } from '@hansi/engine';
 import { InstallationGitHubClientFactory } from '@hansi/github';
 import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
 import { createHandlers } from './handlers';
 import { createLogger } from './logger';
 import { startMetrics } from './metrics';
-import { createModels } from './models';
+import { createStrengths, type StrengthConfig } from './models';
 import { startHealthServer, startJobsServer } from './server';
 import { Worker } from './worker';
 
@@ -43,28 +43,36 @@ const sandboxes =
 		: undefined;
 // Checkouts a previous run of this process left behind, e.g. after it was killed mid-review.
 await clearWorkdir(undefined);
-const models = createModels(env);
-// Without a verify model the engine verifies with the review model; measured as verification.
-const verify = models.verify ?? models.review;
-const context = {
-	github,
-	sandboxes,
-	results: sink,
-	subagents: env.HANSI_SUBAGENTS === 'enabled'
+const strengths = createStrengths(env);
+const context = { github, sandboxes, results: sink };
+const measured = (config: StrengthConfig, strength: Strength) => {
+	// Without a verify model the engine verifies with the review model; measured as verification.
+	const verify = config.models.verify ?? config.models.review;
+	return {
+		...context,
+		sandboxes: config.sandboxes ? sandboxes : undefined,
+		subagents: config.subagents,
+		models: {
+			review: metrics.instrumentModel(config.models.review, 'review', strength),
+			verify: metrics.instrumentModel(verify, 'verify', strength)
+		}
+	};
 };
+// Chat jobs answer with the normal models whatever the repository's strength: an answer is
+// billed the same at every strength.
+const normal = strengths.normal.models;
 const handlers = createHandlers(
 	{
-		...context,
-		models: {
-			review: metrics.instrumentModel(models.review, 'review'),
-			verify: metrics.instrumentModel(verify, 'verify')
-		}
+		basic: measured(strengths.basic, 'basic'),
+		normal: measured(strengths.normal, 'normal'),
+		expert: measured(strengths.expert, 'expert')
 	},
 	{
 		...context,
+		subagents: false,
 		models: {
-			review: metrics.instrumentModel(models.review, 'chat'),
-			verify: metrics.instrumentModel(verify, 'chat')
+			review: metrics.instrumentModel(normal.review, 'chat'),
+			verify: metrics.instrumentModel(normal.verify ?? normal.review, 'chat')
 		}
 	}
 );

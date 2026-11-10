@@ -19,12 +19,16 @@ describe('parseEnv', () => {
 		expect(env.HANSI_JOBS_PORT).toBe(8081);
 		expect(env.HANSI_CONSUMER_COMMAND).toBeUndefined();
 		expect(env.HANSI_SANDBOX_RUNTIME_CLASS).toBe('gvisor');
-		expect(env.HANSI_SUBAGENTS).toBe('enabled');
 	});
 
-	test('turns subagents off, and takes enabled or disabled only', () => {
-		expect(parseEnv({ ...required, HANSI_SUBAGENTS: 'disabled' }).HANSI_SUBAGENTS).toBe('disabled');
-		expect(() => parseEnv({ ...required, HANSI_SUBAGENTS: 'off' })).toThrow(/HANSI_SUBAGENTS/);
+	test("keeps every strength's models on the review model's provider", () => {
+		expect(
+			parseEnv({ ...required, HANSI_EXPERT_REVIEW_MODEL: 'anthropic:claude-opus-5-5' })
+				.HANSI_EXPERT_REVIEW_MODEL
+		).toBe('anthropic:claude-opus-5-5');
+		expect(() => parseEnv({ ...required, HANSI_BASIC_VERIFY_MODEL: 'openai:gpt-6-luna' })).toThrow(
+			/HANSI_BASIC_VERIFY_MODEL/
+		);
 	});
 
 	test('takes a known sandbox isolation tier only', () => {

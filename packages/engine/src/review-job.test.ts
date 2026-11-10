@@ -113,6 +113,7 @@ const job = (overrides: Partial<ReviewJob> = {}): ReviewJob => ({
 	pullNumber: 7,
 	headSha: '',
 	trigger: { kind: 'opened' },
+	strength: 'normal',
 	...overrides
 });
 const first = { attempts: 1, maxAttempts: 3 };

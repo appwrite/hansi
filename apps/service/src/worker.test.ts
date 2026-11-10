@@ -22,7 +22,8 @@ const review: ReviewJob = {
 	repository,
 	pullNumber: 1,
 	headSha: 'a'.repeat(40),
-	trigger: { kind: 'opened' }
+	trigger: { kind: 'opened' },
+	strength: 'normal'
 };
 
 const chat: ChatJob = {
