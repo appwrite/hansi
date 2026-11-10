@@ -176,6 +176,42 @@ describe('Metrics', () => {
 		expect(costs[0]?.value as number).toBeCloseTo((20 * 0.1 + 100 * 0.01 + 30 * 0.5) / 1e6, 12);
 	});
 
+	test('labels a review model with the strength it reviews at', async () => {
+		const { reader, metrics } = setup({
+			'amazon-bedrock': { opus: { input: 5, output: 25 } }
+		});
+		const model = metrics.instrumentModel(
+			{
+				model: new MockLanguageModelV4({
+					doGenerate: {
+						content: [{ type: 'text', text: 'ok' }],
+						finishReason: { unified: 'stop', raw: 'end_turn' },
+						usage,
+						warnings: []
+					}
+				}),
+				provider: 'amazon-bedrock',
+				modelId: 'opus'
+			},
+			'review',
+			'expert'
+		);
+
+		await generateText({ model: model.model, prompt: 'hi' });
+		await metrics.settled();
+
+		const labels = {
+			role: 'review',
+			provider: 'amazon-bedrock',
+			model: 'opus',
+			strength: 'expert'
+		};
+		const costs = await reader.points('hansi_model_cost_usd_total');
+		expect(costs.map((p) => p.attributes)).toEqual([labels]);
+		const tokens = await reader.points('hansi_model_tokens_total');
+		expect(tokens.every((p) => p.attributes.strength === 'expert')).toBe(true);
+	});
+
 	test('records a failed model call', async () => {
 		const { reader, metrics } = setup();
 		const model = metrics.instrumentModel(
