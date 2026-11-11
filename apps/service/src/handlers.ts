@@ -5,7 +5,8 @@ import {
 	type ChatJob,
 	type EngineContext,
 	type Log,
-	type ReviewJob
+	type ReviewJob,
+	type Strength
 } from '@hansi/engine';
 
 /** One delivery's run: which attempt it is, the job's own logger, and when to stop. */
@@ -20,14 +21,19 @@ export interface Handlers {
 	chat(job: ChatJob, run: Run): Promise<void>;
 }
 
-/** Chat jobs may take their own context, e.g. models measured apart from reviews. */
+type Context = Omit<EngineContext, 'log'>;
+
+/**
+ * A review runs with the context of the strength Appwrite queued it at; chat jobs take their own,
+ * e.g. models measured apart from reviews.
+ */
 export function createHandlers(
-	review: Omit<EngineContext, 'log'>,
-	chat: Omit<EngineContext, 'log'> = review
+	reviews: Record<Strength, Context>,
+	chat: Context = reviews.normal
 ): Handlers {
 	return {
 		review: (job, { attempt, log, signal }) =>
-			runReviewJob(job, { ...review, log }, attempt, signal),
+			runReviewJob(job, { ...reviews[job.strength], log }, attempt, signal),
 		chat: (job, { attempt, log, signal }) => runChatJob(job, { ...chat, log }, attempt, signal)
 	};
 }

@@ -51,6 +51,12 @@ describe('parseJob', () => {
 		expect(ready).toMatchObject({ trigger: { kind: 'opened' } });
 	});
 
+	test('reads the strength, and reviews at normal when Appwrite sends none', () => {
+		expect(parseJob({ ...review, strength: 'expert' })).toMatchObject({ strength: 'expert' });
+		expect(parseJob(review)).toMatchObject({ strength: 'normal' });
+		expect(() => parseJob({ ...review, strength: 'max' })).toThrow(InvalidJobError);
+	});
+
 	test('parses a chat job', () => {
 		const job = parseJob({
 			type: 'chat',

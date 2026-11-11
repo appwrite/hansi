@@ -36,7 +36,9 @@ const review = z.object({
 		// A pull request marked ready for review counts as opened, as hansi.codes treats it.
 		z.object({ kind: z.literal('ready_for_review').transform(() => 'opened' as const) }),
 		z.object({ kind: z.literal('mention'), comment })
-	])
+	]),
+	// Absent from an Appwrite that predates strengths, whose reviews all ran at normal.
+	strength: z.enum(['basic', 'normal', 'expert']).default('normal')
 });
 
 const chat = z.object({

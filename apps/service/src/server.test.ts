@@ -20,7 +20,8 @@ const review: ReviewJob = {
 	},
 	pullNumber: 1,
 	headSha: 'a'.repeat(40),
-	trigger: { kind: 'opened' }
+	trigger: { kind: 'opened' },
+	strength: 'normal'
 };
 
 let servers: Array<ReturnType<typeof startJobsServer>> = [];

@@ -48,17 +48,23 @@ const schema = z
 		 * Appwrite takes over model choice once it serves keys and models.
 		 */
 		HANSI_REVIEW_MODEL: modelId,
-		/**
-		 * Whether the reviewer may hand parts of a review to subagents that run in parallel. Off, one
-		 * agent reviews the whole change: slower on large pull requests, but fewer model calls.
-		 */
-		HANSI_SUBAGENTS: z.enum(['enabled', 'disabled']).default('enabled'),
 		/** The verifier's model. Defaults to the reviewer's, and uses the same provider. */
 		HANSI_VERIFY_MODEL: modelId.optional(),
 		/** Reasoning effort per model. Unset leaves the provider's default. */
 		HANSI_REVIEW_REASONING: z.enum(reasoningEfforts).optional(),
 		/** Defaults to the reviewer's. */
 		HANSI_VERIFY_REASONING: z.enum(reasoningEfforts).optional(),
+
+		/**
+		 * The variables above are the normal strength's. A repository in Appwrite may review at
+		 * basic or expert instead, with the reasoning above: with no review model of its own, a
+		 * strength reviews with the normal models. What else a strength changes is in `models.ts`.
+		 */
+		HANSI_BASIC_REVIEW_MODEL: modelId.optional(),
+		HANSI_BASIC_VERIFY_MODEL: modelId.optional(),
+		HANSI_EXPERT_REVIEW_MODEL: modelId.optional(),
+		HANSI_EXPERT_VERIFY_MODEL: modelId.optional(),
+
 		/**
 		 * The provider's API key. On Bedrock, a Bedrock API key or an IAM key pair as
 		 * `ACCESS_KEY_ID:SECRET_ACCESS_KEY[:SESSION_TOKEN]`.
@@ -82,12 +88,22 @@ const schema = z
 	.superRefine((env, context) => {
 		const { provider } = parseModelId(env.HANSI_REVIEW_MODEL);
 		if (!isProviderId(provider)) return;
-		if (env.HANSI_VERIFY_MODEL && parseModelId(env.HANSI_VERIFY_MODEL).provider !== provider) {
-			context.addIssue({
-				code: 'custom',
-				message: `Use the review model's provider, ${provider}: there is one HANSI_AI_SECRET`,
-				path: ['HANSI_VERIFY_MODEL']
-			});
+		const others = [
+			'HANSI_VERIFY_MODEL',
+			'HANSI_BASIC_REVIEW_MODEL',
+			'HANSI_BASIC_VERIFY_MODEL',
+			'HANSI_EXPERT_REVIEW_MODEL',
+			'HANSI_EXPERT_VERIFY_MODEL'
+		] as const;
+		for (const key of others) {
+			const id = env[key];
+			if (id && parseModelId(id).provider !== provider) {
+				context.addIssue({
+					code: 'custom',
+					message: `Use the review model's provider, ${provider}: there is one HANSI_AI_SECRET`,
+					path: [key]
+				});
+			}
 		}
 		for (const missing of missingConfig(provider, env)) {
 			context.addIssue({ code: 'custom', message: `Required by ${provider}`, path: [missing] });

@@ -3,7 +3,7 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { detectResources, envDetector, resourceFromAttributes } from '@opentelemetry/resources';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { wrapLanguageModel, type LanguageModelMiddleware } from 'ai';
-import type { ReviewModel, Sandbox, SandboxClient, SandboxResult } from '@hansi/engine';
+import type { ReviewModel, Sandbox, SandboxClient, SandboxResult, Strength } from '@hansi/engine';
 import { estimateCost, findPrice, loadPriceCatalog, type PriceCatalog } from './pricing';
 
 // Metrics, pushed over OTLP to the cluster's collector as the orchestrator's are. Names are
@@ -122,9 +122,17 @@ export class Metrics {
 		if (seconds !== undefined) this.jobDuration.record(seconds, { type, outcome });
 	}
 
-	/** The model with every call it makes measured, for one role. */
-	instrumentModel(model: ReviewModel, role: ModelRole): ReviewModel {
-		const labels = { role, provider: model.provider, model: model.modelId };
+	/**
+	 * The model with every call it makes measured, for one role and, for reviews, the strength it
+	 * reviews at: what a review costs per strength is what its credits are priced against.
+	 */
+	instrumentModel(model: ReviewModel, role: ModelRole, strength?: Strength): ReviewModel {
+		const labels = {
+			role,
+			provider: model.provider,
+			model: model.modelId,
+			...(strength && { strength })
+		};
 		const tokens = (usage: Usage | undefined) => {
 			const counts = {
 				input: usage?.inputTokens.total,

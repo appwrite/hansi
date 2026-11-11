@@ -9,7 +9,8 @@ import {
 	reasoningEfforts,
 	type EngineContext,
 	type ReasoningEffort,
-	type ReviewModel
+	type ReviewModel,
+	type Strength
 } from '@hansi/engine';
 import type { Env } from './env';
 
@@ -122,14 +123,76 @@ function providerModel(env: Env, id: string) {
 }
 
 export function createModels(env: Env): EngineContext['models'] {
+	return modelsFor(env, {
+		review: env.HANSI_REVIEW_MODEL,
+		verify: env.HANSI_VERIFY_MODEL,
+		reviewReasoning: env.HANSI_REVIEW_REASONING,
+		verifyReasoning: env.HANSI_VERIFY_REASONING
+	});
+}
+
+/** What a review at one strength runs with. */
+export interface StrengthConfig {
+	models: EngineContext['models'];
+	/** Whether the reviewer may hand parts of the review to subagents that run in parallel. */
+	subagents: boolean;
+	/** Whether the agents may run commands in a sandbox, when the service has sandboxes. */
+	sandboxes: boolean;
+}
+
+/**
+ * Every strength's models, subagents and sandboxes. Only the models are configured, since their
+ * ids depend on the provider; the rest is what the strength is:
+ * - basic: cheaper models that only read the code, without a sandbox;
+ * - normal: the default models, with a sandbox;
+ * - expert: stronger models, with a sandbox and subagents.
+ * A strength without a review model of its own reviews with the normal models, so an Appwrite
+ * that sends strengths works before they are configured. Every strength reasons as normal does.
+ */
+export function createStrengths(env: Env): Record<Strength, StrengthConfig> {
+	const normal = createModels(env);
+	const models = (review: string | undefined, verify: string | undefined) =>
+		review
+			? modelsFor(env, {
+					review,
+					verify,
+					reviewReasoning: env.HANSI_REVIEW_REASONING,
+					verifyReasoning: env.HANSI_VERIFY_REASONING
+				})
+			: normal;
 	return {
-		review: createReviewModel(env, env.HANSI_REVIEW_MODEL, env.HANSI_REVIEW_REASONING),
+		basic: {
+			models: models(env.HANSI_BASIC_REVIEW_MODEL, env.HANSI_BASIC_VERIFY_MODEL),
+			subagents: false,
+			sandboxes: false
+		},
+		normal: { models: normal, subagents: false, sandboxes: true },
+		expert: {
+			models: models(env.HANSI_EXPERT_REVIEW_MODEL, env.HANSI_EXPERT_VERIFY_MODEL),
+			subagents: true,
+			sandboxes: true
+		}
+	};
+}
+
+/** Without a verify model or reasoning of its own, the engine verifies with the review model. */
+function modelsFor(
+	env: Env,
+	ids: {
+		review: string;
+		verify?: string;
+		reviewReasoning?: ReasoningEffort;
+		verifyReasoning?: ReasoningEffort;
+	}
+): EngineContext['models'] {
+	return {
+		review: createReviewModel(env, ids.review, ids.reviewReasoning),
 		verify:
-			env.HANSI_VERIFY_MODEL || env.HANSI_VERIFY_REASONING
+			ids.verify || ids.verifyReasoning
 				? createReviewModel(
 						env,
-						env.HANSI_VERIFY_MODEL ?? env.HANSI_REVIEW_MODEL,
-						env.HANSI_VERIFY_REASONING ?? env.HANSI_REVIEW_REASONING
+						ids.verify ?? ids.review,
+						ids.verifyReasoning ?? ids.reviewReasoning
 					)
 				: undefined
 	};

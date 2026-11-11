@@ -34,6 +34,13 @@ export interface CommentRef {
 export type ReviewTrigger =
 	{ kind: 'opened' | 'synchronize' | 'retry' } | { kind: 'mention'; comment: CommentRef };
 
+/**
+ * How hard a review looks, chosen per repository in Appwrite and billed by it: `basic` runs
+ * cheaper models, `normal` the default ones, `expert` stronger models with subagents. The service
+ * maps each to its models; the engine only sees the context that comes out of that.
+ */
+export type Strength = 'basic' | 'normal' | 'expert';
+
 /** Review one pull request at one head. Appwrite created the review document already. */
 export interface ReviewJob {
 	type: 'review';
@@ -47,6 +54,8 @@ export interface ReviewJob {
 	 */
 	headSha: string;
 	trigger: ReviewTrigger;
+	/** The repository's strength when the review was queued, which Appwrite bills it at. */
+	strength: Strength;
 }
 
 /** Answer one comment on a pull request. */
