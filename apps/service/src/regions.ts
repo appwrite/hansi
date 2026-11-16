@@ -42,6 +42,9 @@ export function parseRegions(source: Record<string, string | undefined>): {
 
 	const regions: Region[] = [];
 	const issues: RegionIssue[] = [];
+	if (ids.length === 0) {
+		issues.push({ path: 'HANSI_REGIONS', message: 'Lists no region' });
+	}
 	const suffixes = new Set<string>();
 	for (const id of ids) {
 		const suffix = id === DEFAULT_REGION ? '' : `_${regionSuffix(id)}`;

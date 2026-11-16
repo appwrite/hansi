@@ -90,6 +90,7 @@ describe('parseEnv', () => {
 		const base = { ...required, HANSI_APPWRITE_ENDPOINT_FRA: 'http://appwrite.fra/v1' };
 		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra,FRA_1' })).toThrow(/FRA_1/);
 		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra,fra' })).toThrow(/twice/);
+		expect(() => parseEnv({ ...base, HANSI_REGIONS: ' , ,' })).toThrow(/Lists no region/);
 		expect(() =>
 			parseEnv({ ...base, HANSI_REGIONS: 'fra', HANSI_APPWRITE_ENDPOINT_FRA: 'appwrite' })
 		).toThrow(/Invalid URL/);
