@@ -283,7 +283,8 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const code = included.filter((f) => !checked.has(f) && !isGenerated(f.path));
 	for (const file of [...code, ...marked, ...checked]) {
 		const rendered = renderFileDiff(file);
-		if (rendered.length > budget) {
+		// A file whose diff was too large to load has no hunks to show.
+		if (file.omitted || rendered.length > budget) {
 			notShown.push({ path: file.path, reason: 'too large to show' });
 			continue;
 		}
@@ -293,7 +294,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const removedShown: FileDiff[] = [];
 	for (const file of deletionOnly ? removed : []) {
 		const rendered = renderFileDiff(file);
-		if (rendered.length > budget) continue;
+		if (file.omitted || rendered.length > budget) continue;
 		budget -= rendered.length;
 		removedShown.push(file);
 	}

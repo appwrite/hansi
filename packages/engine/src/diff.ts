@@ -21,12 +21,33 @@ export interface FileDiff {
 	additions: number;
 	deletions: number;
 	binary: boolean;
+	/** The diff was too large to load: the file is listed, but without its hunks. */
+	omitted?: boolean;
 	hunks: DiffHunk[];
+}
+
+/**
+ * Ends the header of a file whose diff `gitDiff` left out for its size. `parse-diff` ignores the
+ * line; `parseUnifiedDiff` marks the file `omitted`.
+ */
+export const OMITTED_DIFF_LINE = 'Hansi: diff too large to load';
+
+/** Indexes, in diff order, of the files whose diff was left out. */
+function omittedFiles(diff: string): Set<number> {
+	const omitted = new Set<number>();
+	if (!diff.includes(OMITTED_DIFF_LINE)) return omitted;
+	let index = -1;
+	for (const match of diff.matchAll(new RegExp(`^(?:diff --git |${OMITTED_DIFF_LINE}$)`, 'gm'))) {
+		if (match[0].startsWith('diff --git ')) index++;
+		else omitted.add(index);
+	}
+	return omitted;
 }
 
 /** Parses `git diff` output into per-file hunks with new-side line numbers. */
 export function parseUnifiedDiff(diff: string): FileDiff[] {
-	return parseDiff(diff).map((file) => {
+	const omitted = omittedFiles(diff);
+	return parseDiff(diff).map((file, index) => {
 		const path = file.deleted ? file.from! : file.to!;
 		const renamed = !!file.from && !!file.to && file.from !== file.to && !file.new && !file.deleted;
 		const status: FileStatus = file.new
@@ -53,7 +74,9 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
 			status,
 			additions: file.additions,
 			deletions: file.deletions,
-			binary: file.chunks.length === 0 && !file.deleted && !file.new && !renamed,
+			binary:
+				file.chunks.length === 0 && !file.deleted && !file.new && !renamed && !omitted.has(index),
+			...(omitted.has(index) ? { omitted: true } : {}),
 			hunks
 		};
 	});
@@ -97,6 +120,7 @@ export function renderFileDiff(file: FileDiff): string {
 		});
 		return [hunk.header, ...lines].join('\n');
 	});
+	if (file.omitted) hunks.push('(diff too large to show: read the file with the tools)');
 	return [header, ...hunks].join('\n');
 }
 

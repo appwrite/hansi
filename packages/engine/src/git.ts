@@ -1,3 +1,5 @@
+import { OMITTED_DIFF_LINE } from './diff';
+
 export class GitError extends Error {
 	constructor(
 		readonly args: string[],
@@ -15,21 +17,24 @@ interface GitOptions {
 	signal?: AbortSignal;
 }
 
-export async function git(args: string[], options: GitOptions = {}): Promise<string> {
+function spawnGit(args: string[], options: GitOptions) {
 	const auth = options.token
 		? [
 				'-c',
 				`http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${options.token}`).toString('base64')}`
 			]
 		: [];
-
-	const proc = Bun.spawn(['git', ...auth, ...args], {
+	return Bun.spawn(['git', ...auth, ...args], {
 		cwd: options.cwd,
 		stdout: 'pipe',
 		stderr: 'pipe',
 		signal: options.signal,
 		env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_LFS_SKIP_SMUDGE: '1' }
 	});
+}
+
+export async function git(args: string[], options: GitOptions = {}): Promise<string> {
+	const proc = spawnGit(args, options);
 	const [stdout, stderr, exitCode] = await Promise.all([
 		new Response(proc.stdout).text(),
 		new Response(proc.stderr).text(),
@@ -37,6 +42,174 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
 	]);
 	if (exitCode !== 0) throw new GitError(args, exitCode, stderr);
 	return stdout;
+}
+
+/**
+ * A file whose diff is longer than this is kept as its header and an {@link OMITTED_DIFF_LINE}.
+ * The review prompt shows at most 150,000 characters of diff, so a file this large is never shown
+ * in full anyway; past it, holding the text only costs memory.
+ */
+export const MAX_FILE_DIFF_CHARS = 2_000_000;
+/**
+ * Diff text kept per diff, across files. Files that would go past it keep only their header. A
+ * parsed diff takes several times its text in memory, and a review holds a few at once, so this
+ * bounds what one job can use however large the pull request is.
+ */
+export const MAX_DIFF_CHARS = 8_000_000;
+
+export interface DiffLimits {
+	maxFileChars?: number;
+	maxChars?: number;
+}
+
+/**
+ * Runs `git diff` and keeps at most `maxChars` of its output, reading it as it streams. A file
+ * whose diff is longer than `maxFileChars`, or that no longer fits, keeps its header (paths,
+ * modes, index) followed by {@link OMITTED_DIFF_LINE}, so it is still listed as changed. A pull
+ * request that commits recorded test fixtures can have a diff of a gigabyte: collected whole and
+ * parsed, it took about 10 GB.
+ */
+export async function gitDiff(
+	args: string[],
+	options: GitOptions & DiffLimits = {}
+): Promise<string> {
+	const proc = spawnGit(args, options);
+	const limiter = new DiffLimiter(options);
+	const read = (async () => {
+		const decoder = new TextDecoder();
+		for await (const chunk of proc.stdout) limiter.push(decoder.decode(chunk, { stream: true }));
+		limiter.push(decoder.decode());
+	})();
+	const [, stderr, exitCode] = await Promise.all([
+		read,
+		new Response(proc.stderr).text(),
+		proc.exited
+	]);
+	if (exitCode !== 0) throw new GitError(args, exitCode, stderr);
+	return limiter.finish();
+}
+
+const FILE_START = 'diff --git ';
+/** Header lines of a file section longer than this are cut, e.g. a path of megabytes. */
+const MAX_HEADER_CHARS = 4_096;
+/** A line start shorter than this is held until more arrives, to tell `diff --git ` apart. */
+const LINE_START_CHARS = 16;
+
+/** Applies `gitDiff`'s limits to diff text that arrives in pieces. */
+export function limitDiff(pieces: Iterable<string>, limits: DiffLimits = {}): string {
+	const limiter = new DiffLimiter(limits);
+	for (const piece of pieces) limiter.push(piece);
+	return limiter.finish();
+}
+
+/** Keeps a streamed `git diff` within its limits, one file section at a time. */
+class DiffLimiter {
+	private readonly maxFileChars: number;
+	private readonly maxChars: number;
+	private readonly kept: string[] = [];
+	private keptChars = 0;
+	/** The current file's header: from `diff --git ` to its first hunk. */
+	private header: string[] = [];
+	private headerChars = 0;
+	private inHeader = false;
+	/** The current file's hunks, while they are kept. */
+	private body: string[] = [];
+	private bodyChars = 0;
+	private omitted = false;
+	private atLineStart = true;
+	/** A line start too short to classify yet, or the end of an omitted file. */
+	private carry = '';
+
+	constructor(limits: DiffLimits = {}) {
+		this.maxFileChars = limits.maxFileChars ?? MAX_FILE_DIFF_CHARS;
+		this.maxChars = limits.maxChars ?? MAX_DIFF_CHARS;
+	}
+
+	push(text: string): void {
+		let rest = this.carry + text;
+		this.carry = '';
+		while (rest.length > 0) {
+			if (this.omitted && !this.inHeader) {
+				// Skip to the next file without splitting lines: an omitted file can be a gigabyte.
+				const atStart = this.atLineStart && rest.startsWith(FILE_START);
+				const newline = atStart ? -1 : rest.indexOf(`\n${FILE_START}`);
+				if (!atStart && newline === -1) {
+					// Keep the end, which may be the first part of the next file's header.
+					this.carry = rest.slice(-FILE_START.length);
+					this.atLineStart = false;
+					return;
+				}
+				rest = rest.slice(atStart ? 0 : newline + 1);
+				this.atLineStart = true;
+			}
+			const newline = rest.indexOf('\n');
+			if (newline === -1 && this.atLineStart && rest.length < LINE_START_CHARS) {
+				this.carry = rest;
+				return;
+			}
+			const piece = newline === -1 ? rest : rest.slice(0, newline + 1);
+			rest = newline === -1 ? '' : rest.slice(newline + 1);
+			this.line(piece, this.atLineStart);
+			this.atLineStart = newline !== -1;
+		}
+	}
+
+	finish(): string {
+		if (this.carry && !(this.omitted && !this.inHeader)) this.line(this.carry, this.atLineStart);
+		this.carry = '';
+		this.endFile();
+		return this.kept.join('');
+	}
+
+	/** A whole line, or part of one; `start` when it begins a line. */
+	private line(piece: string, start: boolean): void {
+		if (start && piece.startsWith(FILE_START)) {
+			this.endFile();
+			this.inHeader = true;
+		}
+		if (start && piece.startsWith('@@')) this.inHeader = false;
+		if (this.inHeader) {
+			this.header.push(piece);
+			this.headerChars += piece.length;
+			// Only a path of kilobytes makes a header this long. Cut it, and the file with it.
+			if (this.headerChars > MAX_HEADER_CHARS) {
+				this.header = [`${this.header.join('').slice(0, MAX_HEADER_CHARS)}\n`];
+				this.inHeader = false;
+				this.omit();
+			}
+		} else if (!this.omitted) {
+			this.body.push(piece);
+			this.bodyChars += piece.length;
+		}
+		const size = this.headerChars + this.bodyChars;
+		if (!this.omitted && (size > this.maxFileChars || this.keptChars + size > this.maxChars)) {
+			this.omit();
+		}
+	}
+
+	private omit(): void {
+		this.omitted = true;
+		this.body = [];
+		this.bodyChars = 0;
+	}
+
+	private endFile(): void {
+		if (this.omitted) {
+			const header = this.header.join('');
+			const stub = `${header}${header.endsWith('\n') || !header ? '' : '\n'}${OMITTED_DIFF_LINE}\n`;
+			this.kept.push(stub);
+			this.keptChars += stub.length;
+		} else {
+			this.kept.push(...this.header, ...this.body);
+			this.keptChars += this.headerChars + this.bodyChars;
+		}
+		this.header = [];
+		this.headerChars = 0;
+		this.inHeader = false;
+		this.body = [];
+		this.bodyChars = 0;
+		this.omitted = false;
+	}
 }
 
 export interface CheckoutOptions {
@@ -72,7 +245,7 @@ export async function checkoutPullRequest(options: CheckoutOptions): Promise<str
 		{ cwd: dir, token, signal }
 	);
 	await git(['checkout', '--quiet', '--detach', options.headSha], { cwd: dir, token, signal });
-	return git(
+	return gitDiff(
 		[
 			'diff',
 			'--no-color',
@@ -109,11 +282,14 @@ export async function diffSince(options: {
 		if (error instanceof GitError) return null;
 		throw error;
 	}
-	return git(['diff', '--no-color', '--no-ext-diff', '--find-renames', `${fromSha}..${headSha}`], {
-		cwd: dir,
-		token,
-		signal
-	});
+	return gitDiff(
+		['diff', '--no-color', '--no-ext-diff', '--find-renames', `${fromSha}..${headSha}`],
+		{
+			cwd: dir,
+			token,
+			signal
+		}
+	);
 }
 
 export type PullRequestDelta =
@@ -145,7 +321,7 @@ export async function pullRequestDelta(options: {
 		const since = await diffSince({ dir, fromSha: lastHead, headSha, token, signal });
 		if (since === null) return { status: 'fallback' };
 		const range = (from: string, to: string) =>
-			git(['diff', '--no-color', '--no-ext-diff', '--find-renames', `${from}...${to}`], {
+			gitDiff(['diff', '--no-color', '--no-ext-diff', '--find-renames', `${from}...${to}`], {
 				cwd: dir,
 				token,
 				signal

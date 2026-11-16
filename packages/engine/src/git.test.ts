@@ -2,8 +2,16 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { parseUnifiedDiff } from './diff';
-import { checkoutPullRequest, diffSince, git, pullRequestDelta } from './git';
+import { OMITTED_DIFF_LINE, parseUnifiedDiff } from './diff';
+import {
+	checkoutPullRequest,
+	diffSince,
+	git,
+	gitDiff,
+	limitDiff,
+	MAX_DIFF_CHARS,
+	pullRequestDelta
+} from './git';
 import { createRepoTools, loadRepoGuidelines } from './tools';
 
 // A local "GitHub": a repository with a base branch and a pull request ref (refs/pull/1/head).
@@ -66,6 +74,111 @@ describe('checkoutPullRequest', () => {
 		expect(diff).toContain('+++ b/a.ts');
 		expect(diff).toContain('+++ b/b.ts');
 		expect((await git(['rev-parse', 'HEAD'], { cwd: dir })).trim()).toBe(sha.second!);
+	});
+});
+
+/** One file's section of a `git diff`, adding `lines` lines to `path`. */
+function fileDiff(path: string, lines: number, mode = ''): string {
+	const added = Array.from({ length: lines }, (_, i) => `+line ${i + 1} of ${path}\n`).join('');
+	return (
+		`diff --git a/${path} b/${path}\n${mode}index 0000000..1111111\n--- a/${path}\n+++ b/${path}\n` +
+		`@@ -0,0 +1,${lines} @@\n${added}`
+	);
+}
+
+/** `text` cut into pieces of `size` characters. */
+function pieces(text: string, size: number): string[] {
+	const out: string[] = [];
+	for (let i = 0; i < text.length; i += size) out.push(text.slice(i, i + size));
+	return out;
+}
+
+describe('limitDiff', () => {
+	const small = fileDiff('src/a.ts', 3);
+	const big = fileDiff('fixtures/huge.json', 5_000);
+	const after = fileDiff('src/z.ts', 2);
+	const stub = `diff --git a/fixtures/huge.json b/fixtures/huge.json\nindex 0000000..1111111\n--- a/fixtures/huge.json\n+++ b/fixtures/huge.json\n${OMITTED_DIFF_LINE}\n`;
+
+	test('keeps a diff within the limits as it is', () => {
+		const diff = small + after;
+		expect(limitDiff([diff])).toBe(diff);
+		expect(limitDiff(pieces(diff, 1))).toBe(diff);
+	});
+
+	test('keeps only the header of a file whose diff is too large, in any chunking', () => {
+		for (const size of [1, 7, 64, 100_000]) {
+			expect(limitDiff(pieces(small + big + after, size), { maxFileChars: 10_000 })).toBe(
+				small + stub + after
+			);
+		}
+	});
+
+	test('keeps the whole header of every file past the total, in any chunking', () => {
+		const added = fileDiff('src/b.ts', 50, 'new file mode 100644\n').replace(
+			'--- a/src/b.ts',
+			'--- /dev/null'
+		);
+		// Room for a.ts, z.ts and b.ts's header, not for b.ts's 50 lines.
+		const maxChars = small.length + after.length + 300;
+		for (const size of [1, 7, 30, 100_000]) {
+			const diff = limitDiff(pieces(small + added + after, size), { maxChars });
+			expect(diff).toContain(
+				`diff --git a/src/b.ts b/src/b.ts\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/src/b.ts\n${OMITTED_DIFF_LINE}\n`
+			);
+			const files = parseUnifiedDiff(diff);
+			expect(files.map((f) => [f.path, f.status, !!f.omitted, f.hunks.length])).toEqual([
+				['src/a.ts', 'modified', false, 1],
+				['src/b.ts', 'added', true, 0],
+				['src/z.ts', 'modified', false, 1]
+			]);
+			// Full before b.ts starts: its header is still kept whole, and so is z.ts's.
+			const full = limitDiff(pieces(small + added + after, size), { maxChars: small.length + 10 });
+			expect(full).toBe(
+				small +
+					`diff --git a/src/b.ts b/src/b.ts\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/src/b.ts\n${OMITTED_DIFF_LINE}\n` +
+					`diff --git a/src/z.ts b/src/z.ts\nindex 0000000..1111111\n--- a/src/z.ts\n+++ b/src/z.ts\n${OMITTED_DIFF_LINE}\n`
+			);
+		}
+	});
+
+	test('cuts a single line that is too large, e.g. minified code', () => {
+		const minified = `diff --git a/app.min.js b/app.min.js\nnew file mode 100644\nindex 0000000..1111111\n--- /dev/null\n+++ b/app.min.js\n@@ -0,0 +1 @@\n+${'x'.repeat(50_000)}\n`;
+		const diff = limitDiff(pieces(minified + after, 4_096), { maxFileChars: 10_000 });
+		expect(diff.length).toBeLessThan(1_000);
+		const files = parseUnifiedDiff(diff);
+		expect(files.map((f) => [f.path, f.status, !!f.omitted, f.binary])).toEqual([
+			['app.min.js', 'added', true, false],
+			['src/z.ts', 'modified', false, false]
+		]);
+	});
+
+	test('a pull request diff of a gigabyte is held within the limit', () => {
+		// About 1 GB of diff, streamed in pipe-sized chunks, never held whole.
+		const section = fileDiff('fixtures/case.json', 2_000);
+		function* stream() {
+			for (let i = 0; i < 20_000; i++) {
+				yield* pieces(section.replaceAll('case.json', `case-${i}.json`), 65_536);
+			}
+		}
+		const diff = limitDiff(stream());
+		expect(diff.length).toBeLessThan(MAX_DIFF_CHARS + 20_000 * 200);
+		const files = parseUnifiedDiff(diff);
+		expect(files).toHaveLength(20_000);
+		expect(files.filter((f) => f.omitted).length).toBeGreaterThan(19_000);
+	});
+});
+
+describe('gitDiff', () => {
+	test('reads git diff with the limits applied', async () => {
+		const range = `${sha.base!}...${sha.second!}`;
+		const full = await git(['diff', range], { cwd: origin });
+		expect(await gitDiff(['diff', range], { cwd: origin })).toBe(full);
+		const limited = await gitDiff(['diff', range], { cwd: origin, maxChars: 1 });
+		expect(parseUnifiedDiff(limited).map((f) => [f.path, f.omitted])).toEqual([
+			['a.ts', true],
+			['b.ts', true]
+		]);
+		expect(gitDiff(['diff', 'no-such-ref'], { cwd: origin })).rejects.toThrow('git diff failed');
 	});
 });
 
