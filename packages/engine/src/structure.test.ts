@@ -60,3 +60,68 @@ test('the ast_search tool formats matches and stays inside the repository', asyn
 		'Error: Path is outside the repository'
 	);
 });
+
+test('a pattern that matches everything stops at the limit across batches of files', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'hans-ast-many-'));
+	try {
+		await Promise.all(
+			Array.from({ length: 450 }, (_, i) =>
+				writeFile(join(dir, `f${String(i).padStart(3, '0')}.ts`), `call${i}(1);\ncall${i}(2);\n`)
+			)
+		);
+		const matches = await astSearch({
+			repoDir: dir,
+			absolutePath: dir,
+			language: 'TypeScript',
+			pattern: '$A($$$)',
+			limit: 5
+		});
+		// ast-grep searches a batch in parallel, so which files come first varies; all of them are in
+		// the first batch, because the search stops there.
+		expect(matches).toHaveLength(5);
+		expect(matches.every((m) => m.path < 'f200.ts')).toBe(true);
+
+		// A match past the first batch of files is still found.
+		const late = await astSearch({
+			repoDir: dir,
+			absolutePath: dir,
+			language: 'TypeScript',
+			pattern: 'call449($$$)'
+		});
+		expect(late.map((m) => m.path)).toEqual(['f449.ts', 'f449.ts']);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('searches the tracked files of a checkout and a single file path', async () => {
+	const dir = await mkdtemp(join(tmpdir(), 'hans-ast-git-'));
+	try {
+		await mkdir(join(dir, 'src'));
+		await mkdir(join(dir, 'dist'));
+		await writeFile(join(dir, '.gitignore'), 'dist/\n');
+		await writeFile(join(dir, 'src/a.ts'), 'fetch(a);\n');
+		await writeFile(join(dir, 'src/b.ts'), 'fetch(b);\n');
+		await writeFile(join(dir, 'dist/bundle.ts'), 'fetch(bundle);\n');
+		const init = Bun.spawnSync(['git', 'init', '-q'], { cwd: dir });
+		expect(init.exitCode).toBe(0);
+		Bun.spawnSync(['git', 'add', '.'], { cwd: dir });
+
+		const search = (absolutePath: string) =>
+			astSearch({ repoDir: dir, absolutePath, language: 'TypeScript', pattern: 'fetch($$$)' });
+		expect((await search(dir)).map((m) => m.text)).toEqual(['fetch(a)', 'fetch(b)']);
+		expect((await search(join(dir, 'src/b.ts'))).map((m) => m.text)).toEqual(['fetch(b)']);
+	} finally {
+		await rm(dir, { recursive: true, force: true });
+	}
+});
+
+test('a single file outside a checkout is searched on its own', async () => {
+	const matches = await astSearch({
+		repoDir,
+		absolutePath: join(repoDir, 'src/api.ts'),
+		language: 'TypeScript',
+		pattern: 'fetch($$$)'
+	});
+	expect(matches.map((m) => `${m.path}:${m.line}`)).toEqual(['src/api.ts:3']);
+});

@@ -1,5 +1,6 @@
 // Structural code search with ast-grep: match syntax, not text, e.g. every call of `fetch($$$)`.
-import { relative } from 'node:path';
+import { readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 import c from '@ast-grep/lang-c';
 import cpp from '@ast-grep/lang-cpp';
 import csharp from '@ast-grep/lang-csharp';
@@ -28,6 +29,15 @@ function ensureLanguages() {
 	registerDynamicLanguage(dynamic);
 }
 
+/**
+ * Files handed to ast-grep at a time. ast-grep turns every match into a node object before the
+ * callback can stop it, so one search over a whole repository with a pattern that matches almost
+ * everything (`$A`) held millions of nodes at once: about 3 GB on appwrite-labs/cloud, enough to
+ * get a worker with concurrent jobs OOM killed. Searching in batches lets a search stop once it
+ * has its matches and caps what one batch can hold.
+ */
+const FILES_PER_BATCH = 200;
+
 export interface AstMatch {
 	path: string;
 	line: number;
@@ -54,37 +64,75 @@ export async function astSearch(options: {
 	const limit = options.limit ?? 50;
 	const matches: AstMatch[] = [];
 	let failure: Error | null = null;
+	const files = (await sourceFiles(options.repoDir, options.absolutePath)).filter(
+		(file) => languageForPath(file) === options.language
+	);
 
-	await findInFiles(
-		options.language,
-		{
-			paths: [options.absolutePath],
-			matcher: {
-				rule: {
-					pattern: options.context
-						? { context: options.context.snippet, selector: options.context.selector }
-						: options.pattern
+	for (let start = 0; start < files.length && matches.length < limit; start += FILES_PER_BATCH) {
+		await findInFiles(
+			options.language,
+			{
+				paths: files.slice(start, start + FILES_PER_BATCH),
+				matcher: {
+					rule: {
+						pattern: options.context
+							? { context: options.context.snippet, selector: options.context.selector }
+							: options.pattern
+					}
+				}
+			},
+			(error, nodes) => {
+				if (error) {
+					failure = error;
+					return;
+				}
+				for (const node of nodes) {
+					if (matches.length >= limit) return;
+					const text = node.text();
+					matches.push({
+						path: relative(options.repoDir, node.getRoot().filename()),
+						line: node.range().start.line + 1,
+						text: text.length > 200 ? `${text.slice(0, 200)}…` : text
+					});
 				}
 			}
-		},
-		(error, nodes) => {
-			if (error) {
-				failure = error;
-				return;
-			}
-			for (const node of nodes) {
-				if (matches.length >= limit) return;
-				const text = node.text();
-				matches.push({
-					path: relative(options.repoDir, node.getRoot().filename()),
-					line: node.range().start.line + 1,
-					text: text.length > 200 ? `${text.slice(0, 200)}…` : text
-				});
-			}
+		);
+		if (failure) throw failure;
+	}
+	return matches.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+}
+
+/**
+ * Files under `absolutePath`, sorted: the tracked files when `repoDir` is a git checkout, which
+ * leaves out what .gitignore ignores, as ast-grep's own walk did. Otherwise every file but `.git`.
+ */
+async function sourceFiles(repoDir: string, absolutePath: string): Promise<string[]> {
+	const proc = Bun.spawn(['git', 'ls-files', '-z', '--', relative(repoDir, absolutePath) || '.'], {
+		cwd: repoDir,
+		stdout: 'pipe',
+		stderr: 'ignore'
+	});
+	const [listed, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+	if (exitCode === 0) {
+		return listed
+			.split('\0')
+			.filter(Boolean)
+			.map((file) => join(repoDir, file))
+			.sort();
+	}
+	const entries = await readdir(absolutePath, { recursive: true, withFileTypes: true }).catch(
+		(error: NodeJS.ErrnoException) => {
+			// A file path: search just that file.
+			if (error.code === 'ENOTDIR') return null;
+			throw error;
 		}
 	);
-	if (failure) throw failure;
-	return matches.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line);
+	if (entries === null) return [absolutePath];
+	return entries
+		.filter((entry) => entry.isFile())
+		.map((entry) => join(entry.parentPath, entry.name))
+		.filter((file) => !relative(repoDir, file).split('/').includes('.git'))
+		.sort();
 }
 
 const builtInExtensions: Record<string, AstLanguage> = {
