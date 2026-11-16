@@ -572,9 +572,12 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const stillOpenBlocking = stillOpen.filter((f) => severityAtLeast(f.severity, threshold)).length;
 	let verdict = decideVerdict({ posted, stillOpen, config });
 	// Approval is the one outcome an attacker would want: only grant it when it is safe to.
-	// Generated files left out of the prompt do not hold it back: their source is what gets
-	// reviewed. Lockfiles still do; their versions are only listed. A file the reviewer read every
-	// changed line of with read_file was seen, even though the prompt left it out.
+	// With a sandbox, a file left out of the prompt does not hold it back: the reviewer reads it
+	// with the tools, installs the locked versions and runs the build and tests, the same way it
+	// reviews a pull request too large to show at all. Without one, generated files left out of
+	// the prompt do not hold it back either: their source is what gets reviewed. Lockfiles still
+	// do; their versions are only listed. A file the reviewer read every changed line of with
+	// read_file was seen, even though the prompt left it out.
 	const seen = (file: FileDiff) => {
 		const lines = [...commentableLines(file)];
 		const ranges = read.get(file.path) ?? [];
@@ -585,8 +588,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		);
 	};
 	const truncated =
-		included.some((file) => !shown.includes(file) && !isGenerated(file.path) && !seen(file)) ||
-		(deletionOnly && removedShown.length < removed.length);
+		!input.sandbox &&
+		(included.some((file) => !shown.includes(file) && !isGenerated(file.path) && !seen(file)) ||
+			(deletionOnly && removedShown.length < removed.length));
 	// Nothing in a deletion-only pull request can carry an inline comment, so every finding is a
 	// placement miss listed in the summary. Those still decide whether Hansi approves.
 	const unplacedDefects =

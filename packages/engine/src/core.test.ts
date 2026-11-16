@@ -742,6 +742,35 @@ ${OMITTED_DIFF_LINE}
 		);
 	});
 
+	test('approves with a sandbox even though part of the diff did not fit in the prompt', async () => {
+		const withOmitted = `${diff}diff --git a/fixtures/huge.json b/fixtures/huge.json
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/fixtures/huge.json
+${OMITTED_DIFF_LINE}
+`;
+		const model = new MockLanguageModelV4({
+			doGenerate: [toolCall('submit_review', { summary: 'Adds a guard.', findings: [] })]
+		});
+		const completed = await runReview({
+			repoDir,
+			diff: withOmitted,
+			pullRequestDiff: withOmitted,
+			pullRequest: { title: 'Guard division', body: '', author: 'octocat' },
+			config: parseRepoConfig('').config,
+			models: { review: { model, provider: 'mock', modelId: 'mock-1' } },
+			sandbox: { run: async () => ({ exitCode: 0, stdout: '', stderr: '', timedOut: false }) }
+		});
+		if (completed.status !== 'completed') throw new Error('expected a completed review');
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain(
+			'fixtures/huge.json (too large to show)'
+		);
+		expect(completed.filesTooLargeForPrompt?.omitted).toBe(1);
+		expect(completed.verdict).toBe('approve');
+		expect(completed.approvalWithheld).toBeNull();
+	});
+
 	test('reviews a lockfile-only bump when a sandbox can run it, and skips it otherwise', async () => {
 		const composerBump = `diff --git a/composer.lock b/composer.lock
 --- a/composer.lock
@@ -1461,9 +1490,9 @@ ${upstream}`;
 			expect(completed.verdict).toBe('approve');
 		});
 
-		test('do not exempt a lockfile that a generated glob also matches', async () => {
+		test('leave a lockfile that a generated glob also matches a lockfile', async () => {
 			const code = diff.slice(0, diff.indexOf('diff --git a/bun.lock'));
-			const { result } = run(`${code}${sdk('src/sdk/package-lock.json', 400)}`, {
+			const { model, result } = run(`${code}${sdk('src/sdk/package-lock.json', 400)}`, {
 				config,
 				maxDiffChars: sizeOf(code) + 10,
 				sandbox: true
@@ -1471,8 +1500,13 @@ ${upstream}`;
 			const completed = await result;
 			if (completed.status !== 'completed') throw new Error('expected a completed review');
 			expect(completed.reviewedFiles).toEqual(['src/math.ts']);
-			expect(completed.verdict).toBe('comment');
-			expect(completed.approvalWithheld).toContain('too large');
+			// Reviewed as a dependency change, not handed to the generator guidance.
+			const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+			expect(prompt).toContain('<dependency_changes>');
+			expect(prompt).not.toContain('<generated_files>');
+			// With a sandbox, a lockfile too large to show does not hold the approval back.
+			expect(completed.verdict).toBe('approve');
+			expect(completed.approvalWithheld).toBeNull();
 		});
 
 		test('get the generator guidance when a sandbox can run it', async () => {
