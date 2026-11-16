@@ -270,7 +270,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	// repository marks as generated, then files checked by running something, go last so a large
 	// one cannot crowd out code. Lockfile versions are listed separately.
 	const shown: FileDiff[] = [];
-	const notShown = [...excluded];
+	const notShown: { path: string; reason: string; lines?: string }[] = [...excluded];
 	let budget = limits.maxDiffChars;
 	// A lockfile stays a lockfile even under a generated glob: its versions are only listed.
 	const matchesGenerated = generatedMatcher(config.reviews.generated);
@@ -285,7 +285,13 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		const rendered = renderFileDiff(file);
 		// A file whose diff was too large to load has no hunks to show.
 		if (file.omitted || rendered.length > budget) {
-			notShown.push({ path: file.path, reason: 'too large to show' });
+			// Where the changes are, so the reviewer can read them with read_file.
+			const lines = file.hunks
+				.map((hunk) => hunk.lines.flatMap((line) => line.newLine ?? []))
+				.filter((numbers) => numbers.length > 0)
+				.map((numbers) => `${numbers[0]}-${numbers[numbers.length - 1]}`)
+				.join(', ');
+			notShown.push({ path: file.path, reason: 'too large to show', ...(lines && { lines }) });
 			continue;
 		}
 		budget -= rendered.length;
@@ -329,10 +335,16 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 
 	// The reviewer, its subagents, and the verifier share the sandbox and its command budget.
 	const commandBudget: CommandBudget = { used: 0 };
+	// The lines of each file at the head that read_file returned, so a file left out of the
+	// prompt still counts as reviewed once every changed line in it has been read.
+	const read = new Map<string, [number, number][]>();
+	const onRead = (path: string, startLine: number, endLine: number) =>
+		void read.set(path, [...(read.get(path) ?? []), [startLine, endLine]]);
 	const createTools = (emit: EmitEvent): ToolSet => ({
 		...createRepoTools(input.repoDir, emit, {
 			token: input.trustedSource?.token,
-			baseRef: input.trustedSource?.ref
+			baseRef: input.trustedSource?.ref,
+			onRead
 		}),
 		...(input.sandbox ? createSandboxTools(input.sandbox, emit, commandBudget) : {})
 	});
@@ -561,9 +573,19 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	let verdict = decideVerdict({ posted, stillOpen, config });
 	// Approval is the one outcome an attacker would want: only grant it when it is safe to.
 	// Generated files left out of the prompt do not hold it back: their source is what gets
-	// reviewed. Lockfiles still do; their versions are only listed.
+	// reviewed. Lockfiles still do; their versions are only listed. A file the reviewer read every
+	// changed line of with read_file was seen, even though the prompt left it out.
+	const seen = (file: FileDiff) => {
+		const lines = [...commentableLines(file)];
+		const ranges = read.get(file.path) ?? [];
+		return (
+			!file.omitted &&
+			lines.length > 0 &&
+			lines.every((line) => ranges.some(([start, end]) => line >= start && line <= end))
+		);
+	};
 	const truncated =
-		included.some((file) => !shown.includes(file) && !isGenerated(file.path)) ||
+		included.some((file) => !shown.includes(file) && !isGenerated(file.path) && !seen(file)) ||
 		(deletionOnly && removedShown.length < removed.length);
 	// Nothing in a deletion-only pull request can carry an inline comment, so every finding is a
 	// placement miss listed in the summary. Those still decide whether Hansi approves.

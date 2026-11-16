@@ -1371,6 +1371,24 @@ ${upstream}`;
 		expect(truncated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
 		expect(trusted.filesTooLargeForPrompt).toBeNull();
 
+		// The reviewer read every changed line of the file the prompt left out: it was reviewed.
+		await writeFile(join(repoDir, 'src/big.ts'), `${'b'.repeat(400)}\n`);
+		const reader = new MockLanguageModelV4({
+			doGenerate: [toolCall('read_file', { path: 'src/big.ts' }), clean]
+		});
+		const read = await review({
+			diff: bigger,
+			limits: { maxDiffChars: 700 },
+			models: { review: { model: reader, provider: 'mock', modelId: 'mock-1' } }
+		});
+		await rm(join(repoDir, 'src/big.ts'));
+		if (read.status !== 'completed') throw new Error('expected a completed review');
+		expect(JSON.stringify(reader.doGenerateCalls[0]?.prompt)).toContain(
+			'src/big.ts (too large to show; changed lines 1-1)'
+		);
+		expect(read.verdict).toBe('approve');
+		expect(read.approvalWithheld).toBeNull();
+
 		// The same file marked generated on the base branch no longer holds the approval back.
 		const generated = await review({
 			diff: bigger,
@@ -1958,7 +1976,7 @@ index 6666666..7777777 100644
 		]);
 		// The review prompt omits the late files; the verifier still sees their diff.
 		const reviewPrompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
-		expect(reviewPrompt).toContain('src/late.ts (too large to show)');
+		expect(reviewPrompt).toContain('src/late.ts (too large to show; changed lines 1-3)');
 		expect(reviewPrompt).not.toContain('return lateOnly(n)');
 		expect(reviewPrompt).not.toContain('return n / 0');
 		const verifyPrompt = JSON.stringify(model.doGenerateCalls[1]?.prompt);
