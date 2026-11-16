@@ -52,6 +52,49 @@ describe('parseEnv', () => {
 		);
 	});
 
+	test('takes one region from the unsuffixed variables when none are listed', () => {
+		expect(parseEnv(required).regions).toEqual([
+			{ id: 'default', endpoint: 'http://appwrite/v1', secret: 'secret' }
+		]);
+	});
+
+	test("takes every listed region's own Appwrite, sharing the unsuffixed secret", () => {
+		const env = parseEnv({
+			...required,
+			HANSI_APPWRITE_ENDPOINT: undefined,
+			HANSI_REGIONS: 'fra1, nyc1,sfo-2',
+			HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1',
+			HANSI_APPWRITE_ENDPOINT_NYC1: 'http://appwrite.nyc1/v1',
+			HANSI_APPWRITE_SECRET_NYC1: 'nyc1-secret',
+			HANSI_APPWRITE_ENDPOINT_SFO_2: 'http://appwrite.sfo2/v1'
+		});
+
+		expect(env.regions).toEqual([
+			{ id: 'fra1', endpoint: 'http://appwrite.fra1/v1', secret: 'secret' },
+			{ id: 'nyc1', endpoint: 'http://appwrite.nyc1/v1', secret: 'nyc1-secret' },
+			{ id: 'sfo-2', endpoint: 'http://appwrite.sfo2/v1', secret: 'secret' }
+		]);
+	});
+
+	test("never sends a listed region's results to the unsuffixed endpoint", () => {
+		expect(() =>
+			parseEnv({
+				...required,
+				HANSI_REGIONS: 'fra1,nyc1',
+				HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1'
+			})
+		).toThrow(/HANSI_APPWRITE_ENDPOINT_NYC1/);
+	});
+
+	test('refuses region ids it cannot name variables by, and repeats', () => {
+		const base = { ...required, HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1' };
+		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra1,FRA_1' })).toThrow(/FRA_1/);
+		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra1,fra1' })).toThrow(/twice/);
+		expect(() =>
+			parseEnv({ ...base, HANSI_REGIONS: 'fra1', HANSI_APPWRITE_ENDPOINT_FRA1: 'appwrite' })
+		).toThrow(/Invalid URL/);
+	});
+
 	test('names every missing variable', () => {
 		expect(() => parseEnv({})).toThrow(/HANSI_APPWRITE_ENDPOINT[\s\S]*HANSI_REVIEW_MODEL/);
 	});

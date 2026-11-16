@@ -148,8 +148,26 @@ The service validates its environment on start (`apps/service/src/env.ts`) and e
 | `HANSI_JOBS_PORT`             | `8081`              | Loopback port where the consumer hands over jobs.                                                 |
 | `HANSI_SHUTDOWN_TIMEOUT`      | `3600`              | Seconds a stopping consumer waits for running jobs.                                               |
 | `HANSI_CONSUMER_COMMAND`      | set by image        | Starts the queue consumer. Unset, jobs only arrive from whoever calls the jobs port.              |
+| `HANSI_REGIONS`               |                     | Cloud regions to serve from one pool, e.g. `fra1,nyc1`. See [Regions](#regions).                  |
 | `HANSI_LOG_LEVEL`             | `info`              | `debug`, `info`, `warn` or `error`.                                                               |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` |                     | OTLP collector for metrics (HTTP, protobuf). Unset, nothing is exported. See [Metrics](#metrics). |
+
+### Regions
+
+On Cloud, each region has its own Appwrite and its own reviews queue. One Hansi pool can serve them all: list them in `HANSI_REGIONS` and give each its own variables, suffixed with the region in capitals (`-` becomes `_`):
+
+```yaml
+HANSI_REGIONS: fra1,nyc1
+HANSI_APPWRITE_ENDPOINT_FRA1: http://appwrite.fra1.internal/v1
+HANSI_APPWRITE_ENDPOINT_NYC1: http://appwrite.nyc1.internal/v1
+HANSI_QUEUE_URL_FRA1: nats://nats.fra1.internal:4222
+HANSI_QUEUE_URL_NYC1: nats://nats.nyc1.internal:4222
+HANSI_APPWRITE_SECRET: ... # or HANSI_APPWRITE_SECRET_<REGION> per region
+```
+
+The service starts one consumer per region. Every consumer hands its jobs to the same `HANSI_CONCURRENCY` slots, and each job's results, failure marks and GitHub tokens come from the Appwrite of the region whose queue it came from. A region's endpoint and queue URL are always its own; `HANSI_APPWRITE_SECRET`, `HANSI_QUEUE_NAME`, `HANSI_QUEUE_USER` and `HANSI_QUEUE_PASSWORD` fall back to the unsuffixed variables.
+
+Each consumer holds up to `HANSI_CONCURRENCY` deliveries of its own queue, so a busy container can hold a delivery from one region while another runs; it waits there for a free slot, about one job's length. Every container pulls from every queue, and a queue's `maxAckPending` caps the deliveries out at once across all of them: keep it above the fleet's total slots (containers times `HANSI_CONCURRENCY`) so one region's burst can fill the whole pool. Below `HANSI_CONCURRENCY` plus one, the consumer refuses to start.
 
 ### Strengths
 

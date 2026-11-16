@@ -6,6 +6,7 @@ import { MemoryResultsSink, MemorySandboxes } from '@hansi/engine/testing';
 import { createLogger } from './logger';
 import { Metrics } from './metrics';
 import type { PriceCatalog } from './pricing';
+import { DEFAULT_REGION } from './regions';
 import { Worker } from './worker';
 
 class Reader extends MetricReader {
@@ -42,9 +43,9 @@ const usage = {
 describe('Metrics', () => {
 	test('counts jobs by type and outcome, and how many run', async () => {
 		const { reader, metrics } = setup();
+		const handlers = { review: async () => {}, chat: () => Promise.reject(new Error('down')) };
 		const worker = new Worker({
-			sink: new MemoryResultsSink(),
-			handlers: { review: async () => {}, chat: () => Promise.reject(new Error('down')) },
+			regions: new Map([[DEFAULT_REGION, { sink: new MemoryResultsSink(), handlers }]]),
 			logger: silent,
 			concurrency: 4,
 			metrics

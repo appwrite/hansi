@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { parseRegions, type Region } from './regions';
 import { isProviderId, missingConfig, parseModelId, providerIds, reasoningEfforts } from './models';
 
 const modelId = z
@@ -19,8 +20,18 @@ const schema = z
 		/** Jobs one process runs at once. Each review holds a checkout, and a sandbox if it runs commands. */
 		HANSI_CONCURRENCY: z.coerce.number().int().positive().default(4),
 
-		HANSI_APPWRITE_ENDPOINT: z.url(),
-		HANSI_APPWRITE_SECRET: z.string().min(1),
+		/**
+		 * Appwrite's internal API, where results go. With `HANSI_REGIONS`, each region has its own
+		 * (`regions.ts`), and the secret is the default for regions without one.
+		 */
+		HANSI_APPWRITE_ENDPOINT: z.url().optional(),
+		HANSI_APPWRITE_SECRET: z.string().min(1).optional(),
+		/**
+		 * The Cloud regions this process takes jobs from, e.g. `fra1,nyc1`: one queue consumer each,
+		 * all sharing the slots of `HANSI_CONCURRENCY`. Each review's results go back to its own
+		 * region's Appwrite. Unset, one region from the unsuffixed variables.
+		 */
+		HANSI_REGIONS: z.string().min(1).optional(),
 
 		/**
 		 * Where the queue consumer hands over jobs, on loopback. The consumer reads `HANSI_QUEUE_*`
@@ -110,12 +121,20 @@ const schema = z
 		}
 	});
 
-export type Env = z.infer<typeof schema>;
+export type Env = z.infer<typeof schema> & {
+	/** Where jobs come from and their results go, at least one. */
+	regions: Region[];
+};
 
 export function parseEnv(source: Record<string, string | undefined>): Env {
 	const result = schema.safeParse(source);
-	if (!result.success) {
-		throw new Error(`invalid environment:\n${z.prettifyError(result.error)}`);
+	const regions = parseRegions(source);
+	if (!result.success || regions.issues.length > 0) {
+		const issues = [
+			...regions.issues.map(({ message, path }) => `✖ ${message}\n  → at ${path}`),
+			...(result.error ? [z.prettifyError(result.error)] : [])
+		];
+		throw new Error(`invalid environment:\n${issues.join('\n')}`);
 	}
-	return result.data;
+	return { ...result.data, regions: regions.regions };
 }

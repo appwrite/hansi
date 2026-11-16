@@ -24,15 +24,18 @@ final class Http implements Engine
     public function __construct(
         private readonly string $host,
         private readonly int $port,
+        /** The region of the queue this consumer reads, when the service serves several. */
+        private readonly ?string $region = null,
     ) {
     }
 
     public function run(array $payload, int $attempts, int $maxAttempts): Outcome
     {
-        $body = json_encode(
-            ['payload' => $payload, 'attempts' => $attempts, 'maxAttempts' => $maxAttempts],
-            JSON_THROW_ON_ERROR,
-        );
+        $delivery = ['payload' => $payload, 'attempts' => $attempts, 'maxAttempts' => $maxAttempts];
+        if ($this->region !== null) {
+            $delivery['region'] = $this->region;
+        }
+        $body = json_encode($delivery, JSON_THROW_ON_ERROR);
 
         $unreachable = 0;
         while (true) {

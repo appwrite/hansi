@@ -3,6 +3,7 @@ import { NotImplementedError, type Job, type ResultsSink } from '@hansi/engine';
 import type { Handlers } from './handlers';
 import type { Logger } from './logger';
 import type { Metrics } from './metrics';
+import { DEFAULT_REGION } from './regions';
 
 // Runs the jobs the queue consumer hands over. The consumer owns the queue: it receives, keeps
 // the delivery alive and settles it by the outcome this returns. What a failure means for the
@@ -21,6 +22,14 @@ export interface Delivery {
 	attempts: number;
 	/** Deliveries the queue allows. The last one is not retried. */
 	maxAttempts: number;
+	/** The region whose queue it came from, where its results go. Unset, the default region. */
+	region?: string;
+}
+
+/** What jobs from one region run with: results and GitHub tokens come from its own Appwrite. */
+export interface RegionJobs {
+	sink: ResultsSink;
+	handlers: Handlers;
 }
 
 export type Outcome =
@@ -35,10 +44,10 @@ export type Outcome =
 	| { outcome: 'invalid'; reason: string };
 
 export interface WorkerOptions {
-	sink: ResultsSink;
-	handlers: Handlers;
+	/** By region id. A single region is `DEFAULT_REGION`. */
+	regions: ReadonlyMap<string, RegionJobs>;
 	logger: Logger;
-	/** Jobs that run at once. */
+	/** Jobs that run at once, from every region together. */
 	concurrency: number;
 	metrics?: Metrics;
 }
@@ -56,8 +65,15 @@ export class Worker {
 		return this.running < this.options.concurrency;
 	}
 
+	/** Whether deliveries from this region can run here. */
+	serves(region: string | undefined): boolean {
+		return this.options.regions.has(region ?? DEFAULT_REGION);
+	}
+
 	/** Runs one delivery to its outcome. Null when every slot is taken and nothing started. */
 	async run(delivery: Delivery): Promise<Outcome | null> {
+		const region = this.options.regions.get(delivery.region ?? DEFAULT_REGION);
+		if (!region) throw new Error(`Not a region this process serves: ${delivery.region}`);
 		if (!this.available) return null;
 		let job: Job;
 		try {
@@ -74,7 +90,7 @@ export class Worker {
 		const started = performance.now();
 		let outcome: Outcome | undefined;
 		try {
-			outcome = await this.runJob(job, delivery);
+			outcome = await this.runJob(job, delivery, region);
 			return outcome;
 		} finally {
 			// No outcome: the process stopped under the job, and its delivery goes back unsettled.
@@ -100,9 +116,10 @@ export class Worker {
 		this.stopping.abort();
 	}
 
-	private async runJob(job: Job, delivery: Delivery): Promise<Outcome> {
-		const { handlers, sink } = this.options;
+	private async runJob(job: Job, delivery: Delivery, region: RegionJobs): Promise<Outcome> {
+		const { handlers, sink } = region;
 		const logger = this.options.logger.child({
+			...(delivery.region ? { region: delivery.region } : {}),
 			job: job.type,
 			project: job.repository.projectId,
 			repository: `${job.repository.owner}/${job.repository.name}`,

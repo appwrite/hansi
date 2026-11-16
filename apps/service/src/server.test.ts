@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import type { ReviewJob } from '@hansi/engine';
 import { MemoryResultsSink } from '@hansi/engine/testing';
 import { createLogger } from './logger';
+import { DEFAULT_REGION } from './regions';
 import { startJobsServer } from './server';
 import { Worker } from './worker';
 
@@ -31,9 +32,9 @@ afterEach(async () => {
 });
 
 function serve(options: { review?: () => Promise<void> } = {}) {
+	const handlers = { review: options.review ?? (async () => {}), chat: async () => {} };
 	const worker = new Worker({
-		sink: new MemoryResultsSink(),
-		handlers: { review: options.review ?? (async () => {}), chat: async () => {} },
+		regions: new Map([[DEFAULT_REGION, { sink: new MemoryResultsSink(), handlers }]]),
 		logger: createLogger('error', {}, () => {}),
 		concurrency: 1
 	});
@@ -49,6 +50,15 @@ function serve(options: { review?: () => Promise<void> } = {}) {
 }
 
 describe('startJobsServer', () => {
+	test('refuses a delivery from a region it has no Appwrite for', async () => {
+		const { post } = serve();
+
+		const response = await post({ payload: review, attempts: 0, maxAttempts: 3, region: 'nyc1' });
+
+		expect(response.status).toBe(400);
+		expect(((await response.json()) as { message: string }).message).toContain('nyc1');
+	});
+
 	test('answers with the outcome once the job is done', async () => {
 		const { post } = serve();
 

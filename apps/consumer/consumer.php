@@ -16,6 +16,7 @@ use Hansi\Consumer\Broker;
 use Hansi\Consumer\Engine\Http;
 use Hansi\Consumer\Handler;
 use Hansi\Consumer\Log;
+use Hansi\Consumer\Region;
 use Swoole\Coroutine;
 use Utopia\Queue\Message;
 use Utopia\Queue\Queue;
@@ -27,18 +28,26 @@ $env = static function (string $name, ?string $default = null): ?string {
     return $value === false || $value === '' ? $default : $value;
 };
 
-$url = $env('HANSI_QUEUE_URL');
+// Set by a service that serves several regions, one consumer each. The queue's URL is the
+// region's own, never the unsuffixed one: two regions reading one queue would send its results to
+// the wrong Appwrite. Its name and credentials may be shared.
+$region = $env('HANSI_REGION');
+$regional = static fn (string $name, ?string $default = null): ?string => $env(Region::variable($name, $region))
+    ?? ($region === null ? $default : $env($name, $default));
+
+$urlVariable = Region::variable('HANSI_QUEUE_URL', $region);
+$url = $env($urlVariable);
 if ($url === null) {
-    Log::error('invalid environment: HANSI_QUEUE_URL is required');
+    Log::error("invalid environment: {$urlVariable} is required");
     exit(1);
 }
-$name = $env('HANSI_QUEUE_NAME', 'v1-reviews');
+$name = $regional('HANSI_QUEUE_NAME', 'v1-reviews');
 $concurrency = max(1, (int) $env('HANSI_CONCURRENCY', '4'));
 $port = (int) $env('HANSI_JOBS_PORT', '8081');
 // How long a stopping consumer waits for running jobs before it gives their deliveries back.
 $shutdownTimeout = (float) $env('HANSI_SHUTDOWN_TIMEOUT', '3600');
 
-$broker = Broker::factory($url, $name, $env('HANSI_QUEUE_USER'), $env('HANSI_QUEUE_PASSWORD'));
+$broker = Broker::factory($url, $name, $regional('HANSI_QUEUE_USER'), $regional('HANSI_QUEUE_PASSWORD'));
 $queue = new Queue($name);
 
 $adapter = new Adapter($broker, workerNum: 1, shutdownTimeout: $shutdownTimeout);
@@ -50,10 +59,10 @@ $publisher = null;
 $server
     ->job($name, $concurrency)
     ->inject('message')
-    ->action(function (Message $message) use ($adapter, $broker, &$publisher, $queue, $port): void {
+    ->action(function (Message $message) use ($adapter, $broker, &$publisher, $queue, $port, $region): void {
         $publisher ??= $broker();
         $handler = new Handler(
-            new Http('127.0.0.1', $port),
+            new Http('127.0.0.1', $port, $region),
             $publisher,
             $queue,
             static function (float $seconds) use ($adapter): bool {
@@ -70,17 +79,18 @@ $server
 $server
     ->error()
     ->inject('error')
-    ->action(function (\Throwable $error) use ($name): void {
+    ->action(function (\Throwable $error) use ($name, $region): void {
         Log::error('queue job failed', [
             'queue' => $name,
+            'region' => $region,
             'err' => ['name' => $error::class, 'message' => $error->getMessage()],
         ]);
     });
 
 $server
     ->workerStart()
-    ->action(function () use ($name, $concurrency): void {
-        Log::info('queue consumer started', ['queue' => $name, 'concurrency' => $concurrency]);
+    ->action(function () use ($name, $concurrency, $region): void {
+        Log::info('queue consumer started', ['queue' => $name, 'region' => $region, 'concurrency' => $concurrency]);
     });
 
 $server->start();
