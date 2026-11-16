@@ -30,6 +30,13 @@ describe('parseJob', () => {
 		expect(job.repository.providerInstallationId).toBe('4567');
 	});
 
+	test('reads the region that queued the job, absent from an older Appwrite', () => {
+		expect(
+			parseJob({ ...review, repository: { ...repository, region: 'fra' } }).repository.region
+		).toBe('fra');
+		expect(parseJob(review).repository.region).toBeUndefined();
+	});
+
 	test('parses a mention review with its comment', () => {
 		const job = parseJob({
 			...review,

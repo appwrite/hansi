@@ -27,9 +27,10 @@ const schema = z
 		HANSI_APPWRITE_ENDPOINT: z.url().optional(),
 		HANSI_APPWRITE_SECRET: z.string().min(1).optional(),
 		/**
-		 * The Cloud regions this process takes jobs from, e.g. `fra1,nyc1`: one queue consumer each,
-		 * all sharing the slots of `HANSI_CONCURRENCY`. Each review's results go back to its own
-		 * region's Appwrite. Unset, one region from the unsuffixed variables.
+		 * The Cloud regions whose jobs this process runs, e.g. `fra,nyc`, as Appwrite names them in
+		 * each job (`repository.region`). Every region publishes to one queue; each job's results go
+		 * back to its own region's Appwrite. Unset, one Appwrite from the unsuffixed variables runs
+		 * every job.
 		 */
 		HANSI_REGIONS: z.string().min(1).optional(),
 

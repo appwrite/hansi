@@ -11,7 +11,6 @@ import { createHandlers } from './handlers';
 import { createLogger } from './logger';
 import { startMetrics } from './metrics';
 import { createStrengths, type StrengthConfig } from './models';
-import { DEFAULT_REGION } from './regions';
 import { startHealthServer, startJobsServer } from './server';
 import { Worker, type RegionJobs } from './worker';
 
@@ -101,26 +100,19 @@ const jobs = startJobsServer({ port: env.HANSI_JOBS_PORT, worker });
 let draining = false;
 const server = startHealthServer({ port: env.HANSI_PORT, ready: () => !draining });
 
-// The consumers are children of this process, so the container runs, stops and fails as one.
-// They own the queues, one per region; this process owns the jobs, and its slots are shared by
-// every region. Started once the jobs port listens.
-const command = env.HANSI_CONSUMER_COMMAND?.split(' ').filter(Boolean);
-const consumers = command
-	? env.regions.map((region) =>
-			Bun.spawn(command, {
-				// The default region's consumer reads the unsuffixed variables and names no region.
-				env:
-					region.id === DEFAULT_REGION ? process.env : { ...process.env, HANSI_REGION: region.id },
-				stdio: ['ignore', 'inherit', 'inherit']
-			})
-		)
-	: [];
+// The consumer is a child of this process, so the container runs, stops and fails as one.
+// It owns the queue; this process owns the jobs. Started once the jobs port listens.
+const consumer = env.HANSI_CONSUMER_COMMAND
+	? Bun.spawn(env.HANSI_CONSUMER_COMMAND.split(' ').filter(Boolean), {
+			stdio: ['ignore', 'inherit', 'inherit']
+		})
+	: null;
 logger.info('service started', {
 	port: server.port,
 	jobsPort: jobs.port,
 	concurrency: env.HANSI_CONCURRENCY,
 	regions: env.regions.map((region) => region.id),
-	consumers: consumers.length
+	consumer: consumer !== null
 });
 
 const stopping = Promise.withResolvers<void>();
@@ -128,36 +120,29 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 	process.on(signal, () => {
 		if (draining) {
 			logger.warn('second signal, exiting without waiting for running jobs', { signal });
-			for (const consumer of consumers) consumer.kill('SIGKILL');
+			consumer?.kill('SIGKILL');
 			process.exit(1);
 		}
 		logger.info('shutting down after running jobs finish (signal again to force)', { signal });
 		draining = true;
-		// The consumers stop receiving, wait for the jobs they handed over and settle them.
-		for (const consumer of consumers) consumer.kill('SIGTERM');
+		// The consumer stops receiving, waits for the jobs it handed over and settles them.
+		consumer?.kill('SIGTERM');
 		stopping.resolve();
 	});
 }
 
-if (consumers.length > 0) {
-	await Promise.all(
-		consumers.map(async (consumer, index) => {
-			const region = env.regions[index]?.id;
-			const code = await consumer.exited;
-			if (!draining) {
-				// Its deliveries go back to the queue, so the jobs it handed over stop here too, and
-				// the other consumers give theirs back: the container fails as one.
-				logger.error('queue consumer exited', { region, code });
-				draining = true;
-				worker.abort();
-				for (const other of consumers) if (other !== consumer) other.kill('SIGTERM');
-				process.exitCode = 1;
-			} else if (code !== 0) {
-				logger.error('queue consumer exited', { region, code });
-				process.exitCode = 1;
-			}
-		})
-	);
+if (consumer) {
+	const code = await consumer.exited;
+	if (!draining) {
+		// Its deliveries go back to the queue, so the jobs it handed over stop here too.
+		logger.error('queue consumer exited', { code });
+		draining = true;
+		worker.abort();
+		process.exitCode = 1;
+	} else if (code !== 0) {
+		logger.error('queue consumer exited', { code });
+		process.exitCode = 1;
+	}
 } else {
 	await stopping.promise;
 }

@@ -20,8 +20,7 @@ export function startHealthServer(options: { port: number; ready: () => boolean 
 const delivery = z.object({
 	payload: z.unknown(),
 	attempts: z.number().int().nonnegative(),
-	maxAttempts: z.number().int().positive(),
-	region: z.string().min(1).optional()
+	maxAttempts: z.number().int().positive()
 });
 
 /**
@@ -43,13 +42,6 @@ export function startJobsServer(options: { port: number; hostname?: string; work
 					const body = delivery.safeParse(await request.json().catch(() => undefined));
 					if (!body.success) {
 						return Response.json({ message: z.prettifyError(body.error) }, { status: 400 });
-					}
-					// A consumer for a region this process has no Appwrite for: never settled here.
-					if (!options.worker.serves(body.data.region)) {
-						return Response.json(
-							{ message: `Not a region this process serves: ${body.data.region}` },
-							{ status: 400 }
-						);
 					}
 					// Not tied to the request: a consumer that went away takes the container with it.
 					const outcome = await options.worker.run(body.data);

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 /** A Cloud region's Appwrite: where its jobs' results go. */
 export interface Region {
-	/** As Appwrite names it, e.g. `fra1`. */
+	/** As Appwrite names it in each job (its `_APP_REGION`), e.g. `fra`. */
 	id: string;
 	endpoint: string;
 	secret: string;
@@ -12,8 +12,7 @@ export interface Region {
 export const DEFAULT_REGION = 'default';
 
 /**
- * The suffix of a region's own variables, e.g. `HANSI_APPWRITE_ENDPOINT_FRA1` for `fra1`. The
- * consumer reads its queue's the same way (`HANSI_QUEUE_URL_FRA1`, `apps/consumer`).
+ * The suffix of a region's own variables, e.g. `HANSI_APPWRITE_ENDPOINT_FRA` for `fra`.
  */
 export function regionSuffix(id: string): string {
 	return id.toUpperCase().replaceAll(/[^A-Z0-9]/g, '_');

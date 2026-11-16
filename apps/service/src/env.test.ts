@@ -62,16 +62,16 @@ describe('parseEnv', () => {
 		const env = parseEnv({
 			...required,
 			HANSI_APPWRITE_ENDPOINT: undefined,
-			HANSI_REGIONS: 'fra1, nyc1,sfo-2',
-			HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1',
-			HANSI_APPWRITE_ENDPOINT_NYC1: 'http://appwrite.nyc1/v1',
-			HANSI_APPWRITE_SECRET_NYC1: 'nyc1-secret',
+			HANSI_REGIONS: 'fra, nyc,sfo-2',
+			HANSI_APPWRITE_ENDPOINT_FRA: 'http://appwrite.fra/v1',
+			HANSI_APPWRITE_ENDPOINT_NYC: 'http://appwrite.nyc/v1',
+			HANSI_APPWRITE_SECRET_NYC: 'nyc-secret',
 			HANSI_APPWRITE_ENDPOINT_SFO_2: 'http://appwrite.sfo2/v1'
 		});
 
 		expect(env.regions).toEqual([
-			{ id: 'fra1', endpoint: 'http://appwrite.fra1/v1', secret: 'secret' },
-			{ id: 'nyc1', endpoint: 'http://appwrite.nyc1/v1', secret: 'nyc1-secret' },
+			{ id: 'fra', endpoint: 'http://appwrite.fra/v1', secret: 'secret' },
+			{ id: 'nyc', endpoint: 'http://appwrite.nyc/v1', secret: 'nyc-secret' },
 			{ id: 'sfo-2', endpoint: 'http://appwrite.sfo2/v1', secret: 'secret' }
 		]);
 	});
@@ -80,18 +80,18 @@ describe('parseEnv', () => {
 		expect(() =>
 			parseEnv({
 				...required,
-				HANSI_REGIONS: 'fra1,nyc1',
-				HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1'
+				HANSI_REGIONS: 'fra,nyc',
+				HANSI_APPWRITE_ENDPOINT_FRA: 'http://appwrite.fra/v1'
 			})
-		).toThrow(/HANSI_APPWRITE_ENDPOINT_NYC1/);
+		).toThrow(/HANSI_APPWRITE_ENDPOINT_NYC/);
 	});
 
 	test('refuses region ids it cannot name variables by, and repeats', () => {
-		const base = { ...required, HANSI_APPWRITE_ENDPOINT_FRA1: 'http://appwrite.fra1/v1' };
-		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra1,FRA_1' })).toThrow(/FRA_1/);
-		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra1,fra1' })).toThrow(/twice/);
+		const base = { ...required, HANSI_APPWRITE_ENDPOINT_FRA: 'http://appwrite.fra/v1' };
+		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra,FRA_1' })).toThrow(/FRA_1/);
+		expect(() => parseEnv({ ...base, HANSI_REGIONS: 'fra,fra' })).toThrow(/twice/);
 		expect(() =>
-			parseEnv({ ...base, HANSI_REGIONS: 'fra1', HANSI_APPWRITE_ENDPOINT_FRA1: 'appwrite' })
+			parseEnv({ ...base, HANSI_REGIONS: 'fra', HANSI_APPWRITE_ENDPOINT_FRA: 'appwrite' })
 		).toThrow(/Invalid URL/);
 	});
 

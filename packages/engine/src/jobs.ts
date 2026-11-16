@@ -22,6 +22,11 @@ export interface Repository {
 	name: string;
 	/** The Console's root, for links to a review. Absent when Appwrite has none to give. */
 	consoleUrl?: string;
+	/**
+	 * The region whose Appwrite queued the job, e.g. `fra`: results go back there. Absent from an
+	 * Appwrite that predates it.
+	 */
+	region?: string;
 }
 
 /** The comment that asked for work: on the pull request conversation, or in a review thread. */

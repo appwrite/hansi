@@ -50,15 +50,6 @@ function serve(options: { review?: () => Promise<void> } = {}) {
 }
 
 describe('startJobsServer', () => {
-	test('refuses a delivery from a region it has no Appwrite for', async () => {
-		const { post } = serve();
-
-		const response = await post({ payload: review, attempts: 0, maxAttempts: 3, region: 'nyc1' });
-
-		expect(response.status).toBe(400);
-		expect(((await response.json()) as { message: string }).message).toContain('nyc1');
-	});
-
 	test('answers with the outcome once the job is done', async () => {
 		const { post } = serve();
 

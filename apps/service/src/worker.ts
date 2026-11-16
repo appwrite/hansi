@@ -22,8 +22,6 @@ export interface Delivery {
 	attempts: number;
 	/** Deliveries the queue allows. The last one is not retried. */
 	maxAttempts: number;
-	/** The region whose queue it came from, where its results go. Unset, the default region. */
-	region?: string;
 }
 
 /** What jobs from one region run with: results and GitHub tokens come from its own Appwrite. */
@@ -44,7 +42,10 @@ export type Outcome =
 	| { outcome: 'invalid'; reason: string };
 
 export interface WorkerOptions {
-	/** By region id. A single region is `DEFAULT_REGION`. */
+	/**
+	 * By the region a job names (`repository.region`). `DEFAULT_REGION` runs every job, whatever
+	 * region it names: a process with one Appwrite.
+	 */
 	regions: ReadonlyMap<string, RegionJobs>;
 	logger: Logger;
 	/** Jobs that run at once, from every region together. */
@@ -65,15 +66,8 @@ export class Worker {
 		return this.running < this.options.concurrency;
 	}
 
-	/** Whether deliveries from this region can run here. */
-	serves(region: string | undefined): boolean {
-		return this.options.regions.has(region ?? DEFAULT_REGION);
-	}
-
 	/** Runs one delivery to its outcome. Null when every slot is taken and nothing started. */
 	async run(delivery: Delivery): Promise<Outcome | null> {
-		const region = this.options.regions.get(delivery.region ?? DEFAULT_REGION);
-		if (!region) throw new Error(`Not a region this process serves: ${delivery.region}`);
 		if (!this.available) return null;
 		let job: Job;
 		try {
@@ -83,6 +77,16 @@ export class Worker {
 			this.options.logger.error('invalid job', { attempt: delivery.attempts + 1, err: error });
 			this.options.metrics?.jobFinished('unknown', 'invalid', false);
 			return { outcome: 'invalid', reason: error.message };
+		}
+		const { regions } = this.options;
+		const region =
+			regions.get(job.repository.region ?? DEFAULT_REGION) ?? regions.get(DEFAULT_REGION);
+		if (!region) {
+			// Its results have nowhere to go from here; the dead letters keep it for a fixed config.
+			const reason = `No Appwrite for region ${job.repository.region ?? DEFAULT_REGION}`;
+			this.options.logger.error('invalid job', { attempt: delivery.attempts + 1, reason });
+			this.options.metrics?.jobFinished(job.type, 'invalid', false);
+			return { outcome: 'invalid', reason };
 		}
 
 		this.running++;
@@ -119,7 +123,7 @@ export class Worker {
 	private async runJob(job: Job, delivery: Delivery, region: RegionJobs): Promise<Outcome> {
 		const { handlers, sink } = region;
 		const logger = this.options.logger.child({
-			...(delivery.region ? { region: delivery.region } : {}),
+			...(job.repository.region ? { region: job.repository.region } : {}),
 			job: job.type,
 			project: job.repository.projectId,
 			repository: `${job.repository.owner}/${job.repository.name}`,

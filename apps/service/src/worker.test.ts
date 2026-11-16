@@ -68,54 +68,65 @@ describe('Worker', () => {
 		expect(seen).toEqual([review, chat]);
 	});
 
-	test("runs each delivery with its region's handlers and results", async () => {
+	test('runs each job with the handlers and results of the region it names', async () => {
 		const seen: string[] = [];
 		const region = (id: string) => ({
 			sink: new MemoryResultsSink(),
 			handlers: {
 				review: async () => void seen.push(id),
-				chat: async () => Promise.reject(new Error('boom'))
+				chat: async () => void seen.push(id)
 			}
 		});
-		const fra1 = region('fra1');
-		const nyc1 = region('nyc1');
 		const w = new Worker({
 			regions: new Map([
-				['fra1', fra1],
-				['nyc1', nyc1]
+				['fra', region('fra')],
+				['nyc', region('nyc')]
 			]),
 			logger: silent,
 			concurrency: 2
 		});
+		const from = (id: string) => ({ ...repository, region: id });
 
-		await w.run({ ...first(review), region: 'nyc1' });
-		await w.run({ ...first(review), region: 'fra1' });
-		await w.run({ ...last(chat), region: 'nyc1' });
+		await w.run(first({ ...review, repository: from('nyc') }));
+		await w.run(first({ ...chat, repository: from('fra') }));
+		const lost = await w.run(first({ ...review, repository: from('sfo') }));
+		const unnamed = await w.run(first(review));
 
-		expect(seen).toEqual(['nyc1', 'fra1']);
-		expect(w.serves('fra1')).toBe(true);
-		expect(w.serves('sfo1')).toBe(false);
-		expect(w.serves(undefined)).toBe(false);
-		await expect(w.run({ ...first(review), region: 'sfo1' })).rejects.toThrow(/sfo1/);
+		expect(seen).toEqual(['nyc', 'fra']);
+		expect(lost).toEqual({ outcome: 'invalid', reason: 'No Appwrite for region sfo' });
+		expect(unnamed).toEqual({ outcome: 'invalid', reason: 'No Appwrite for region default' });
+	});
+
+	test('runs every job in the default region, whatever region it names', async () => {
+		const seen: Job[] = [];
+		const { worker: w } = worker({
+			review: async (job) => void seen.push(job),
+			chat: async () => {}
+		});
+
+		expect(await w.run(first({ ...review, repository: { ...repository, region: 'fra' } }))).toEqual(
+			{ outcome: 'done' }
+		);
+		expect(seen).toHaveLength(1);
 	});
 
 	test("marks a failed review in its own region's Appwrite", async () => {
-		const fra1 = new MemoryResultsSink();
-		const nyc1 = new MemoryResultsSink();
+		const fra = new MemoryResultsSink();
+		const nyc = new MemoryResultsSink();
 		const handlers = failing(new Error('boom'));
 		const w = new Worker({
 			regions: new Map([
-				['fra1', { sink: fra1, handlers }],
-				['nyc1', { sink: nyc1, handlers }]
+				['fra', { sink: fra, handlers }],
+				['nyc', { sink: nyc, handlers }]
 			]),
 			logger: silent,
 			concurrency: 1
 		});
 
-		await w.run({ ...last(review), region: 'nyc1' });
+		await w.run(last({ ...review, repository: { ...repository, region: 'nyc' } }));
 
-		expect(fra1.failed).toEqual([]);
-		expect(nyc1.failed).toEqual([{ reviewId: 'review1', reason: FAILURE_REASON }]);
+		expect(fra.failed).toEqual([]);
+		expect(nyc.failed).toEqual([{ reviewId: 'review1', reason: FAILURE_REASON }]);
 	});
 
 	test('refuses a payload no delivery can run', async () => {
