@@ -46,6 +46,12 @@ export const repoConfigSchema = z
 					.describe(
 						'Glob patterns for the files to review. Prefix a pattern with ! to exclude, e.g. "!docs/**".'
 					),
+				generated: z
+					.array(z.string())
+					.default([])
+					.describe(
+						'Glob patterns for generated files, e.g. "src/sdk/**". They are still reviewed, but one too large to show does not stop Hansi from approving.'
+					),
 				profile: z
 					.enum(reviewProfiles)
 					.default('balanced')
