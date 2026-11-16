@@ -1,12 +1,58 @@
+import { createReadStream } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { git, GitError } from './git';
+import { git, GitError, gitStream } from './git';
 import { astLanguages, astSearch } from './structure';
 
 export type ReviewEvent = { type: string; data?: Record<string, unknown> };
 export type EmitEvent = (event: ReviewEvent) => void;
+
+export interface LineWindow {
+	/** Lines `start` to `end`, each cut at `maxLineChars`. */
+	lines: string[];
+	/** Lines in the whole text, counted as `text.split('\n').length` would. */
+	total: number;
+}
+
+/**
+ * Reads text as it streams and keeps only lines `start` to `end` (1-based, inclusive), counting
+ * the rest. A tool shows a few hundred lines of a file or of a command's output, which can be
+ * gigabytes: read whole, one such file held the text and an array of every line at once.
+ */
+export async function lineWindow(
+	chunks: AsyncIterable<Uint8Array | string>,
+	start: number,
+	end: number,
+	maxLineChars = MAX_LINE_CHARS
+): Promise<LineWindow> {
+	const decoder = new TextDecoder();
+	const lines: string[] = [];
+	let line = 1;
+	let current = '';
+	const keep = (text: string) => {
+		if (line < start || line > end || current.length >= maxLineChars) return;
+		current += text.slice(0, maxLineChars - current.length);
+	};
+	const take = (text: string) => {
+		let from = 0;
+		for (let at = text.indexOf('\n'); at !== -1; at = text.indexOf('\n', from)) {
+			keep(text.slice(from, at));
+			if (line >= start && line <= end) lines.push(current);
+			current = '';
+			line++;
+			from = at + 1;
+		}
+		keep(text.slice(from));
+	};
+	for await (const chunk of chunks) {
+		take(typeof chunk === 'string' ? chunk : decoder.decode(chunk, { stream: true }));
+	}
+	take(decoder.decode());
+	if (line >= start && line <= end) lines.push(current);
+	return { lines, total: line };
+}
 
 /** The last fetch queued in each checkout. */
 const fetchQueues = new Map<string, Promise<unknown>>();
@@ -26,6 +72,8 @@ export function oneFetchAtATime<T>(repoDir: string, work: () => Promise<T>): Pro
 }
 
 const MAX_READ_LINES = 400;
+/** A line longer than this is cut where read_file shows it, e.g. a minified bundle. */
+const MAX_LINE_CHARS = 10_000;
 const MAX_GREP_LINES = 100;
 const MAX_LIST_ENTRIES = 300;
 const MAX_HISTORY_COMMITS = 20;
@@ -101,9 +149,17 @@ export function createRepoTools(
 	let forkPoint: Promise<string> | undefined;
 	// Files the pull request renamed: head path → base path.
 	let renames: Promise<Map<string, string>> | undefined;
-	const readSource = async (path: string, ref?: 'base') => {
+	const readSource = async (
+		path: string,
+		start: number,
+		end: number,
+		ref?: 'base'
+	): Promise<LineWindow & { label: string }> => {
 		const absolute = resolveRepoPath(repoDir, path);
-		if (!ref) return { content: await readFile(absolute, 'utf8'), label: path };
+		if (!ref) {
+			const stream = createReadStream(absolute);
+			return { ...(await lineWindow(stream, start, end)), label: path };
+		}
 		const { baseRef, token } = options;
 		if (!baseRef) throw new Error('The base version is not available here');
 		forkPoint ??= git(['merge-base', baseRef, 'HEAD'], { cwd: repoDir, token })
@@ -118,16 +174,18 @@ export function createRepoTools(
 			.catch(() => new Map());
 		const file = relative(repoDir, absolute);
 		const basePath = (await renames).get(file) ?? file;
-		const content = await git(['show', `${commit}:${basePath}`], { cwd: repoDir, token }).catch(
-			(error) => {
-				if (error instanceof GitError && /does not exist|but not in/.test(error.stderr)) {
-					throw new Error(`${path} does not exist at the base; it is new in this pull request`);
-				}
-				throw error;
+		const window = await gitStream(
+			['show', `${commit}:${basePath}`],
+			{ cwd: repoDir, token },
+			(stdout) => lineWindow(stdout, start, end)
+		).catch((error) => {
+			if (error instanceof GitError && /does not exist|but not in/.test(error.stderr)) {
+				throw new Error(`${path} does not exist at the base; it is new in this pull request`);
 			}
-		);
+			throw error;
+		});
 		const was = basePath === file ? '' : `, renamed from ${basePath}`;
-		return { content, label: `${path} at base${was}` };
+		return { ...window, label: `${path} at base${was}` };
 	};
 
 	return {
@@ -145,21 +203,16 @@ export function createRepoTools(
 			execute: async ({ path, startLine = 1, endLine, ref }) => {
 				emit({ type: 'tool.read_file', data: { path, startLine, endLine, ref } });
 				try {
-					const { content, label } = await readSource(path, ref);
-					const lines = content.split('\n');
-					const end = Math.min(
-						endLine ?? lines.length,
-						startLine + MAX_READ_LINES - 1,
-						lines.length
-					);
+					const last = Math.min(endLine ?? Infinity, startLine + MAX_READ_LINES - 1);
+					const { lines, total, label } = await readSource(path, startLine, last, ref);
+					const end = Math.min(last, total);
 					const body = lines
-						.slice(startLine - 1, end)
 						.map((line, i) => `${String(startLine + i).padStart(5)}  ${line}`)
 						.join('\n');
-					const more = end < lines.length ? `\n… ${lines.length - end} more lines` : '';
+					const more = end < total ? `\n… ${total - end} more lines` : '';
 					if (!ref)
 						options.onRead?.(relative(repoDir, resolveRepoPath(repoDir, path)), startLine, end);
-					return `${label} (lines ${startLine}-${end} of ${lines.length})\n${body}${more}`;
+					return `${label} (lines ${startLine}-${end} of ${total})\n${body}${more}`;
 				} catch (error) {
 					return `Error: ${(error as Error).message}`;
 				}
@@ -182,18 +235,22 @@ export function createRepoTools(
 				if (glob) args.push('--glob', glob);
 				args.push('--regexp', pattern, '.');
 
+				// Streamed: a broad pattern over a large repository prints hundreds of megabytes,
+				// and only the first matches are shown.
 				const proc = Bun.spawn(args, { cwd: repoDir, stdout: 'pipe', stderr: 'pipe' });
-				const [stdout, stderr, exitCode] = await Promise.all([
-					new Response(proc.stdout).text(),
+				const [{ lines, total }, stderr, exitCode] = await Promise.all([
+					lineWindow(proc.stdout, 1, MAX_GREP_LINES),
 					new Response(proc.stderr).text(),
 					proc.exited
 				]);
 				if (exitCode === 1) return 'No matches.';
 				if (exitCode !== 0) return `Error: ${stderr.trim()}`;
-				const lines = stdout.trim().split('\n');
+				// rg ends every match with a newline, which counts one empty line past the last.
+				const matches = total - 1;
+				const shown = lines.slice(0, Math.min(matches, MAX_GREP_LINES));
 				const truncated =
-					lines.length > MAX_GREP_LINES ? `\n… ${lines.length - MAX_GREP_LINES} more matches` : '';
-				return lines.slice(0, MAX_GREP_LINES).join('\n') + truncated;
+					matches > MAX_GREP_LINES ? `\n… ${matches - MAX_GREP_LINES} more matches` : '';
+				return shown.join('\n') + truncated;
 			}
 		}),
 

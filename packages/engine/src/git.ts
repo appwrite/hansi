@@ -45,6 +45,25 @@ export async function git(args: string[], options: GitOptions = {}): Promise<str
 }
 
 /**
+ * Runs git and hands its output to `consume` as it streams, for output too large to hold whole,
+ * such as a file that may be gigabytes. Throws {@link GitError} when git fails.
+ */
+export async function gitStream<T>(
+	args: string[],
+	options: GitOptions,
+	consume: (stdout: AsyncIterable<Uint8Array>) => Promise<T>
+): Promise<T> {
+	const proc = spawnGit(args, options);
+	const [result, stderr, exitCode] = await Promise.all([
+		consume(proc.stdout),
+		new Response(proc.stderr).text(),
+		proc.exited
+	]);
+	if (exitCode !== 0) throw new GitError(args, exitCode, stderr);
+	return result;
+}
+
+/**
  * A file whose diff is longer than this is kept as its header and an {@link OMITTED_DIFF_LINE}.
  * The review prompt shows at most 150,000 characters of diff, so a file this large is never shown
  * in full anyway; past it, holding the text only costs memory.
