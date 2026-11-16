@@ -428,6 +428,31 @@ describe('pullRequestDelta', () => {
 		return dir;
 	}
 
+	test('keeps a change to a file whose pull request diff is too large to load', async () => {
+		const repo = await originRepo();
+		try {
+			const fixture = (edit: string) =>
+				Array.from({ length: 2_000 }, (_, i) => (i === 1_000 ? edit : `"line ${i}",`)).join('\n');
+			const base = await repo.commit('base', { 'a.ts': source('export const line2 = 2;') });
+			await git(['checkout', '--quiet', '-b', 'feature'], { cwd: repo.origin });
+			const lastHead = await repo.commit('add a fixture', { 'big.json': fixture('"before",') });
+			const head = await repo.commit('edit the fixture', { 'big.json': fixture('"after",') });
+			const dir = await reviewedCheckout(repo, 21, base, head);
+			const delta = await pullRequestDelta({
+				dir,
+				baseSha: base,
+				lastHead,
+				headSha: head,
+				limits: { maxFileChars: 1_000 }
+			});
+			if (delta.status !== 'changed') throw new Error(`expected a change, got ${delta.status}`);
+			expect(delta.diff).toContain('-"before",');
+			expect(delta.diff).toContain('+"after",');
+		} finally {
+			await repo.dispose();
+		}
+	});
+
 	test('a merge of main that does not change the pull request is an empty delta', async () => {
 		const repo = await originRepo();
 		try {

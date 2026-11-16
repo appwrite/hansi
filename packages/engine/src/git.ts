@@ -307,6 +307,9 @@ export type PullRequestDelta =
  *
  * `unchanged` means no PR file changed (the merge-only path). `fallback` means the old head is
  * gone, is not an ancestor (a force-push), or git failed — review the whole pull request.
+ *
+ * A file whose PR diff was too large to load has no lines to match, so its changes since the last
+ * review are kept whole.
  */
 export async function pullRequestDelta(options: {
 	dir: string;
@@ -315,13 +318,16 @@ export async function pullRequestDelta(options: {
 	headSha: string;
 	token?: string;
 	signal?: AbortSignal;
+	/** For the two PR diffs; `gitDiff`'s defaults otherwise. */
+	limits?: DiffLimits;
 }): Promise<PullRequestDelta> {
-	const { dir, baseSha, lastHead, headSha, token, signal } = options;
+	const { dir, baseSha, lastHead, headSha, token, signal, limits } = options;
 	try {
 		const since = await diffSince({ dir, fromSha: lastHead, headSha, token, signal });
 		if (since === null) return { status: 'fallback' };
 		const range = (from: string, to: string) =>
 			gitDiff(['diff', '--no-color', '--no-ext-diff', '--find-renames', `${from}...${to}`], {
+				...limits,
 				cwd: dir,
 				token,
 				signal
@@ -391,6 +397,13 @@ async function keepPullRequestChanges(
 		// The pull request used to touch this file and no longer does.
 		if (previous && !current) {
 			kept.push(ensureTrailingNewline(section.raw));
+			continue;
+		}
+		// Too large to load: there are no lines to match the change against, so keep all of it, unless
+		// the file's PR diff is the same as before (its index line names both blobs). Its patch id
+		// would only hash the header.
+		if (current && current.raw.includes(`\n${OMITTED_DIFF_LINE}\n`)) {
+			if (previous?.raw !== current.raw) kept.push(ensureTrailingNewline(section.raw));
 			continue;
 		}
 		if (previous && current) {
