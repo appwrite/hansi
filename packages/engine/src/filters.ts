@@ -121,7 +121,8 @@ export function filterFiles(
 
 	function contentReason(file: FileDiff) {
 		if (file.status === 'deleted') return 'deleted';
-		if (file.hunks.length === 0) return 'no content changes';
+		// A file whose diff was too large to load has changes, just no hunks to show.
+		if (file.hunks.length === 0 && !file.omitted) return 'no content changes';
 		return null;
 	}
 }

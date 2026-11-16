@@ -6,6 +6,7 @@ import { parseRepoConfig } from './config';
 import { MockLanguageModelV4 } from 'ai/test';
 import {
 	commentableLines,
+	OMITTED_DIFF_LINE,
 	parseGitHubPatch,
 	parseUnifiedDiff,
 	renderDiffExcerpt,
@@ -703,6 +704,42 @@ deleted file mode 100644
 			);
 			expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).not.toContain('package-ecosystem');
 		});
+	});
+
+	test('lists a file whose diff was too large to load, and does not approve', async () => {
+		// What gitDiff keeps of a file past its limit: the header, then the marker line.
+		const withOmitted = `${diff}diff --git a/fixtures/huge.json b/fixtures/huge.json
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/fixtures/huge.json
+${OMITTED_DIFF_LINE}
+`;
+		const model = new MockLanguageModelV4({
+			doGenerate: [toolCall('submit_review', { summary: 'Adds a guard.', findings: [] })]
+		});
+		const events: { type: string; data?: Record<string, unknown> }[] = [];
+		const completed = await runReview({
+			repoDir,
+			diff: withOmitted,
+			pullRequestDiff: withOmitted,
+			pullRequest: { title: 'Guard division', body: '', author: 'octocat' },
+			config: parseRepoConfig('').config,
+			models: { review: { model, provider: 'mock', modelId: 'mock-1' } },
+			onEvent: (event) => events.push(event)
+		});
+		if (completed.status !== 'completed') throw new Error('expected a completed review');
+		expect(events.find((e) => e.type === 'files.prompt')?.data).toEqual({
+			shown: ['src/math.ts'],
+			notShown: ['fixtures/huge.json']
+		});
+		const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
+		expect(prompt).toContain('fixtures/huge.json (too large to show)');
+		expect(prompt).toContain('const result = a / b;');
+		expect(completed.verdict).toBe('comment');
+		expect(completed.approvalWithheld).toBe(
+			'Part of the diff was too large to review, so Hansi did not approve.'
+		);
 	});
 
 	test('reviews a lockfile-only bump when a sandbox can run it, and skips it otherwise', async () => {

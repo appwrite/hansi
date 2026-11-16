@@ -131,7 +131,7 @@ function subagentPrompt(options: DelegateOptions, task: string, paths: string[])
 	const notShown: string[] = [];
 	for (const file of options.files.filter((f) => wanted.has(f.path))) {
 		const rendered = renderFileDiff(file);
-		if (rendered.length > budget) {
+		if (file.omitted || rendered.length > budget) {
 			notShown.push(file.path);
 			continue;
 		}
