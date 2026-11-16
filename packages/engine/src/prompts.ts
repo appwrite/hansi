@@ -289,7 +289,7 @@ export function buildReviewPrompt(input: {
 	config: RepoConfig;
 	pathInstructions: string[];
 	diff: string;
-	excludedFiles: { path: string; reason: string }[];
+	excludedFiles: { path: string; reason: string; lines?: string }[];
 	/** The pull request only deletes files; the diff shows their removed lines. */
 	deletionOnly?: boolean;
 	/** Versions the changed lockfiles move. Only set when lockfiles are part of the review. */
@@ -344,12 +344,17 @@ export function buildReviewPrompt(input: {
 		})
 	);
 	if (input.excludedFiles.length) {
-		const list = input.excludedFiles.map((f) => `- ${f.path} (${f.reason})`).join('\n');
+		const list = input.excludedFiles
+			.map((f) => `- ${f.path} (${f.reason}${f.lines ? `; changed lines ${f.lines}` : ''})`)
+			.join('\n');
 		const deleted = input.excludedFiles.some((f) => f.reason === 'deleted')
 			? '\nDeleted files may still be imported or called elsewhere: use grep to check whether the changed files still use them.'
 			: '';
+		const tooLarge = input.excludedFiles.some((f) => f.reason === 'too large to show')
+			? '\nFiles too large to show are part of the review: read their changed lines with read_file. The review is only complete once every changed line has been read.'
+			: '';
 		parts.push(
-			`<files_not_shown>\nChanged in this pull request but not shown in the diff below.\n${list}${deleted}\n</files_not_shown>`
+			`<files_not_shown>\nChanged in this pull request but not shown in the diff below.\n${list}${deleted}${tooLarge}\n</files_not_shown>`
 		);
 	}
 	if (input.dependencyChanges) parts.push(dependencyChangesSection(input.dependencyChanges));

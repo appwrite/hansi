@@ -85,12 +85,17 @@ function parseRenames(output: string): Map<string, string> {
 /**
  * Read-only tools over the checked-out repository. No code is ever executed. The token lets git
  * download blobs a partial clone does not have yet, e.g. for patches in `file_history`. With a
- * `baseRef`, `read_file` can also show a file as it was before the pull request.
+ * `baseRef`, `read_file` can also show a file as it was before the pull request. `onRead` hears
+ * which lines of a file at the PR head `read_file` returned.
  */
 export function createRepoTools(
 	repoDir: string,
 	emit: EmitEvent,
-	options: { token?: string; baseRef?: string } = {}
+	options: {
+		token?: string;
+		baseRef?: string;
+		onRead?: (path: string, startLine: number, endLine: number) => void;
+	} = {}
 ) {
 	// Where the pull request branched off: the base branch may have moved on since.
 	let forkPoint: Promise<string> | undefined;
@@ -152,6 +157,8 @@ export function createRepoTools(
 						.map((line, i) => `${String(startLine + i).padStart(5)}  ${line}`)
 						.join('\n');
 					const more = end < lines.length ? `\n… ${lines.length - end} more lines` : '';
+					if (!ref)
+						options.onRead?.(relative(repoDir, resolveRepoPath(repoDir, path)), startLine, end);
 					return `${label} (lines ${startLine}-${end} of ${lines.length})\n${body}${more}`;
 				} catch (error) {
 					return `Error: ${(error as Error).message}`;
