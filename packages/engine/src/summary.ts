@@ -77,7 +77,7 @@ export async function refreshSummaryAfterSettlement(input: {
 	results: ResultsSink;
 	connection: GitHubConnection;
 	pull: PullRef;
-	/** `owner/name`. */
+	/** The repository's web page, which file links hang off. */
 	repository: string;
 	consoleUrl?: string;
 	/**

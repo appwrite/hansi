@@ -188,6 +188,8 @@ export interface GitHubApp {
 export interface GitHubConnection {
 	github: GitHubClient;
 	app: GitHubApp;
+	/** The repository's web page, which file links hang off. Absent on GitHub: github.com. */
+	webUrl?: string;
 }
 
 /** Opens a client for one repository, with tokens scoped to it. */
@@ -201,6 +203,17 @@ export interface GitHubClientFactory {
 		owner: string;
 		name: string;
 	}): Promise<GitHubConnection>;
+}
+
+/** The repository's web page: where file links point and what `repository` means in them. */
+export function repositoryUrl(
+	connection: Pick<GitHubConnection, 'webUrl'>,
+	repository: { owner: string; name: string }
+): string {
+	return (connection.webUrl ?? `https://github.com/${repository.owner}/${repository.name}`).replace(
+		/\/+$/,
+		''
+	);
 }
 
 /**

@@ -11,6 +11,7 @@ import { isBotAuthor, repliesToBot } from './chat-reply';
 import type { Attempt, EngineContext } from './context';
 import { absolutizeLinks, MARKER_NAMESPACE } from './format';
 import { checkoutPullRequest } from './git';
+import { repositoryUrl } from './github';
 import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
@@ -60,8 +61,9 @@ export async function runChatJob(
 	// not part of the question, and the prompt answers the last message it is given.
 	const threadOf = async () =>
 		comment.kind === 'review'
-			? (await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)).filter(
-					(c) => c.id <= comment.id
+			? upTo(
+					await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id),
+					comment.id
 				)
 			: github.getRecentIssueComments(job.pullNumber, undefined, comment.id);
 	// A reply without a mention is answered only when it replies to Hansi. Checked before the 👀,
@@ -119,7 +121,7 @@ export async function runChatJob(
 			.catch((error: unknown) => log.warn('could not react to comment', { err: error }));
 	}
 
-	const repository = `${job.repository.owner}/${job.repository.name}`;
+	const repository = repositoryUrl(connection, job.repository);
 	const files = { headSha: '' };
 	const reply = async (body: string) => {
 		const text = files.headSha ? absolutizeLinks(body, repository, files.headSha) : body;
@@ -254,4 +256,13 @@ export async function runChatJob(
 				.catch((error: unknown) => log.warn('could not record chat usage', { err: error }));
 		}
 	}
+}
+
+/**
+ * A thread, oldest first, up to and including one comment. Ids are opaque, so the cut goes by
+ * position; a thread without the comment is kept whole.
+ */
+export function upTo<T extends { id: string }>(thread: T[], commentId: string): T[] {
+	const index = thread.findIndex((c) => c.id === commentId);
+	return index === -1 ? thread : thread.slice(0, index + 1);
 }

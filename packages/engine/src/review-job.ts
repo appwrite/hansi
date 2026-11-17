@@ -21,7 +21,7 @@ import {
 	SUMMARY_MARKER
 } from './format';
 import { checkoutPullRequest, mergeSecondParent, pullRequestDelta } from './git';
-import { isUnprocessable, type GitHubConnection, type ReviewEvent } from './github';
+import { isUnprocessable, repositoryUrl, type GitHubConnection, type ReviewEvent } from './github';
 import type { ReviewJob } from './jobs';
 import {
 	carriedReview,
@@ -171,7 +171,7 @@ async function executeReview(
 	);
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;
-	const repository = `${job.repository.owner}/${job.repository.name}`;
+	const repository = repositoryUrl(connection, job.repository);
 	const trigger = triggerOf(job);
 
 	// Before any skip, including a mention of a commit that is already reviewed, so the comment

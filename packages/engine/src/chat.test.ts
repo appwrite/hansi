@@ -55,7 +55,7 @@ test('answers, remembers preferences, and records finding outcomes', async () =>
 	const roles: string[] = [];
 	const reply = await runChat({
 		repoDir,
-		repository: 'acme/api',
+		repository: 'https://github.com/acme/api',
 		headSha: 'abc123def',
 		pullRequest: { title: 'Config', body: '', author: 'octocat' },
 		diff: '',
@@ -92,7 +92,7 @@ test('mark_finding is only offered for threads about a finding', async () => {
 	});
 	await runChat({
 		repoDir,
-		repository: 'acme/api',
+		repository: 'https://github.com/acme/api',
 		headSha: 'abc123def',
 		pullRequest: { title: 'x', body: '', author: 'octocat' },
 		diff: '',
@@ -113,7 +113,7 @@ test('sends the chat model its reasoning effort', async () => {
 	});
 	await runChat({
 		repoDir,
-		repository: 'acme/api',
+		repository: 'https://github.com/acme/api',
 		headSha: 'abc123def',
 		pullRequest: { title: 'x', body: '', author: 'octocat' },
 		diff: '',
@@ -146,7 +146,7 @@ async function promptFor(input: {
 	});
 	await runChat({
 		repoDir,
-		repository: 'appwrite/appwrite',
+		repository: 'https://github.com/appwrite/appwrite',
 		headSha: 'd6ed431',
 		pullRequest: { title: 'Scope lock', body: '', author: 'member' },
 		diff: agentsDiff,

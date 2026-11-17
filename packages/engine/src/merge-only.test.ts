@@ -101,7 +101,7 @@ describe('carried summary', () => {
 		if (decision.kind !== 'merge-only') throw new Error('expected the merge-only path');
 
 		const input = carriedSummaryInput({
-			repository: 'acme/api',
+			repository: 'https://github.com/acme/api',
 			mention: '@hansi-codes',
 			detailsUrl: 'https://hans.example/app/acme/reviews/review-2',
 			scope: decision.scope,
@@ -144,7 +144,7 @@ describe('carried summary', () => {
 		expect(summaryExtrasFromBody(body).scope).toBe(decision.scope);
 		const rebuilt = formatSummaryComment(
 			carriedSummaryInput({
-				repository: 'acme/api',
+				repository: 'https://github.com/acme/api',
 				mention: '@hansi-codes',
 				scope: summaryExtrasFromBody(body).scope ?? decision.scope,
 				review: decision.review,

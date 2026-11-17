@@ -31,7 +31,8 @@ function serve(routes: Record<string, Route>): string {
 				auth: request.headers.get('authorization'),
 				body: text ? JSON.parse(text) : undefined
 			};
-			seen.push(entry);
+			// The repository read when connecting is left out, so each test sees only its own calls.
+			if (!(request.method === 'GET' && url.pathname === REPO)) seen.push(entry);
 			const route = routes[`${request.method} ${url.pathname}`];
 			return route
 				? route(entry)
@@ -70,7 +71,14 @@ const repository = {
 const REPO = '/v1/origin/repos/_/repo_01';
 
 async function connect(routes: Record<string, Route>, source = tokens().source) {
-	const apiUrl = serve(routes);
+	const apiUrl = serve({
+		[`GET ${REPO}`]: () =>
+			Response.json({
+				cloneUrl: 'https://origin.cursor.com/acme/rocket.git',
+				webUrl: 'https://cursor.com/codebase/acme/rocket'
+			}),
+		...routes
+	});
 	return new InstallationOriginClientFactory(source, { apiUrl }).forRepository(repository);
 }
 
@@ -94,7 +102,7 @@ function comment(
 
 describe('InstallationOriginClientFactory', () => {
 	test('acts as the app the token is for, addressing the repository by its id', async () => {
-		const { github, app } = await connect({
+		const { github, app, webUrl } = await connect({
 			[`GET ${REPO}`]: () =>
 				Response.json({
 					cloneUrl: 'https://origin.cursor.com/acme/rocket.git',
@@ -117,6 +125,7 @@ describe('InstallationOriginClientFactory', () => {
 		const pr = await github.getPullRequest(7);
 
 		expect(app).toEqual(APP);
+		expect(webUrl).toBe('https://cursor.com/codebase/acme/rocket');
 		expect(pr).toMatchObject({
 			number: 7,
 			author: 'ada',
@@ -133,9 +142,10 @@ describe('InstallationOriginClientFactory', () => {
 		const source = tokens(30_000);
 		const { github } = await connect({}, source.source);
 
+		const before = source.minted();
 		await github.getInstallationToken();
 
-		expect(source.minted()).toBe(2);
+		expect(source.minted()).toBe(before + 1);
 	});
 });
 

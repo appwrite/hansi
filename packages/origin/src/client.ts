@@ -34,6 +34,9 @@ export interface InstallationTokens {
 	get(repository: { projectId: string; repositoryId: string }): Promise<InstallationToken>;
 }
 
+/** Origin's web host, for a repository Origin gives no web URL for. */
+const ORIGIN_WEB_URL = 'https://cursor.com/codebase';
+
 /** Tokens live at most 15 minutes; renew them this long before they expire. */
 const TOKEN_MARGIN_MS = 2 * 60_000;
 
@@ -72,7 +75,13 @@ export class InstallationOriginClientFactory implements GitHubClientFactory {
 			? `/repos/_/${encodeURIComponent(repository.providerRepositoryId)}`
 			: `/repos/${encodeURIComponent(repository.owner)}/${encodeURIComponent(repository.name)}`;
 		const api = new OriginApi(token, this.config);
-		return { github: new OriginClient(api, path, token, current.app), app: current.app };
+		const github = new OriginClient(api, path, token, current.app);
+		const { webUrl } = await github.getRepository();
+		return {
+			github,
+			app: current.app,
+			webUrl: webUrl || `${ORIGIN_WEB_URL}/${repository.owner}/${repository.name}`
+		};
 	}
 }
 
@@ -554,7 +563,8 @@ export class OriginClient implements GitHubClient {
 		return actor?.app?.id === this.app.id;
 	}
 
-	private getRepository() {
+	/** The repository's clone and web URLs, read once. */
+	getRepository() {
 		this.repository ??= this.api.request<{ cloneUrl: string; webUrl: string }>('GET', this.path);
 		return this.repository;
 	}

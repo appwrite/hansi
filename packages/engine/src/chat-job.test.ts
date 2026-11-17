@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { MockLanguageModelV4 } from 'ai/test';
 import type { EngineContext } from './context';
 import { git } from './git';
-import { replyMarker, runChatJob } from './chat-job';
+import { replyMarker, runChatJob, upTo } from './chat-job';
 import type { ChatJob } from './jobs';
 import { MemoryGitHub, MemoryResultsSink } from './testing';
 
@@ -408,4 +408,13 @@ describe('runChatJob', () => {
 			"Sorry, I couldn't answer that right now."
 		]);
 	});
+});
+
+test('a thread is cut at the answered comment by position, not by comparing ids', () => {
+	// Opaque ids sort apart from their order, and GitHub's do as strings ('999' > '1000').
+	const thread = [{ id: '999' }, { id: '1000' }, { id: 'cmt_b' }, { id: 'cmt_a' }];
+
+	expect(upTo(thread, '1000')).toEqual([{ id: '999' }, { id: '1000' }]);
+	expect(upTo(thread, 'cmt_b')).toEqual(thread.slice(0, 3));
+	expect(upTo(thread, 'gone')).toEqual(thread);
 });

@@ -14,7 +14,7 @@ import {
 } from './format';
 
 const base: SummaryInput = {
-	repository: 'acme/api',
+	repository: 'https://github.com/acme/api',
 	headSha: 'abcdef1234567890',
 	summary: 'Adds pagination to the items endpoint.',
 	tier: 'B',
@@ -246,9 +246,9 @@ describe('agent fix prompts', () => {
 	});
 });
 
-const REPO = 'appwrite/appwrite';
+const REPO = 'https://github.com/appwrite/appwrite';
 const SHA = '999c0d1';
-const blob = (path: string) => `https://github.com/${REPO}/blob/${SHA}/${path}`;
+const blob = (path: string) => `${REPO}/blob/${SHA}/${path}`;
 
 describe('absolutizeLinks', () => {
 	test('rewrites relative repo paths, ./ prefixes, and line anchors', () => {
@@ -352,7 +352,7 @@ test('posted summaries and finding comments rewrite relative file links', () => 
 			body: 'See [the caller](src/caller.ts#L10-L20).',
 			suggestion: 'db.query("[keep](src/a.ts)", [id]);\n'
 		},
-		{ repository: 'acme/api', headSha: 'abcdef1234567890' }
+		{ repository: 'https://github.com/acme/api', headSha: 'abcdef1234567890' }
 	);
 	expect(comment).toContain(
 		'[the caller](https://github.com/acme/api/blob/abcdef1234567890/src/caller.ts#L10-L20)'
@@ -408,8 +408,13 @@ test('findings GitHub would not take inline are listed with a note', () => {
 		title: 'Keep project onboarding object-shaped',
 		body: 'b'
 	};
-	expect(formatBodyFindings([], { repository: 'acme/api', headSha: 'abc' })).toBe('');
-	const body = formatBodyFindings([finding], { repository: 'acme/api', headSha: 'abc' });
+	expect(
+		formatBodyFindings([], { repository: 'https://github.com/acme/api', headSha: 'abc' })
+	).toBe('');
+	const body = formatBodyFindings([finding], {
+		repository: 'https://github.com/acme/api',
+		headSha: 'abc'
+	});
 	expect(body).toStartWith("> [!NOTE]\n> GitHub does not show the diff for this finding's lines");
 	expect(body).toContain('#### `src/services/project.ts:77`');
 	expect(body).toContain('**Keep project onboarding object-shaped**');
@@ -429,4 +434,10 @@ test('a finding on a file without a diff names its lines in the file comment', (
 	expect(body).toStartWith("**Line 394** · GitHub does not show this file's diff");
 	expect(body).toContain('**Keep range-based rate windows above 2m**');
 	expect(formatFileFindingComment({ ...finding, startLine: 390 })).toStartWith('**Lines 390-394**');
+});
+
+test('file links hang off the repository page another provider gives', () => {
+	expect(
+		absolutizeLinks('[a.ts](src/a.ts#L3)', 'https://cursor.com/codebase/acme/rocket', 'abc')
+	).toBe('[a.ts](https://cursor.com/codebase/acme/rocket/blob/abc/src/a.ts#L3)');
 });

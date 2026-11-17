@@ -3,7 +3,7 @@ import { formatSummaryComment } from './format';
 import { hasBlockingOpen, summaryAfterSettlement, summaryExtrasFromBody } from './summary';
 
 const base = {
-	repository: 'acme/api',
+	repository: 'https://github.com/acme/api',
 	headSha: 'abcdef1234567890',
 	summary: 'Adds pagination to the items endpoint.',
 	verdict: 'approve' as const,
