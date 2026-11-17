@@ -215,7 +215,7 @@ function repoFileUrl(href: string, repository: string, sha: string): string | nu
 	}
 
 	const encoded = segments.map(encodePathSegment).join('/');
-	return `${repository}/blob/${sha}/${encoded}${query}${hash}`;
+	return `${repository}/${sha}/${encoded}${query}${hash}`;
 }
 
 /** `encodeURIComponent` leaves parentheses, which would close the markdown link. */
@@ -494,7 +494,7 @@ export function formatSummaryComment(input: SummaryInput): string {
 		walkthrough: input.walkthrough.map((row) => ({ ...row, change: link(row.change) }))
 	};
 	const lineLink = (path: string, start: number, end = start) =>
-		`[\`${path}:${start}\`](${input.repository}/blob/${input.headSha}/${path}#L${start}${end > start ? `-L${end}` : ''})`;
+		`[\`${path}:${start}\`](${input.repository}/${input.headSha}/${path}#L${start}${end > start ? `-L${end}` : ''})`;
 
 	const parts = [
 		SUMMARY_MARKER,

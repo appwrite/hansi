@@ -14,7 +14,7 @@ import {
 } from './format';
 
 const base: SummaryInput = {
-	repository: 'https://github.com/acme/api',
+	repository: 'https://github.com/acme/api/blob',
 	headSha: 'abcdef1234567890',
 	summary: 'Adds pagination to the items endpoint.',
 	tier: 'B',
@@ -246,9 +246,9 @@ describe('agent fix prompts', () => {
 	});
 });
 
-const REPO = 'https://github.com/appwrite/appwrite';
+const REPO = 'https://github.com/appwrite/appwrite/blob';
 const SHA = '999c0d1';
-const blob = (path: string) => `${REPO}/blob/${SHA}/${path}`;
+const blob = (path: string) => `${REPO}/${SHA}/${path}`;
 
 describe('absolutizeLinks', () => {
 	test('rewrites relative repo paths, ./ prefixes, and line anchors', () => {
@@ -352,7 +352,7 @@ test('posted summaries and finding comments rewrite relative file links', () => 
 			body: 'See [the caller](src/caller.ts#L10-L20).',
 			suggestion: 'db.query("[keep](src/a.ts)", [id]);\n'
 		},
-		{ repository: 'https://github.com/acme/api', headSha: 'abcdef1234567890' }
+		{ repository: 'https://github.com/acme/api/blob', headSha: 'abcdef1234567890' }
 	);
 	expect(comment).toContain(
 		'[the caller](https://github.com/acme/api/blob/abcdef1234567890/src/caller.ts#L10-L20)'
@@ -409,10 +409,10 @@ test('findings GitHub would not take inline are listed with a note', () => {
 		body: 'b'
 	};
 	expect(
-		formatBodyFindings([], { repository: 'https://github.com/acme/api', headSha: 'abc' })
+		formatBodyFindings([], { repository: 'https://github.com/acme/api/blob', headSha: 'abc' })
 	).toBe('');
 	const body = formatBodyFindings([finding], {
-		repository: 'https://github.com/acme/api',
+		repository: 'https://github.com/acme/api/blob',
 		headSha: 'abc'
 	});
 	expect(body).toStartWith("> [!NOTE]\n> GitHub does not show the diff for this finding's lines");
@@ -436,8 +436,8 @@ test('a finding on a file without a diff names its lines in the file comment', (
 	expect(formatFileFindingComment({ ...finding, startLine: 390 })).toStartWith('**Lines 390-394**');
 });
 
-test('file links hang off the repository page another provider gives', () => {
+test('file links hang off the files URL another provider gives', () => {
 	expect(
-		absolutizeLinks('[a.ts](src/a.ts#L3)', 'https://cursor.com/codebase/acme/rocket', 'abc')
-	).toBe('[a.ts](https://cursor.com/codebase/acme/rocket/blob/abc/src/a.ts#L3)');
+		absolutizeLinks('[a.ts](src/a.ts#L3)', 'https://gitlab.com/acme/rocket/-/blob', 'abc')
+	).toBe('[a.ts](https://gitlab.com/acme/rocket/-/blob/abc/src/a.ts#L3)');
 });

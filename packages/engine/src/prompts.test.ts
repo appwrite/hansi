@@ -17,7 +17,7 @@ test('the summary describes the change, and the grade cites a finding the review
 	expect(instructions).toContain('do not mention problems, risks, or findings in it');
 });
 
-const files = { repository: 'https://github.com/appwrite/appwrite', headSha: '02feb38' };
+const files = { repository: 'https://github.com/appwrite/appwrite/blob', headSha: '02feb38' };
 const testingNote = {
 	severity: 'minor',
 	category: 'testing',
@@ -26,7 +26,7 @@ const testingNote = {
 
 test('chat replies cite files as blob permalinks at the reviewed commit', () => {
 	const instructions = chatInstructions('en', true, {
-		repository: 'https://github.com/appwrite/appwrite',
+		repository: 'https://github.com/appwrite/appwrite/blob',
 		headSha: '999c0d1'
 	});
 	expect(instructions).toContain(
@@ -75,7 +75,7 @@ test('a member editing the cited guideline defers a non-defect note', () => {
 	const instructions = chatInstructions(
 		'en',
 		true,
-		{ repository: 'https://github.com/appwrite/appwrite', headSha: 'd6ed431' },
+		{ repository: 'https://github.com/appwrite/appwrite/blob', headSha: 'd6ed431' },
 		{
 			authorAssociation: 'MEMBER',
 			finding: {

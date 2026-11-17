@@ -3,7 +3,14 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-proto';
 import { detectResources, envDetector, resourceFromAttributes } from '@opentelemetry/resources';
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { wrapLanguageModel, type LanguageModelMiddleware } from 'ai';
-import type { ReviewModel, Sandbox, SandboxClient, SandboxResult, Strength } from '@hansi/engine';
+import type {
+	Provider,
+	ReviewModel,
+	Sandbox,
+	SandboxClient,
+	SandboxResult,
+	Strength
+} from '@hansi/engine';
 import { estimateCost, findPrice, loadPriceCatalog, type PriceCatalog } from './pricing';
 
 // Metrics, pushed over OTLP to the cluster's collector as the orchestrator's are. Names are
@@ -14,7 +21,7 @@ import { estimateCost, findPrice, loadPriceCatalog, type PriceCatalog } from './
 export type ModelRole = 'review' | 'verify' | 'chat';
 
 /** Who an HTTP client talks to. */
-export type Peer = 'github' | 'origin' | 'appwrite';
+export type Peer = Provider | 'appwrite';
 
 // Reviews take minutes, a repository's setup command up to 15 of them.
 const JOB_BUCKETS = [5, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];

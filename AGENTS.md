@@ -30,6 +30,7 @@ The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwr
 - **packages/appwrite** -- Appwrite adapters: results sink and installation tokens (internal API), job payload parsing
 - **packages/github** -- GitHub client on octokit: the helpers ported from hansi.codes (`pulls.ts`), authenticated with installation tokens from Appwrite, renewed before they expire
 - **packages/origin** -- the same client contract on Origin (Cursor's git host), over fetch. Origin threads have ids of their own, so where the engine keys a thread by its root comment, this client uses the thread id
+- **packages/gitlab**, **packages/bitbucket**, **packages/gitea** -- the same contract on GitLab, Bitbucket Cloud and Gitea, over fetch, with the bot's token. Appwrite does not send their jobs yet. GitLab and Bitbucket have no review object, so a review there is its comments, a body comment and the approval; Gitea's reviews follow GitHub's. The check run is a commit status on all three. GitLab keys threads by discussion id, the other two by the root comment
 - **packages/sandbox** -- sandboxes on the open-runtimes orchestrator, for the agent's `run_command`
 
 The engine depends only on the contracts; adapters depend on the engine, never the other way round.

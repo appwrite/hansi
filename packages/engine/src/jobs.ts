@@ -27,7 +27,7 @@ export interface Repository {
 }
 
 /** Git hosts the service reviews on. Each has its own client behind the same contract. */
-export type Provider = 'github' | 'origin';
+export type Provider = 'github' | 'origin' | 'gitlab' | 'bitbucket' | 'gitea';
 
 /** The comment that asked for work: on the pull request conversation, or in a review thread. */
 export interface CommentRef {

@@ -142,7 +142,7 @@ export class OctokitGitHubClient implements GitHubClient {
 		return { ...comment, id: String(comment.id) };
 	}
 
-	acknowledgeComment(comment: { id: string; kind: 'issue' | 'review' }) {
+	acknowledgeComment(_pullNumber: number, comment: { id: string; kind: 'issue' | 'review' }) {
 		return pulls.acknowledgeComment(this.octokit, this.ref, {
 			id: Number(comment.id),
 			kind: comment.kind

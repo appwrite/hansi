@@ -102,7 +102,7 @@ function comment(
 
 describe('InstallationOriginClientFactory', () => {
 	test('acts as the app the token is for, addressing the repository by its id', async () => {
-		const { github, app, webUrl } = await connect({
+		const { github, app, filesUrl } = await connect({
 			[`GET ${REPO}`]: () =>
 				Response.json({
 					cloneUrl: 'https://origin.cursor.com/acme/rocket.git',
@@ -125,7 +125,7 @@ describe('InstallationOriginClientFactory', () => {
 		const pr = await github.getPullRequest(7);
 
 		expect(app).toEqual(APP);
-		expect(webUrl).toBe('https://cursor.com/codebase/acme/rocket');
+		expect(filesUrl).toBe('https://cursor.com/codebase/acme/rocket/blob');
 		expect(pr).toMatchObject({
 			number: 7,
 			author: 'ada',
@@ -528,7 +528,7 @@ describe('OriginClient', () => {
 					: Response.json({})
 		});
 
-		await github.acknowledgeComment({ id: 'cmt_1', kind: 'issue' });
+		await github.acknowledgeComment(1, { id: 'cmt_1', kind: 'issue' });
 
 		expect(calls).toBe(2);
 		expect(seen.at(-1)?.body).toEqual({ emoji: '👀' });

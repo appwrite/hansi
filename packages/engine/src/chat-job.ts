@@ -11,7 +11,7 @@ import { isBotAuthor, repliesToBot } from './chat-reply';
 import type { Attempt, EngineContext } from './context';
 import { absolutizeLinks, MARKER_NAMESPACE } from './format';
 import { checkoutPullRequest } from './git';
-import { repositoryUrl } from './github';
+import { filesUrl } from './github';
 import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
@@ -117,11 +117,11 @@ export async function runChatJob(
 
 	if (attempt.attempts === 1) {
 		await github
-			.acknowledgeComment({ id: comment.id, kind: comment.kind })
+			.acknowledgeComment(job.pullNumber, { id: comment.id, kind: comment.kind })
 			.catch((error: unknown) => log.warn('could not react to comment', { err: error }));
 	}
 
-	const repository = repositoryUrl(connection, job.repository);
+	const repository = filesUrl(connection, job.repository);
 	const files = { headSha: '' };
 	const reply = async (body: string) => {
 		const text = files.headSha ? absolutizeLinks(body, repository, files.headSha) : body;

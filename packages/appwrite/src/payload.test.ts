@@ -79,9 +79,9 @@ describe('parseJob', () => {
 
 	test('reviews on GitHub when Appwrite names no provider', () => {
 		expect(parseJob(review).repository.provider).toBe('github');
-		expect(() =>
-			parseJob({ ...review, repository: { ...repository, provider: 'gitlab' } })
-		).toThrow(InvalidJobError);
+		expect(() => parseJob({ ...review, repository: { ...repository, provider: 'azure' } })).toThrow(
+			InvalidJobError
+		);
 	});
 
 	test('parses an Origin chat job with string ids', () => {

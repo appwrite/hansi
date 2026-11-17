@@ -21,7 +21,7 @@ import {
 	SUMMARY_MARKER
 } from './format';
 import { checkoutPullRequest, mergeSecondParent, pullRequestDelta } from './git';
-import { isUnprocessable, repositoryUrl, type GitHubConnection, type ReviewEvent } from './github';
+import { isUnprocessable, filesUrl, type GitHubConnection, type ReviewEvent } from './github';
 import type { ReviewJob } from './jobs';
 import {
 	carriedReview,
@@ -171,14 +171,14 @@ async function executeReview(
 	);
 	const { github, app } = connection;
 	const mention = `@${app.slug}`;
-	const repository = repositoryUrl(connection, job.repository);
+	const repository = filesUrl(connection, job.repository);
 	const trigger = triggerOf(job);
 
 	// Before any skip, including a mention of a commit that is already reviewed, so the comment
 	// shows 👀 as soon as the job starts. A failed reaction must not fail the review.
 	const asked = reviewMentionComment(job);
 	if (asked && attempt.attempts === 1) {
-		await acknowledgeReviewMention(() => github.acknowledgeComment(asked), log);
+		await acknowledgeReviewMention(() => github.acknowledgeComment(job.pullNumber, asked), log);
 	}
 
 	const pr = await github.getPullRequest(job.pullNumber);

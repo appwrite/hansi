@@ -229,7 +229,7 @@ export function chatInstructions(
 	files: { repository: string; headSha: string },
 	reply?: ChatReplyContext
 ): string {
-	const permalink = `${files.repository}/blob/${files.headSha}`;
+	const permalink = `${files.repository}/${files.headSha}`;
 	const policy = chatReplyPolicy({
 		authorAssociation: reply?.authorAssociation,
 		finding: reply?.finding,

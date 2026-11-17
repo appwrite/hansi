@@ -372,7 +372,10 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return this.issueComments.find((c) => c.isBot && matches(c.body))?.body ?? null;
 	}
 
-	async acknowledgeComment(comment: { id: string; kind: 'issue' | 'review' }): Promise<void> {
+	async acknowledgeComment(
+		_pullNumber: number,
+		comment: { id: string; kind: 'issue' | 'review' }
+	): Promise<void> {
 		this.reactions.push(comment);
 	}
 

@@ -16,7 +16,7 @@ const repository = z.object({
 	projectId: id,
 	projectInternalId: providerId,
 	// Absent from an Appwrite that predates other providers, which reviewed GitHub only.
-	provider: z.enum(['github', 'origin']).default('github'),
+	provider: z.enum(['github', 'origin', 'gitlab', 'bitbucket', 'gitea']).default('github'),
 	repositoryId: id,
 	installationId: id,
 	providerInstallationId: providerId,

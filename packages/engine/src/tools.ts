@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { tool } from 'ai';
 import { z } from 'zod';
-import { git, GitError, gitStream } from './git';
+import { git, GitError, gitStream, type GitCredential } from './git';
 import { astLanguages, astSearch } from './structure';
 
 export type ReviewEvent = { type: string; data?: Record<string, unknown> };
@@ -140,7 +140,7 @@ export function createRepoTools(
 	repoDir: string,
 	emit: EmitEvent,
 	options: {
-		token?: string;
+		token?: GitCredential;
 		baseRef?: string;
 		onRead?: (path: string, startLine: number, endLine: number) => void;
 	} = {}
@@ -425,7 +425,7 @@ export interface TrustedSource {
 	/** Commit to read from, typically the PR's base: a PR must not rewrite its own review rules. */
 	ref: string;
 	/** Installation token, for blobs a partial clone still has to download. */
-	token?: string;
+	token?: GitCredential;
 }
 
 interface GuidelineSection {

@@ -1,3 +1,4 @@
+import type { GitCredential } from './git';
 import type { Provider } from './jobs';
 
 // What the engine needs from GitHub, for one repository. Appwrite owns the GitHub App and mints
@@ -78,7 +79,7 @@ export type CheckConclusion = 'success' | 'neutral' | 'failure' | 'skipped' | 'c
 
 export interface GitHubClient {
 	/** A short-lived installation token for git. Ask again for each checkout. */
-	getInstallationToken(): Promise<string>;
+	getInstallationToken(): Promise<GitCredential>;
 	getPullRequest(pullNumber: number): Promise<PullRequest>;
 	/**
 	 * Whether the PR author can write to the repository: the author association first, then the
@@ -134,8 +135,11 @@ export interface GitHubClient {
 		marker: string,
 		body: string
 	): Promise<{ id: string; url: string }>;
-	/** Acknowledges a comment with 👀. */
-	acknowledgeComment(comment: { id: string; kind: 'issue' | 'review' }): Promise<void>;
+	/** Acknowledges a comment on a pull request with 👀, where the provider has reactions. */
+	acknowledgeComment(
+		pullNumber: number,
+		comment: { id: string; kind: 'issue' | 'review' }
+	): Promise<void>;
 
 	/** A review comment thread: the root comment and its replies, oldest first. */
 	getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]>;
@@ -188,8 +192,11 @@ export interface GitHubApp {
 export interface GitHubConnection {
 	github: GitHubClient;
 	app: GitHubApp;
-	/** The repository's web page, which file links hang off. Absent on GitHub: github.com. */
-	webUrl?: string;
+	/**
+	 * Where file links hang off, as `<filesUrl>/<sha>/<path>`: each host has its own path for a
+	 * file at a commit. Absent on GitHub: `https://github.com/<owner>/<name>/blob`.
+	 */
+	filesUrl?: string;
 }
 
 /** Opens a client for one repository, with tokens scoped to it. */
@@ -205,15 +212,14 @@ export interface GitHubClientFactory {
 	}): Promise<GitHubConnection>;
 }
 
-/** The repository's web page: where file links point and what `repository` means in them. */
-export function repositoryUrl(
-	connection: Pick<GitHubConnection, 'webUrl'>,
+/** Where file links point: what `repository` means in the engine's links, `<it>/<sha>/<path>`. */
+export function filesUrl(
+	connection: Pick<GitHubConnection, 'filesUrl'>,
 	repository: { owner: string; name: string }
 ): string {
-	return (connection.webUrl ?? `https://github.com/${repository.owner}/${repository.name}`).replace(
-		/\/+$/,
-		''
-	);
+	return (
+		connection.filesUrl ?? `https://github.com/${repository.owner}/${repository.name}/blob`
+	).replace(/\/+$/, '');
 }
 
 /**

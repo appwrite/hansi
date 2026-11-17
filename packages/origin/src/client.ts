@@ -80,7 +80,7 @@ export class InstallationOriginClientFactory implements GitHubClientFactory {
 		return {
 			github,
 			app: current.app,
-			webUrl: webUrl || `${ORIGIN_WEB_URL}/${repository.owner}/${repository.name}`
+			filesUrl: `${webUrl || `${ORIGIN_WEB_URL}/${repository.owner}/${repository.name}`}/blob`
 		};
 	}
 }
@@ -362,7 +362,7 @@ export class OriginClient implements GitHubClient {
 		return { id: created.id, url: await this.pullUrl(issueNumber) };
 	}
 
-	async acknowledgeComment(comment: { id: string }): Promise<void> {
+	async acknowledgeComment(_pullNumber: number, comment: { id: string }): Promise<void> {
 		await this.api.request(
 			'POST',
 			`${this.path}/pulls/comments/${encodeURIComponent(comment.id)}/reactions`,
