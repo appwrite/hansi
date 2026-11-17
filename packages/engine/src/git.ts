@@ -238,6 +238,8 @@ export interface CheckoutOptions {
 	pullNumber: number;
 	baseSha: string;
 	headSha: string;
+	/** The ref that holds the head. Defaults to GitHub's `refs/pull/<n>/head`. */
+	headRef?: string;
 	signal?: AbortSignal;
 }
 
@@ -251,6 +253,7 @@ export async function checkoutPullRequest(options: CheckoutOptions): Promise<str
 	await git(['init', '--quiet', dir], { signal });
 	await git(['remote', 'add', 'origin', options.cloneUrl], { cwd: dir, signal });
 	// `pull/N/head` also covers PRs from forks, whose head commit is not on any branch here.
+	const headRef = options.headRef ?? `refs/pull/${options.pullNumber}/head`;
 	await git(
 		[
 			'fetch',
@@ -259,7 +262,7 @@ export async function checkoutPullRequest(options: CheckoutOptions): Promise<str
 			'--filter=blob:none',
 			'origin',
 			options.baseSha,
-			`+refs/pull/${options.pullNumber}/head:refs/remotes/origin/pr`
+			`+${headRef}:refs/remotes/origin/pr`
 		],
 		{ cwd: dir, token, signal }
 	);

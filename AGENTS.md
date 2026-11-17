@@ -1,6 +1,6 @@
 # Hansi
 
-AI code review for Appwrite Cloud. A TypeScript service on Bun that takes review and chat jobs from Appwrite, reviews GitHub pull requests with an agent loop (Vercel AI SDK), and writes results back to Appwrite and GitHub.
+AI code review for Appwrite Cloud. A TypeScript service on Bun that takes review and chat jobs from Appwrite, reviews GitHub and Origin pull requests with an agent loop (Vercel AI SDK), and writes results back to Appwrite and GitHub.
 
 Appwrite owns everything around it: the GitHub App and its webhooks, which project reviews a repository (a `repositories` row with `resourceType = 'reviews'`), accounts, billing, model keys and the Console. This service owns everything between "review PR #N at SHA X" and "posted on GitHub".
 
@@ -29,6 +29,7 @@ The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwr
 - **packages/engine** -- the engine and the contracts it works against (`GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. `runReviewJob` and `runChatJob` take a job from the pull request to what is posted on GitHub: the summary comment, the review, the check run, thread resolution and replies. Their only I/O of its own is git, for the checkout; everything else goes through the contracts
 - **packages/appwrite** -- Appwrite adapters: results sink and installation tokens (internal API), job payload parsing
 - **packages/github** -- GitHub client on octokit: the helpers ported from hansi.codes (`pulls.ts`), authenticated with installation tokens from Appwrite, renewed before they expire
+- **packages/origin** -- the same client contract on Origin (Cursor's git host), over fetch. Origin threads have ids of their own, so where the engine keys a thread by its root comment, this client uses the thread id
 - **packages/sandbox** -- sandboxes on the open-runtimes orchestrator, for the agent's `run_command`
 
 The engine depends only on the contracts; adapters depend on the engine, never the other way round.

@@ -57,7 +57,7 @@ describe('AppwriteResultsSink', () => {
 			summary: 'Fine.',
 			walkthrough: [],
 			findings: [],
-			providerReviewId: 9
+			providerReviewId: '9'
 		});
 		await sink.skipReview(review, 'Closed.', 'h');
 		await sink.failReview(review, 'Broke.');
@@ -259,7 +259,7 @@ describe('AppwriteResultsSink', () => {
 		];
 
 		await sink.recordChatUsage(
-			{ projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: 11 },
+			{ projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7, commentId: '11' },
 			usage
 		);
 

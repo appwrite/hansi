@@ -96,6 +96,7 @@ function setup(models: MockLanguageModelV4[] = []) {
 const repository = {
 	projectId: 'project1',
 	projectInternalId: '1',
+	provider: 'github' as const,
 	repositoryId: 'repo1',
 	installationId: 'installation1',
 	providerInstallationId: '2',
@@ -116,7 +117,7 @@ function seedFinding(github: MemoryGitHub, results: MemoryResultsSink) {
 		tier: 'B',
 		completedAt: '2026-10-01T00:00:00.000Z'
 	});
-	const rootId = 500;
+	const rootId = '500';
 	github.reviewComments.push({
 		id: rootId,
 		author: 'hansi[bot]',
@@ -158,7 +159,7 @@ describe('runChatJob', () => {
 		const { github, results, context } = setup([model]);
 		const rootId = seedFinding(github, results);
 		github.reviewComments.push({
-			id: 501,
+			id: '501',
 			inReplyToId: rootId,
 			author: 'octocat',
 			isBot: false,
@@ -169,7 +170,7 @@ describe('runChatJob', () => {
 			repository,
 			pullNumber: 7,
 			comment: {
-				id: 501,
+				id: '501',
 				kind: 'review',
 				rootCommentId: rootId,
 				author: 'octocat',
@@ -181,10 +182,10 @@ describe('runChatJob', () => {
 
 		await runChatJob(job, context, first);
 
-		expect(github.reactions).toEqual([{ id: 501, kind: 'review' }]);
+		expect(github.reactions).toEqual([{ id: '501', kind: 'review' }]);
 		const reply = github.reviewComments.at(-1);
 		expect(reply?.inReplyToId).toBe(rootId);
-		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker(501)}`);
+		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker('501')}`);
 		expect(results.learnings).toEqual([
 			{
 				body: 'Callers never pass 0 to divide.',
@@ -206,7 +207,7 @@ describe('runChatJob', () => {
 		// The finding belongs to another repository row, so it is not in this project's database.
 		results.findings.length = 0;
 		github.reviewComments.push({
-			id: 501,
+			id: '501',
 			inReplyToId: rootId,
 			author: 'octocat',
 			isBot: false,
@@ -217,7 +218,7 @@ describe('runChatJob', () => {
 			repository,
 			pullNumber: 7,
 			comment: {
-				id: 501,
+				id: '501',
 				kind: 'review',
 				rootCommentId: rootId,
 				author: 'octocat',
@@ -229,14 +230,14 @@ describe('runChatJob', () => {
 		await runChatJob(job, context, first);
 
 		expect(github.reactions).toEqual([]);
-		expect(github.reviewComments.at(-1)?.id).toBe(501);
+		expect(github.reviewComments.at(-1)?.id).toBe('501');
 	});
 
 	test('a reply between people in a thread Hansi did not start gets nothing', async () => {
 		const { github, results, context } = setup();
 		github.reviewComments.push(
-			{ id: 600, author: 'alice', isBot: false, body: 'Rename this?', path: 'src/math.ts' },
-			{ id: 601, inReplyToId: 600, author: 'bob', isBot: false, body: 'Sure.' }
+			{ id: '600', author: 'alice', isBot: false, body: 'Rename this?', path: 'src/math.ts' },
+			{ id: '601', inReplyToId: '600', author: 'bob', isBot: false, body: 'Sure.' }
 		);
 
 		await runChatJob(
@@ -245,9 +246,9 @@ describe('runChatJob', () => {
 				repository,
 				pullNumber: 7,
 				comment: {
-					id: 601,
+					id: '601',
 					kind: 'review',
-					rootCommentId: 600,
+					rootCommentId: '600',
 					author: 'bob',
 					authorAssociation: 'MEMBER',
 					url: 'https://github.test/pull/7#discussion_r601'
@@ -272,7 +273,7 @@ describe('runChatJob', () => {
 				repository,
 				pullNumber: 7,
 				comment: {
-					id: 700,
+					id: '700',
 					kind: 'issue',
 					author: 'bob',
 					authorAssociation: 'MEMBER',
@@ -292,15 +293,15 @@ describe('runChatJob', () => {
 		const model = new MockLanguageModelV4({ doGenerate: [text('It returns a / b.')] });
 		const { github, context } = setup([model]);
 		github.issueComments.push(
-			{ id: 900, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
-			{ id: 901, author: 'carol', isBot: false, body: 'Unrelated: ship it on Friday?' }
+			{ id: '900', author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{ id: '901', author: 'carol', isBot: false, body: 'Unrelated: ship it on Friday?' }
 		);
 		const job: ChatJob = {
 			type: 'chat',
 			repository,
 			pullNumber: 7,
 			comment: {
-				id: 900,
+				id: '900',
 				kind: 'issue',
 				author: 'bob',
 				authorAssociation: 'MEMBER',
@@ -313,18 +314,18 @@ describe('runChatJob', () => {
 		const prompt = JSON.stringify(model.doGenerateCalls[0]?.prompt);
 		expect(prompt).toContain('what does divide return?');
 		expect(prompt).not.toContain('ship it on Friday');
-		expect(github.issueComments.at(-1)?.body).toBe(`It returns a / b.\n\n${replyMarker(900)}`);
+		expect(github.issueComments.at(-1)?.body).toBe(`It returns a / b.\n\n${replyMarker('900')}`);
 	});
 
 	test('a retry after the answer was posted does not answer again', async () => {
 		const { github, results, context } = setup();
 		github.issueComments.push(
-			{ id: 950, author: 'bob', isBot: false, body: '@hansi what does divide return?' },
+			{ id: '950', author: 'bob', isBot: false, body: '@hansi what does divide return?' },
 			{
-				id: 951,
+				id: '951',
 				author: 'hansi[bot]',
 				isBot: true,
-				body: `It returns a / b.\n\n${replyMarker(950)}`
+				body: `It returns a / b.\n\n${replyMarker('950')}`
 			}
 		);
 
@@ -334,7 +335,7 @@ describe('runChatJob', () => {
 				repository,
 				pullNumber: 7,
 				comment: {
-					id: 950,
+					id: '950',
 					kind: 'issue',
 					author: 'bob',
 					authorAssociation: 'MEMBER',
@@ -350,7 +351,12 @@ describe('runChatJob', () => {
 
 		// It still finds the answer once more than 20 newer comments follow it.
 		for (let id = 952; id < 980; id++) {
-			github.issueComments.push({ id, author: 'carol', isBot: false, body: 'More talk.' });
+			github.issueComments.push({
+				id: String(id),
+				author: 'carol',
+				isBot: false,
+				body: 'More talk.'
+			});
 		}
 		await runChatJob(
 			{
@@ -358,7 +364,7 @@ describe('runChatJob', () => {
 				repository,
 				pullNumber: 7,
 				comment: {
-					id: 950,
+					id: '950',
 					kind: 'issue',
 					author: 'bob',
 					authorAssociation: 'MEMBER',
@@ -386,7 +392,7 @@ describe('runChatJob', () => {
 					repository,
 					pullNumber: 7,
 					comment: {
-						id: 800,
+						id: '800',
 						kind: 'issue',
 						author: 'bob',
 						authorAssociation: 'MEMBER',

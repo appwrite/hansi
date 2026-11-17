@@ -109,12 +109,12 @@ test('opened and synchronize still skip drafts, other base branches, and automat
 test('the comment id and kind come from the mention trigger', () => {
 	expect(
 		reviewMentionComment({
-			trigger: { kind: 'mention', comment: { id: 6032071535, kind: 'issue' } }
+			trigger: { kind: 'mention', comment: { id: '6032071535', kind: 'issue' } }
 		})
-	).toEqual({ id: 6032071535, kind: 'issue' });
+	).toEqual({ id: '6032071535', kind: 'issue' });
 	expect(
-		reviewMentionComment({ trigger: { kind: 'mention', comment: { id: 9, kind: 'review' } } })
-	).toEqual({ id: 9, kind: 'review' });
+		reviewMentionComment({ trigger: { kind: 'mention', comment: { id: '9', kind: 'review' } } })
+	).toEqual({ id: '9', kind: 'review' });
 	expect(reviewMentionComment({ trigger: { kind: 'synchronize' } })).toBeNull();
 });
 

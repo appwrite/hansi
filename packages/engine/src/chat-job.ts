@@ -23,7 +23,7 @@ import { refreshSummaryAfterSettlement } from './summary';
 // Appwrite's Reviews API stands in for hansi.codes' database.
 
 /** Hidden in every answer, so a retry can tell the comment was already answered. */
-export function replyMarker(commentId: number): string {
+export function replyMarker(commentId: string): string {
 	return `<!-- ${MARKER_NAMESPACE}:reply:${commentId} -->`;
 }
 
@@ -170,7 +170,8 @@ export async function runChatJob(
 				token,
 				pullNumber: pr.number,
 				baseSha: pr.baseSha,
-				headSha: pr.headSha
+				headSha: pr.headSha,
+				headRef: pr.headRef
 			});
 			// Most replies need no commands, so the sandbox starts only when the first one runs.
 			const sandbox = sandboxes

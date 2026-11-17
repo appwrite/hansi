@@ -98,6 +98,7 @@ function setup(models: MockLanguageModelV4[] = []) {
 const repository = {
 	projectId: 'project1',
 	projectInternalId: '1',
+	provider: 'github' as const,
 	repositoryId: 'repo1',
 	installationId: 'installation1',
 	providerInstallationId: '2',
@@ -310,7 +311,7 @@ describe('runReviewJob', () => {
 		const { github, results, context } = setup([model]);
 		const theirs =
 			'<!-- hans:summary -->\n\n<!-- hans:status -->\n> Reviewing\n<!-- /hans:status -->';
-		github.issueComments.push({ id: 1, author: 'hansi-codes[bot]', isBot: true, body: theirs });
+		github.issueComments.push({ id: '1', author: 'hansi-codes[bot]', isBot: true, body: theirs });
 		results.queue({ id: 'review1' });
 
 		await runReviewJob(job(), context, first);
@@ -326,12 +327,12 @@ describe('runReviewJob', () => {
 		results.queue({ id: 'review1', trigger: 'mention' });
 
 		await runReviewJob(
-			job({ trigger: { kind: 'mention', comment: { id: 55, kind: 'issue' } } }),
+			job({ trigger: { kind: 'mention', comment: { id: '55', kind: 'issue' } } }),
 			context,
 			first
 		);
 
-		expect(github.reactions).toEqual([{ id: 55, kind: 'issue' }]);
+		expect(github.reactions).toEqual([{ id: '55', kind: 'issue' }]);
 		expect(github.issueComments.map((c) => c.body)).toEqual([
 			"This pull request is merged, so Hansi doesn't review it anymore."
 		]);

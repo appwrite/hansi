@@ -168,7 +168,7 @@ export class MemoryResultsSink implements ResultsSink {
 }
 
 export interface MemoryCheckRun {
-	id: number;
+	id: string;
 	name: string;
 	headSha: string;
 	status: 'in_progress' | 'completed';
@@ -182,7 +182,7 @@ export interface MemoryCheckRun {
 }
 
 export interface MemoryReview {
-	id: number;
+	id: string;
 	commitId: string;
 	event: ReviewEvent;
 	body: string;
@@ -191,15 +191,15 @@ export interface MemoryReview {
 }
 
 export interface MemoryIssueComment {
-	id: number;
+	id: string;
 	body: string;
 	author: string;
 	isBot: boolean;
 }
 
 export interface MemoryReviewComment extends ThreadComment {
-	inReplyToId?: number;
-	reviewId?: number;
+	inReplyToId?: string;
+	reviewId?: string;
 	subjectType?: 'file';
 }
 
@@ -214,8 +214,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	readonly reviewComments: MemoryReviewComment[] = [];
 	readonly reviews: MemoryReview[] = [];
 	readonly checkRuns: MemoryCheckRun[] = [];
-	readonly reactions: { id: number; kind: 'issue' | 'review' }[] = [];
-	readonly resolved = new Set<number>();
+	readonly reactions: { id: string; kind: 'issue' | 'review' }[] = [];
+	readonly resolved = new Set<string>();
 	readonly writers = new Set<string>();
 	/** Heads `getPullRequest` reports after the first read, in order, e.g. a push mid-review. */
 	readonly nextHeads: string[] = [];
@@ -256,8 +256,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		body: string;
 		comments: ReviewComment[];
 		event: ReviewEvent;
-	}): Promise<{ id: number }> {
-		const id = ++this.ids;
+	}): Promise<{ id: string }> {
+		const id = this.nextId();
 		const state = {
 			APPROVE: 'APPROVED',
 			REQUEST_CHANGES: 'CHANGES_REQUESTED',
@@ -273,7 +273,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		});
 		for (const comment of input.comments) {
 			this.reviewComments.push({
-				id: ++this.ids,
+				id: this.nextId(),
 				reviewId: id,
 				author: `${this.app.slug}[bot]`,
 				isBot: true,
@@ -285,8 +285,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return { id };
 	}
 
-	async createFileComment(input: { path: string; body: string }): Promise<number> {
-		const id = ++this.ids;
+	async createFileComment(input: { path: string; body: string }): Promise<string> {
+		const id = this.nextId();
 		this.reviewComments.push({
 			id,
 			author: `${this.app.slug}[bot]`,
@@ -307,7 +307,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return this.patches;
 	}
 
-	async listReviewComments(_pullNumber: number, reviewId: number): Promise<PostedReviewComment[]> {
+	async listReviewComments(_pullNumber: number, reviewId: string): Promise<PostedReviewComment[]> {
 		return this.reviewComments
 			.filter((comment) => comment.reviewId === reviewId)
 			.map(({ id, path, line, body }) => ({ id, path: path ?? '', line, body }));
@@ -325,10 +325,15 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	}
 
 	async createIssueComment(_issueNumber: number, body: string): Promise<void> {
-		this.issueComments.push({ id: ++this.ids, body, author: `${this.app.slug}[bot]`, isBot: true });
+		this.issueComments.push({
+			id: this.nextId(),
+			body,
+			author: `${this.app.slug}[bot]`,
+			isBot: true
+		});
 	}
 
-	async updateIssueComment(commentId: number, body: string): Promise<void> {
+	async updateIssueComment(commentId: string, body: string): Promise<void> {
 		const comment = this.issueComments.find((c) => c.id === commentId);
 		if (!comment) throw new Error(`comment ${commentId} not found`);
 		comment.body = body;
@@ -337,7 +342,7 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	async getMarkedComment(
 		_issueNumber: number,
 		marker: string
-	): Promise<{ id: number; url: string; body: string } | null> {
+	): Promise<{ id: string; url: string; body: string } | null> {
 		const comment = this.issueComments.find((c) => c.isBot && c.body.includes(marker));
 		return comment ? { id: comment.id, url: this.urlOf(comment.id), body: comment.body } : null;
 	}
@@ -346,14 +351,14 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		issueNumber: number,
 		marker: string,
 		body: string
-	): Promise<{ id: number; url: string }> {
+	): Promise<{ id: string; url: string }> {
 		const existing = await this.getMarkedComment(issueNumber, marker);
 		if (existing) {
 			await this.updateIssueComment(existing.id, body);
 			return { id: existing.id, url: existing.url };
 		}
 		await this.createIssueComment(issueNumber, body);
-		const id = this.ids;
+		const id = String(this.ids);
 		return { id, url: this.urlOf(id) };
 	}
 
@@ -367,11 +372,11 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return this.issueComments.find((c) => c.isBot && matches(c.body))?.body ?? null;
 	}
 
-	async acknowledgeComment(comment: { id: number; kind: 'issue' | 'review' }): Promise<void> {
+	async acknowledgeComment(comment: { id: string; kind: 'issue' | 'review' }): Promise<void> {
 		this.reactions.push(comment);
 	}
 
-	async getReviewThread(_pullNumber: number, rootCommentId: number): Promise<ThreadComment[]> {
+	async getReviewThread(_pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		return this.reviewComments
 			.filter((c) => c.id === rootCommentId || c.inReplyToId === rootCommentId)
 			.map(({ inReplyToId: _, reviewId: __, subjectType: ___, ...comment }) => comment);
@@ -380,17 +385,17 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	async getRecentIssueComments(
 		_issueNumber: number,
 		limit = 20,
-		untilId?: number
+		untilId?: string
 	): Promise<ThreadComment[]> {
 		return this.issueComments
-			.filter((comment) => untilId === undefined || comment.id <= untilId)
+			.filter((comment) => untilId === undefined || Number(comment.id) <= Number(untilId))
 			.slice(-limit)
 			.map((comment) => ({ ...comment }));
 	}
 
-	async replyToReviewComment(_pullNumber: number, commentId: number, body: string): Promise<void> {
+	async replyToReviewComment(_pullNumber: number, commentId: string, body: string): Promise<void> {
 		this.reviewComments.push({
-			id: ++this.ids,
+			id: this.nextId(),
 			inReplyToId: commentId,
 			author: `${this.app.slug}[bot]`,
 			isBot: true,
@@ -412,9 +417,9 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	}
 
 	/** Who resolved a thread, by its root comment, when a person did. */
-	readonly resolvedBy = new Map<number, string>();
+	readonly resolvedBy = new Map<string, string>();
 
-	async resolveReviewThreads(_pullNumber: number, rootCommentIds: number[]): Promise<number> {
+	async resolveReviewThreads(_pullNumber: number, rootCommentIds: string[]): Promise<number> {
 		let count = 0;
 		for (const id of rootCommentIds) {
 			if (this.resolved.has(id)) continue;
@@ -441,8 +446,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		detailsUrl?: string;
 		externalId?: string;
 		output?: { title: string; summary: string };
-	}): Promise<number> {
-		const id = this.checkRuns.length + 1;
+	}): Promise<string> {
+		const id = String(this.checkRuns.length + 1);
 		this.checkRuns.push({
 			id,
 			name: input.name,
@@ -456,14 +461,14 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		return id;
 	}
 
-	async updateCheckRun(checkRunId: number, output: { title: string; summary: string }) {
+	async updateCheckRun(checkRunId: string, output: { title: string; summary: string }) {
 		const run = this.checkRun(checkRunId);
 		Object.assign(run, output);
 		run.outputs.push(output);
 	}
 
 	async completeCheckRun(
-		checkRunId: number,
+		checkRunId: string,
 		input: { conclusion: CheckConclusion; title: string; summary: string }
 	): Promise<void> {
 		const run = this.checkRun(checkRunId);
@@ -471,13 +476,17 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		run.outputs.push({ title: input.title, summary: input.summary });
 	}
 
-	private checkRun(id: number): MemoryCheckRun {
+	private checkRun(id: string): MemoryCheckRun {
 		const run = this.checkRuns.find((r) => r.id === id);
 		if (!run) throw new Error(`check run ${id} not found`);
 		return run;
 	}
 
-	private urlOf(commentId: number): string {
+	private nextId(): string {
+		return String(++this.ids);
+	}
+
+	private urlOf(commentId: string): string {
 		return `https://github.test/pull/${this.pullRequest.number}#issuecomment-${commentId}`;
 	}
 }

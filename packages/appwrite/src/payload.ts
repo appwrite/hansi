@@ -6,10 +6,17 @@ import { z } from 'zod';
 
 const id = z.string().min(1);
 const providerId = z.union([id, z.number().int().positive().transform(String)]);
+// GitHub's comment ids are numbers; Origin's are strings like `cmt_…`.
+const commentId = z.union([
+	z.string().min(1).max(64),
+	z.number().int().positive().transform(String)
+]);
 
 const repository = z.object({
 	projectId: id,
 	projectInternalId: providerId,
+	// Absent from an Appwrite that predates other providers, which reviewed GitHub only.
+	provider: z.enum(['github', 'origin']).default('github'),
 	repositoryId: id,
 	installationId: id,
 	providerInstallationId: providerId,
@@ -20,7 +27,7 @@ const repository = z.object({
 });
 
 const comment = z.object({
-	id: z.number().int().positive(),
+	id: commentId,
 	kind: z.enum(['issue', 'review'])
 });
 
@@ -46,7 +53,7 @@ const chat = z.object({
 	repository,
 	pullNumber: z.number().int().positive(),
 	comment: comment.extend({
-		rootCommentId: z.number().int().positive().optional(),
+		rootCommentId: commentId.optional(),
 		author: id,
 		authorAssociation: id,
 		url: z.url()

@@ -8,6 +8,7 @@ import { FAILURE_REASON, Worker, type Delivery } from './worker';
 const repository = {
 	projectId: 'project1',
 	projectInternalId: '1',
+	provider: 'github' as const,
 	repositoryId: 'repo1',
 	installationId: 'installation1',
 	providerInstallationId: '2',
@@ -31,7 +32,7 @@ const chat: ChatJob = {
 	repository,
 	pullNumber: 1,
 	comment: {
-		id: 5,
+		id: '5',
 		kind: 'issue',
 		author: 'octocat',
 		authorAssociation: 'MEMBER',

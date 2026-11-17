@@ -9,7 +9,7 @@ import type { FindingRecord, PullRef, ResultsSink } from './results';
  * resolution by the bot is ignored here. Write access is checked by the caller.
  */
 export function threadsResolvedByPeople(
-	findings: { id: string; githubCommentId: number }[],
+	findings: { id: string; providerCommentId: string }[],
 	threads: ReviewThread[],
 	botLogin: string
 ): { findingId: string; resolvedBy: string }[] {
@@ -20,7 +20,7 @@ export function threadsResolvedByPeople(
 			.map((t) => [t.rootCommentId, t.resolvedBy!] as const)
 	);
 	return findings.flatMap((f) => {
-		const resolvedBy = byRoot.get(f.githubCommentId);
+		const resolvedBy = byRoot.get(f.providerCommentId);
 		return resolvedBy ? [{ findingId: f.id, resolvedBy }] : [];
 	});
 }
@@ -51,7 +51,7 @@ export async function dismissFindingsResolvedOnGitHub(
 		return 0;
 	}
 	const candidates = threadsResolvedByPeople(
-		open.map((f) => ({ id: f.id, githubCommentId: f.providerCommentId! })),
+		open.map((f) => ({ id: f.id, providerCommentId: f.providerCommentId! })),
 		threads,
 		`${app.slug}[bot]`
 	);

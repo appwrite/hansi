@@ -27,6 +27,7 @@
         "@hansi/appwrite": "workspace:*",
         "@hansi/engine": "workspace:*",
         "@hansi/github": "workspace:*",
+        "@hansi/origin": "workspace:*",
         "@hansi/sandbox": "workspace:*",
         "@openrouter/ai-sdk-provider": "^3.1.0",
         "@opentelemetry/api": "^1.10.0",
@@ -82,6 +83,16 @@
       "dependencies": {
         "@hansi/engine": "workspace:*",
         "octokit": "^5.0.5",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/origin": {
+      "name": "@hansi/origin",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -193,6 +204,8 @@
     "@hansi/engine": ["@hansi/engine@workspace:packages/engine"],
 
     "@hansi/github": ["@hansi/github@workspace:packages/github"],
+
+    "@hansi/origin": ["@hansi/origin@workspace:packages/origin"],
 
     "@hansi/sandbox": ["@hansi/sandbox@workspace:packages/sandbox"],
 

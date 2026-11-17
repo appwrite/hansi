@@ -29,6 +29,7 @@ COPY apps/service/package.json apps/service/
 COPY packages/appwrite/package.json packages/appwrite/
 COPY packages/engine/package.json packages/engine/
 COPY packages/github/package.json packages/github/
+COPY packages/origin/package.json packages/origin/
 COPY packages/sandbox/package.json packages/sandbox/
 RUN bun install --frozen-lockfile --production --ignore-scripts
 

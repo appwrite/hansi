@@ -2,7 +2,9 @@ import type {
 	GitHubClient,
 	GitHubClientFactory,
 	GitHubConnection,
-	PostedReviewComment
+	PostedReviewComment,
+	ReviewThread,
+	ThreadComment
 } from '@hansi/engine';
 import { Octokit } from 'octokit';
 import * as pulls from './pulls';
@@ -88,20 +90,25 @@ export class OctokitGitHubClient implements GitHubClient {
 
 	async createReview(input: Parameters<GitHubClient['createReview']>[0]) {
 		const { id } = await pulls.createReview(this.octokit, this.ref, input);
-		return { id };
+		return { id: String(id) };
 	}
 
-	createFileComment(input: Parameters<GitHubClient['createFileComment']>[0]) {
-		return pulls.createFileComment(this.octokit, this.ref, input);
+	async createFileComment(input: Parameters<GitHubClient['createFileComment']>[0]) {
+		return String(await pulls.createFileComment(this.octokit, this.ref, input));
 	}
 
 	listPullRequestPatches(pullNumber: number) {
 		return pulls.listPullRequestPatches(this.octokit, this.ref, pullNumber);
 	}
 
-	async listReviewComments(pullNumber: number, reviewId: number): Promise<PostedReviewComment[]> {
-		const comments = await pulls.listReviewComments(this.octokit, this.ref, pullNumber, reviewId);
-		return comments.map((c) => ({ id: c.id, path: c.path, line: c.line, body: c.body }));
+	async listReviewComments(pullNumber: number, reviewId: string): Promise<PostedReviewComment[]> {
+		const comments = await pulls.listReviewComments(
+			this.octokit,
+			this.ref,
+			pullNumber,
+			Number(reviewId)
+		);
+		return comments.map((c) => ({ id: String(c.id), path: c.path, line: c.line, body: c.body }));
 	}
 
 	dismissChangeRequests(
@@ -115,40 +122,77 @@ export class OctokitGitHubClient implements GitHubClient {
 		return pulls.createIssueComment(this.octokit, this.ref, issueNumber, body);
 	}
 
-	updateIssueComment(commentId: number, body: string) {
-		return pulls.updateIssueComment(this.octokit, this.ref, commentId, body);
+	updateIssueComment(commentId: string, body: string) {
+		return pulls.updateIssueComment(this.octokit, this.ref, Number(commentId), body);
 	}
 
-	getMarkedComment(issueNumber: number, marker: string) {
-		return pulls.getMarkedComment(this.octokit, this.ref, issueNumber, marker);
+	async getMarkedComment(issueNumber: number, marker: string) {
+		const comment = await pulls.getMarkedComment(this.octokit, this.ref, issueNumber, marker);
+		return comment && { ...comment, id: String(comment.id) };
 	}
 
-	upsertMarkedComment(issueNumber: number, marker: string, body: string) {
-		return pulls.upsertMarkedComment(this.octokit, this.ref, issueNumber, marker, body);
+	async upsertMarkedComment(issueNumber: number, marker: string, body: string) {
+		const comment = await pulls.upsertMarkedComment(
+			this.octokit,
+			this.ref,
+			issueNumber,
+			marker,
+			body
+		);
+		return { ...comment, id: String(comment.id) };
 	}
 
-	acknowledgeComment(comment: { id: number; kind: 'issue' | 'review' }) {
-		return pulls.acknowledgeComment(this.octokit, this.ref, comment);
+	acknowledgeComment(comment: { id: string; kind: 'issue' | 'review' }) {
+		return pulls.acknowledgeComment(this.octokit, this.ref, {
+			id: Number(comment.id),
+			kind: comment.kind
+		});
 	}
 
-	getReviewThread(pullNumber: number, rootCommentId: number) {
-		return pulls.getReviewThread(this.octokit, this.ref, pullNumber, rootCommentId);
+	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
+		const thread = await pulls.getReviewThread(
+			this.octokit,
+			this.ref,
+			pullNumber,
+			Number(rootCommentId)
+		);
+		return thread.map((comment) => ({ ...comment, id: String(comment.id) }));
 	}
 
-	getRecentIssueComments(issueNumber: number, limit?: number, untilId?: number) {
-		return pulls.getRecentIssueComments(this.octokit, this.ref, issueNumber, limit, untilId);
+	async getRecentIssueComments(
+		issueNumber: number,
+		limit?: number,
+		untilId?: string
+	): Promise<ThreadComment[]> {
+		const comments = await pulls.getRecentIssueComments(
+			this.octokit,
+			this.ref,
+			issueNumber,
+			limit,
+			untilId === undefined ? undefined : Number(untilId)
+		);
+		return comments.map((comment) => ({ ...comment, id: String(comment.id) }));
 	}
 
-	replyToReviewComment(pullNumber: number, commentId: number, body: string) {
-		return pulls.replyToReviewComment(this.octokit, this.ref, pullNumber, commentId, body);
+	replyToReviewComment(pullNumber: number, commentId: string, body: string) {
+		return pulls.replyToReviewComment(this.octokit, this.ref, pullNumber, Number(commentId), body);
 	}
 
-	listReviewThreads(pullNumber: number) {
-		return pulls.listReviewThreads(this.octokit, this.ref, pullNumber);
+	async listReviewThreads(pullNumber: number): Promise<ReviewThread[]> {
+		const threads = await pulls.listReviewThreads(this.octokit, this.ref, pullNumber);
+		return threads.map((thread) => ({
+			...thread,
+			rootCommentId: thread.rootCommentId === undefined ? undefined : String(thread.rootCommentId)
+		}));
 	}
 
-	resolveReviewThreads(pullNumber: number, rootCommentIds: number[]) {
-		return pulls.resolveReviewThreads(this.octokit, this.ref, pullNumber, rootCommentIds);
+	resolveReviewThreads(pullNumber: number, rootCommentIds: string[]) {
+		return pulls.resolveReviewThreads(
+			this.octokit,
+			this.ref,
+			pullNumber,
+			rootCommentIds.map(Number)
+		);
 	}
 
 	getLinkedIssues(pullNumber: number) {
@@ -159,15 +203,15 @@ export class OctokitGitHubClient implements GitHubClient {
 		return pulls.getFailedChecks(this.octokit, this.ref, headSha, ownAppId);
 	}
 
-	startCheckRun(input: Parameters<GitHubClient['startCheckRun']>[0]) {
-		return pulls.startCheckRun(this.octokit, this.ref, input);
+	async startCheckRun(input: Parameters<GitHubClient['startCheckRun']>[0]) {
+		return String(await pulls.startCheckRun(this.octokit, this.ref, input));
 	}
 
-	updateCheckRun(checkRunId: number, output: { title: string; summary: string }) {
-		return pulls.updateCheckRun(this.octokit, this.ref, checkRunId, output);
+	updateCheckRun(checkRunId: string, output: { title: string; summary: string }) {
+		return pulls.updateCheckRun(this.octokit, this.ref, Number(checkRunId), output);
 	}
 
-	completeCheckRun(checkRunId: number, input: Parameters<GitHubClient['completeCheckRun']>[1]) {
-		return pulls.completeCheckRun(this.octokit, this.ref, checkRunId, input);
+	completeCheckRun(checkRunId: string, input: Parameters<GitHubClient['completeCheckRun']>[1]) {
+		return pulls.completeCheckRun(this.octokit, this.ref, Number(checkRunId), input);
 	}
 }

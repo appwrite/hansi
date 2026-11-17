@@ -14,7 +14,7 @@ import { estimateCost, findPrice, loadPriceCatalog, type PriceCatalog } from './
 export type ModelRole = 'review' | 'verify' | 'chat';
 
 /** Who an HTTP client talks to. */
-export type Peer = 'github' | 'appwrite';
+export type Peer = 'github' | 'origin' | 'appwrite';
 
 // Reviews take minutes, a repository's setup command up to 15 of them.
 const JOB_BUCKETS = [5, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 3600];

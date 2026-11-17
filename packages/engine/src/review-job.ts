@@ -298,7 +298,8 @@ async function executeReview(
 				token,
 				pullNumber: pr.number,
 				baseSha: pr.baseSha,
-				headSha: pr.headSha
+				headSha: pr.headSha,
+				headRef: pr.headRef
 			});
 
 			// On a push, review only what this pull request itself changed since the last review.
@@ -731,7 +732,7 @@ async function postReview(
 	review: { body: (counts: { inline: number; inBody: number }) => string; event: ReviewEvent },
 	findings: Finding[],
 	log: Log
-): Promise<{ reviewId: number | undefined; commentIds: (number | null)[] }> {
+): Promise<{ reviewId: string | undefined; commentIds: (string | null)[] }> {
 	const { event } = review;
 	const permalink = { repository, headSha: pr.headSha };
 
@@ -745,7 +746,7 @@ async function postReview(
 		}
 	);
 	const inline = placed.flatMap((finding, index) => (finding ? [{ finding, index }] : []));
-	const ids: (number | null)[] = findings.map(() => null);
+	const ids: (string | null)[] = findings.map(() => null);
 
 	// A file GitHub shows no diff for still takes a comment on the whole file, which gives the
 	// finding a thread to reply in. Only what GitHub refuses there goes in the review body.
@@ -810,7 +811,7 @@ async function postReview(
 	if (inline.length === 0) return { reviewId: created.id, commentIds: ids };
 
 	const comments = await github.listReviewComments(pr.number, created.id);
-	const used = new Set<number>();
+	const used = new Set<string>();
 	for (const { finding, index } of inline) {
 		const body = formatFindingComment(finding, permalink);
 		const match =
@@ -875,7 +876,7 @@ async function finishMergeOnly(input: {
 	pull: PullRef;
 	repository: string;
 	consoleUrl?: string;
-	checkRunId: number;
+	checkRunId: string;
 	detailsUrl?: string;
 	decision: Extract<IncrementalDecision, { kind: 'merge-only' }>;
 	/** Findings at or above this keep a change request standing; null when it never requests changes. */
