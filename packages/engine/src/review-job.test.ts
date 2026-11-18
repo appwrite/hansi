@@ -219,6 +219,7 @@ describe('runReviewJob', () => {
 			const root = github.reviewComments[0]!.id;
 			github.resolved.add(root);
 			github.resolvedBy.set(root, 'maintainer');
+			github.votes.set(root, { upvotes: 0, downvotes: 1 });
 			github.pullRequest = { ...github.pullRequest, headSha: rerun };
 			results.queue({ id: 'review2', trigger: 'synchronize' });
 
@@ -238,6 +239,81 @@ describe('runReviewJob', () => {
 		expect(github.summary()).toContain('Tier S');
 		expect(github.reviews[0]?.state).toBe('DISMISSED');
 		expect(results.review('review2')).toMatchObject({ tier: 'S', verdict: 'comment' });
+		// The maintainer settled it without a change, and their 👎 is stored with it.
+		expect(results.findings.find((f) => f.status !== 'dropped')).toMatchObject({
+			status: 'dismissed',
+			settlement: 'thread',
+			upvotes: 0,
+			downvotes: 1
+		});
+	});
+
+	test('a finding a later commit fixes is recorded as settled by that commit', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCall('submit_review', {
+					summary: 'Divides for real.',
+					findings: [finding],
+					tier: 'B',
+					tier_reason: 'Division by zero is not handled.',
+					walkthrough: [{ path: 'src/math.ts', change: 'Returns a / b.' }]
+				}),
+				toolCall('submit_verdicts', {
+					verdicts: [{ id: 'F1', keep: true, reason: 'b is not checked' }]
+				}),
+				toolCall('submit_review', {
+					summary: 'Guards b.',
+					findings: [],
+					resolved: ['finding-1'],
+					tier: 'S',
+					walkthrough: [{ path: 'src/math.ts', change: 'Throws on b = 0.' }]
+				})
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const mathPatch = (body: string) => ({
+			path: 'src/math.ts',
+			patch: `@@ -1,3 +1,3 @@\n export function divide(a, b) {\n-  return 0;\n${body}\n }`
+		});
+		github.patches = [mathPatch('+  return a / b;')];
+		results.queue({ id: 'review1' });
+		await runReviewJob(job(), context, first);
+		const root = github.reviewComments[0]!.id;
+		// The author likes the finding before fixing it.
+		github.votes.set(root, { upvotes: 1, downvotes: 0 });
+
+		const run = (...args: string[]) => git(args, { cwd: remote });
+		await run('checkout', '--quiet', headSha);
+		await writeFile(
+			join(remote, 'src/math.ts'),
+			'export function divide(a, b) {\n  if (b === 0) throw new Error();\n  return a / b;\n}\n'
+		);
+		await run('commit', '--quiet', '-am', 'guard b');
+		const fixed = (await run('rev-parse', 'HEAD')).trim();
+		await run('checkout', '--quiet', baseSha);
+		try {
+			await run('update-ref', 'refs/pull/7/head', fixed);
+			github.patches = [mathPatch('+  if (b === 0) throw new Error();\n+  return a / b;')];
+			github.pullRequest = { ...github.pullRequest, headSha: fixed };
+			results.queue({ id: 'review2', trigger: 'synchronize' });
+			await runReviewJob(
+				job({ reviewId: 'review2', headSha: fixed, trigger: { kind: 'synchronize' } }),
+				context,
+				first
+			);
+		} finally {
+			await run('update-ref', 'refs/pull/7/head', headSha);
+		}
+
+		expect(results.findings.find((f) => f.id === 'finding-1')).toMatchObject({
+			status: 'resolved',
+			dropReason: `Fixed by ${fixed.slice(0, 7)}`,
+			settlement: 'commit',
+			upvotes: 1,
+			downvotes: 0
+		});
+		// Read at the start of the second review; nothing changed since, so not written again.
+		expect(results.reactionWrites).toEqual([[{ id: 'finding-1', upvotes: 1, downvotes: 0 }]]);
 	});
 
 	test('a push that reverts a file the stale review saw still gets a verdict', async () => {

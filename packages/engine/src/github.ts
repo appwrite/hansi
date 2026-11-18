@@ -60,6 +60,8 @@ export interface ReviewThread {
 	resolvedBy: string | null;
 	/** Database id of the thread's first comment, which is how findings are linked. */
 	rootCommentId: string | undefined;
+	/** 👍 and 👎 on the first comment. Absent where the client does not read reactions. */
+	reactions?: { upvotes: number; downvotes: number };
 }
 
 export interface LinkedIssueRef {

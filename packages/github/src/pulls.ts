@@ -410,7 +410,12 @@ interface ReviewThreadsPage {
 					id: string;
 					isResolved: boolean;
 					resolvedBy?: { login: string } | null;
-					comments: { nodes: { databaseId: number }[] };
+					comments: {
+						nodes: {
+							databaseId: number;
+							reactionGroups?: { content: string; reactors: { totalCount: number } }[];
+						}[];
+					};
 				}[];
 			};
 		} | null;
@@ -424,6 +429,8 @@ export interface ReviewThread {
 	resolvedBy: string | null;
 	/** Database id of the thread's first comment, which is how findings are linked. */
 	rootCommentId: number | undefined;
+	/** 👍 and 👎 on the first comment. */
+	reactions?: { upvotes: number; downvotes: number };
 }
 
 /** Every review thread on a pull request. GitHub only exposes threads through GraphQL. */
@@ -440,7 +447,10 @@ export async function listReviewThreads(
 					pullRequest(number: $number) {
 						reviewThreads(first: 100, after: $cursor) {
 							pageInfo { hasNextPage endCursor }
-							nodes { id isResolved resolvedBy { login } comments(first: 1) { nodes { databaseId } } }
+							nodes {
+								id isResolved resolvedBy { login }
+								comments(first: 1) { nodes { databaseId reactionGroups { content reactors { totalCount } } } }
+							}
 						}
 					}
 				}
@@ -450,11 +460,17 @@ export async function listReviewThreads(
 		const connection = page.repository.pullRequest?.reviewThreads;
 		if (!connection) break;
 		for (const thread of connection.nodes) {
+			const root = thread.comments.nodes[0];
+			const count = (content: string) =>
+				root?.reactionGroups?.find((group) => group.content === content)?.reactors.totalCount ?? 0;
 			threads.push({
 				id: thread.id,
 				isResolved: thread.isResolved,
 				resolvedBy: thread.resolvedBy?.login ?? null,
-				rootCommentId: thread.comments.nodes[0]?.databaseId
+				rootCommentId: root?.databaseId,
+				...(root?.reactionGroups
+					? { reactions: { upvotes: count('THUMBS_UP'), downvotes: count('THUMBS_DOWN') } }
+					: {})
 			});
 		}
 		if (!connection.pageInfo.hasNextPage) break;
