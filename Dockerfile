@@ -27,8 +27,12 @@ WORKDIR /app
 COPY package.json bun.lock ./
 COPY apps/service/package.json apps/service/
 COPY packages/appwrite/package.json packages/appwrite/
+COPY packages/bitbucket/package.json packages/bitbucket/
 COPY packages/engine/package.json packages/engine/
+COPY packages/gitea/package.json packages/gitea/
 COPY packages/github/package.json packages/github/
+COPY packages/gitlab/package.json packages/gitlab/
+COPY packages/origin/package.json packages/origin/
 COPY packages/sandbox/package.json packages/sandbox/
 RUN bun install --frozen-lockfile --production --ignore-scripts
 

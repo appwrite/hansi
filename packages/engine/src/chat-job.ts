@@ -11,6 +11,7 @@ import { isBotAuthor, repliesToBot } from './chat-reply';
 import type { Attempt, EngineContext } from './context';
 import { absolutizeLinks, MARKER_NAMESPACE } from './format';
 import { checkoutPullRequest } from './git';
+import { filesUrl } from './github';
 import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
@@ -23,7 +24,7 @@ import { refreshSummaryAfterSettlement } from './summary';
 // Appwrite's Reviews API stands in for hansi.codes' database.
 
 /** Hidden in every answer, so a retry can tell the comment was already answered. */
-export function replyMarker(commentId: number): string {
+export function replyMarker(commentId: string): string {
 	return `<!-- ${MARKER_NAMESPACE}:reply:${commentId} -->`;
 }
 
@@ -60,8 +61,9 @@ export async function runChatJob(
 	// not part of the question, and the prompt answers the last message it is given.
 	const threadOf = async () =>
 		comment.kind === 'review'
-			? (await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id)).filter(
-					(c) => c.id <= comment.id
+			? upTo(
+					await github.getReviewThread(job.pullNumber, comment.rootCommentId ?? comment.id),
+					comment.id
 				)
 			: github.getRecentIssueComments(job.pullNumber, undefined, comment.id);
 	// A reply without a mention is answered only when it replies to Hansi. Checked before the 👀,
@@ -115,11 +117,11 @@ export async function runChatJob(
 
 	if (attempt.attempts === 1) {
 		await github
-			.acknowledgeComment({ id: comment.id, kind: comment.kind })
+			.acknowledgeComment(job.pullNumber, { id: comment.id, kind: comment.kind })
 			.catch((error: unknown) => log.warn('could not react to comment', { err: error }));
 	}
 
-	const repository = `${job.repository.owner}/${job.repository.name}`;
+	const repository = filesUrl(connection, job.repository);
 	const files = { headSha: '' };
 	const reply = async (body: string) => {
 		const text = files.headSha ? absolutizeLinks(body, repository, files.headSha) : body;
@@ -170,7 +172,8 @@ export async function runChatJob(
 				token,
 				pullNumber: pr.number,
 				baseSha: pr.baseSha,
-				headSha: pr.headSha
+				headSha: pr.headSha,
+				headRef: pr.headRef
 			});
 			// Most replies need no commands, so the sandbox starts only when the first one runs.
 			const sandbox = sandboxes
@@ -253,4 +256,13 @@ export async function runChatJob(
 				.catch((error: unknown) => log.warn('could not record chat usage', { err: error }));
 		}
 	}
+}
+
+/**
+ * A thread, oldest first, up to and including one comment. Ids are opaque, so the cut goes by
+ * position; a thread without the comment is kept whole.
+ */
+export function upTo<T extends { id: string }>(thread: T[], commentId: string): T[] {
+	const index = thread.findIndex((c) => c.id === commentId);
+	return index === -1 ? thread : thread.slice(0, index + 1);
 }

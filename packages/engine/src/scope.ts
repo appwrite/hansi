@@ -76,7 +76,7 @@ export function scopeToRepository(
 			await github.updateIssueComment(existing.id, toRow(body));
 			return { id: existing.id, url: existing.url };
 		},
-		updateIssueComment(commentId: number, body: string) {
+		updateIssueComment(commentId: string, body: string) {
 			return github.updateIssueComment(commentId, toRow(body));
 		},
 		createIssueComment(issueNumber: number, body: string) {

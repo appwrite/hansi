@@ -136,9 +136,9 @@ export interface ProgressTarget {
 	detailsUrl?: string;
 	log: Log;
 	updateCheckRun: (output: { title: string; summary: string }) => Promise<void>;
-	readSummary: () => Promise<{ id: number; body: string } | null>;
+	readSummary: () => Promise<{ id: string; body: string } | null>;
 	/** Edits the summary comment, or creates it when `id` is null. */
-	writeSummary: (id: number | null, body: string) => Promise<void>;
+	writeSummary: (id: string | null, body: string) => Promise<void>;
 }
 
 export interface ReviewProgress {

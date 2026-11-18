@@ -36,7 +36,9 @@ describe('parseJob', () => {
 			trigger: { kind: 'mention', comment: { id: 7, kind: 'issue' } }
 		});
 
-		expect(job).toMatchObject({ trigger: { kind: 'mention', comment: { id: 7, kind: 'issue' } } });
+		expect(job).toMatchObject({
+			trigger: { kind: 'mention', comment: { id: '7', kind: 'issue' } }
+		});
 	});
 
 	test('parses a mention review without a head, and ready for review as opened', () => {
@@ -73,6 +75,34 @@ describe('parseJob', () => {
 		});
 
 		expect(job.type).toBe('chat');
+	});
+
+	test('reviews on GitHub when Appwrite names no provider', () => {
+		expect(parseJob(review).repository.provider).toBe('github');
+		expect(() => parseJob({ ...review, repository: { ...repository, provider: 'azure' } })).toThrow(
+			InvalidJobError
+		);
+	});
+
+	test('parses an Origin chat job with string ids', () => {
+		const job = parseJob({
+			type: 'chat',
+			repository: { ...repository, provider: 'origin', providerRepositoryId: 'repo_x1' },
+			pullNumber: 3,
+			comment: {
+				id: 'cmt_2',
+				kind: 'review',
+				rootCommentId: 'cth_1',
+				author: 'ada',
+				authorAssociation: 'COLLABORATOR',
+				url: 'https://origin.cursor.com/acme/api/pull/3'
+			}
+		});
+
+		expect(job).toMatchObject({
+			repository: { provider: 'origin', providerRepositoryId: 'repo_x1' },
+			comment: { id: 'cmt_2', rootCommentId: 'cth_1' }
+		});
 	});
 
 	test('rejects an unknown job type', () => {

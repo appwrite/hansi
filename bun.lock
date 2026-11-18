@@ -25,8 +25,12 @@
         "@ai-sdk/openai-compatible": "^3.0.54",
         "@ai-sdk/xai": "^5.0.6",
         "@hansi/appwrite": "workspace:*",
+        "@hansi/bitbucket": "workspace:*",
         "@hansi/engine": "workspace:*",
+        "@hansi/gitea": "workspace:*",
         "@hansi/github": "workspace:*",
+        "@hansi/gitlab": "workspace:*",
+        "@hansi/origin": "workspace:*",
         "@hansi/sandbox": "workspace:*",
         "@openrouter/ai-sdk-provider": "^3.1.0",
         "@opentelemetry/api": "^1.10.0",
@@ -47,6 +51,16 @@
         "@hansi/engine": "workspace:*",
         "@hansi/github": "workspace:*",
         "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/bitbucket": {
+      "name": "@hansi/bitbucket",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -77,11 +91,41 @@
         "typescript": "catalog:",
       },
     },
+    "packages/gitea": {
+      "name": "@hansi/gitea",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/github": {
       "name": "@hansi/github",
       "dependencies": {
         "@hansi/engine": "workspace:*",
         "octokit": "^5.0.5",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/gitlab": {
+      "name": "@hansi/gitlab",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
+    "packages/origin": {
+      "name": "@hansi/origin",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -190,9 +234,17 @@
 
     "@hansi/appwrite": ["@hansi/appwrite@workspace:packages/appwrite"],
 
+    "@hansi/bitbucket": ["@hansi/bitbucket@workspace:packages/bitbucket"],
+
     "@hansi/engine": ["@hansi/engine@workspace:packages/engine"],
 
+    "@hansi/gitea": ["@hansi/gitea@workspace:packages/gitea"],
+
     "@hansi/github": ["@hansi/github@workspace:packages/github"],
+
+    "@hansi/gitlab": ["@hansi/gitlab@workspace:packages/gitlab"],
+
+    "@hansi/origin": ["@hansi/origin@workspace:packages/origin"],
 
     "@hansi/sandbox": ["@hansi/sandbox@workspace:packages/sandbox"],
 

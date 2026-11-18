@@ -10,8 +10,8 @@ export function isBotAuthor(comment: { author: string; isBot: boolean }, mention
  * bot started (a finding), or the comment right before this one is the bot's answer.
  */
 export function repliesToBot(
-	thread: readonly { id: number; author: string; isBot: boolean }[],
-	commentId: number,
+	thread: readonly { id: string; author: string; isBot: boolean }[],
+	commentId: string,
 	mention: string
 ): boolean {
 	const root = thread[0];

@@ -90,6 +90,41 @@ export function parseGitHubPatch(path: string, patch: string): FileDiff | null {
 	return parseUnifiedDiff(`--- a/${path}\n+++ b/${path}\n${patch}\n`)[0] ?? null;
 }
 
+/**
+ * Splits a whole pull request's `git diff` into each file's patch as GitHub's files API gives it:
+ * the hunks without the file header. For hosts that serve a pull request's diff in one piece.
+ * A file with no hunks (binary, a pure rename, a mode change) has no `patch`.
+ */
+export function splitPatches(diff: string): { path: string; patch?: string }[] {
+	const files: { path: string; patch?: string }[] = [];
+	for (const section of diff.split(/^(?=diff --git )/m)) {
+		if (!section.startsWith('diff --git ')) continue;
+		const lines = section.replace(/\n$/, '').split('\n');
+		const hunk = lines.findIndex((line) => line.startsWith('@@'));
+		const header = hunk === -1 ? lines : lines.slice(0, hunk);
+		const path = headerPath(header);
+		if (!path) continue;
+		files.push({ path, ...(hunk === -1 ? {} : { patch: lines.slice(hunk).join('\n') }) });
+	}
+	return files;
+}
+
+/** The file a diff section is about: the new path, or the old one for a deleted file. */
+function headerPath(header: string[]): string | undefined {
+	const value = (prefix: string) =>
+		header.find((line) => line.startsWith(prefix))?.slice(prefix.length);
+	const strip = (path: string) => path.replace(/^[ab]\//, '').replace(/\t.*$/, '');
+	const to = value('+++ ');
+	if (to && to !== '/dev/null') return strip(to);
+	const from = value('--- ');
+	if (from && from !== '/dev/null') return strip(from);
+	const renamed = value('rename to ');
+	if (renamed) return renamed;
+	// `diff --git a/<path> b/<path>`, for a binary file or a mode change.
+	const match = /^diff --git a\/(.+) b\/(.+)$/.exec(header[0] ?? '');
+	return match?.[2];
+}
+
 /** Lines GitHub accepts review comments on (RIGHT side): added and context lines in hunks. */
 export function commentableLines(file: FileDiff): Set<number> {
 	const lines = new Set<number>();

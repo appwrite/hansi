@@ -11,6 +11,7 @@ const review: ReviewJob = {
 	repository: {
 		projectId: 'project1',
 		projectInternalId: '1',
+		provider: 'github' as const,
 		repositoryId: 'repo1',
 		installationId: 'installation1',
 		providerInstallationId: '2',

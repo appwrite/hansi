@@ -1688,7 +1688,7 @@ ${upstream}`;
 		expect(result.summary).toBe('Adds a Videos service.');
 
 		const body = formatSummaryComment({
-			repository: 'acme/api',
+			repository: 'https://github.com/acme/api/blob',
 			headSha: 'abcdef1234567890',
 			summary: result.summary,
 			tier: result.tier,
@@ -1744,7 +1744,7 @@ ${upstream}`;
 		expect(result.summary).toBe('Reviewed the changes in this pull request.');
 
 		const body = formatSummaryComment({
-			repository: 'acme/api',
+			repository: 'https://github.com/acme/api/blob',
 			headSha: 'abcdef1234567890',
 			summary: result.summary,
 			tier: result.tier,

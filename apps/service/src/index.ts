@@ -3,8 +3,17 @@ import {
 	AppwriteResultsSink,
 	type AppwriteConfig
 } from '@hansi/appwrite';
-import { clearWorkdir, type Strength } from '@hansi/engine';
+import {
+	clearWorkdir,
+	type GitHubClientFactory,
+	type Provider,
+	type Strength
+} from '@hansi/engine';
+import { InstallationBitbucketClientFactory } from '@hansi/bitbucket';
+import { InstallationGiteaClientFactory } from '@hansi/gitea';
 import { InstallationGitHubClientFactory } from '@hansi/github';
+import { InstallationGitLabClientFactory } from '@hansi/gitlab';
+import { InstallationOriginClientFactory } from '@hansi/origin';
 import { OrchestratorSandboxClient } from '@hansi/sandbox';
 import { parseEnv } from './env';
 import { createHandlers } from './handlers';
@@ -26,9 +35,20 @@ const appwrite: AppwriteConfig = {
 	fetch: metrics.instrumentFetch('appwrite')
 };
 const sink = new AppwriteResultsSink(appwrite);
-const github = new InstallationGitHubClientFactory(new AppwriteInstallationTokens(appwrite), {
-	fetch: metrics.instrumentFetch('github')
-});
+const tokens = new AppwriteInstallationTokens(appwrite);
+const clients: Record<Provider, GitHubClientFactory> = {
+	github: new InstallationGitHubClientFactory(tokens, { fetch: metrics.instrumentFetch('github') }),
+	origin: new InstallationOriginClientFactory(tokens, { fetch: metrics.instrumentFetch('origin') }),
+	// Not handed out by Appwrite yet: these speak to GitLab.com, Bitbucket Cloud and gitea.com.
+	gitlab: new InstallationGitLabClientFactory(tokens, { fetch: metrics.instrumentFetch('gitlab') }),
+	bitbucket: new InstallationBitbucketClientFactory(tokens, {
+		fetch: metrics.instrumentFetch('bitbucket')
+	}),
+	gitea: new InstallationGiteaClientFactory(tokens, { fetch: metrics.instrumentFetch('gitea') })
+};
+const github: GitHubClientFactory = {
+	forRepository: (repository) => clients[repository.provider ?? 'github'].forRepository(repository)
+};
 // Self-hosted Appwrite has no orchestrator: reviews there read the code without running it.
 const sandboxes =
 	env.HANSI_ORCHESTRATOR_ENDPOINT && env.HANSI_SANDBOX_IMAGE

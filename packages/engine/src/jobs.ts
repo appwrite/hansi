@@ -4,19 +4,21 @@
 
 /**
  * A repository with code review turned on: an Appwrite `repositories` row with
- * `resourceType = 'reviews'`, plus the GitHub identifiers needed to act on it.
+ * `resourceType = 'reviews'`, plus the provider's identifiers needed to act on it.
  */
 export interface Repository {
 	/** Appwrite project that owns the review. Review data lives in its database. */
 	projectId: string;
 	projectInternalId: string;
+	/** The git host the repository lives on. */
+	provider: Provider;
 	/** `$id` of the `repositories` row. */
 	repositoryId: string;
 	/** `$id` of the Appwrite `installations` row the repository was linked through. */
 	installationId: string;
-	/** GitHub App installation id, the one installation tokens are minted for. */
+	/** The provider's app installation id, the one installation tokens are minted for. */
 	providerInstallationId: string;
-	/** GitHub repository id. Stable across renames, unlike owner and name. */
+	/** The provider's repository id. Stable across renames, unlike owner and name. */
 	providerRepositoryId: string;
 	owner: string;
 	name: string;
@@ -24,9 +26,12 @@ export interface Repository {
 	consoleUrl?: string;
 }
 
+/** Git hosts the service reviews on. Each has its own client behind the same contract. */
+export type Provider = 'github' | 'origin' | 'gitlab' | 'bitbucket' | 'gitea';
+
 /** The comment that asked for work: on the pull request conversation, or in a review thread. */
 export interface CommentRef {
-	id: number;
+	id: string;
 	kind: 'issue' | 'review';
 }
 
@@ -65,7 +70,7 @@ export interface ChatJob {
 	pullNumber: number;
 	comment: CommentRef & {
 		/** For review threads: the first comment of the thread, which replies attach to. */
-		rootCommentId?: number;
+		rootCommentId?: string;
 		author: string;
 		/**
 		 * GitHub `author_association` (OWNER, MEMBER, COLLABORATOR, CONTRIBUTOR, NONE, …), as

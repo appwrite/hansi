@@ -14,7 +14,7 @@ const record = (finding: Partial<FindingRecord> & { id: string }): FindingRecord
 	suggestion: null,
 	status: 'posted',
 	dropReason: null,
-	providerCommentId: 4204630028,
+	providerCommentId: '4204630028',
 	createdAt: '2026-09-01T00:00:00.000Z',
 	...finding
 });
@@ -22,19 +22,19 @@ const record = (finding: Partial<FindingRecord> & { id: string }): FindingRecord
 const inline = record({ id: 'finding-1' });
 
 test('a thread reply loads the finding severity, category, and title', () => {
-	const finding = chatFinding([inline], 4204630028);
+	const finding = chatFinding([inline], '4204630028');
 	expect(finding).toEqual({
 		id: 'finding-1',
 		severity: 'minor',
 		category: 'testing',
 		title: 'Keep config-contract checks outside the restricted unit tier'
 	});
-	expect(chatFinding([inline], 1)).toBeUndefined();
+	expect(chatFinding([inline], '1')).toBeUndefined();
 	expect(chatFinding([inline], undefined)).toBeUndefined();
 });
 
 test('chat reply fields pass the association and the finding through to runChat', () => {
-	const finding = chatFinding([inline], 4204630028);
+	const finding = chatFinding([inline], '4204630028');
 	expect(chatReplyFields({ authorAssociation: 'MEMBER' }, finding)).toEqual({
 		authorAssociation: 'MEMBER',
 		finding: {

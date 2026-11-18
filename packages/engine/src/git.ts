@@ -10,19 +10,28 @@ export class GitError extends Error {
 	}
 }
 
+/**
+ * How git signs in to the host: a token, sent as GitHub's `x-access-token` user, or a token with
+ * the user name its host expects for it (GitLab `oauth2`, Bitbucket `x-token-auth`).
+ */
+export type GitCredential = string | { username: string; token: string };
+
 interface GitOptions {
 	cwd?: string;
 	/** Installation token; sent as a header so it never lands in `.git/config` or logs. */
-	token?: string;
+	token?: GitCredential;
 	signal?: AbortSignal;
+}
+
+function basicAuth(credential: GitCredential): string {
+	const { username, token } =
+		typeof credential === 'string' ? { username: 'x-access-token', token: credential } : credential;
+	return Buffer.from(`${username}:${token}`).toString('base64');
 }
 
 function spawnGit(args: string[], options: GitOptions) {
 	const auth = options.token
-		? [
-				'-c',
-				`http.extraHeader=Authorization: Basic ${Buffer.from(`x-access-token:${options.token}`).toString('base64')}`
-			]
+		? ['-c', `http.extraHeader=Authorization: Basic ${basicAuth(options.token)}`]
 		: [];
 	return Bun.spawn(['git', ...auth, ...args], {
 		cwd: options.cwd,
@@ -234,10 +243,12 @@ class DiffLimiter {
 export interface CheckoutOptions {
 	dir: string;
 	cloneUrl: string;
-	token?: string;
+	token?: GitCredential;
 	pullNumber: number;
 	baseSha: string;
 	headSha: string;
+	/** The ref that holds the head. Defaults to GitHub's `refs/pull/<n>/head`. */
+	headRef?: string;
 	signal?: AbortSignal;
 }
 
@@ -251,6 +262,7 @@ export async function checkoutPullRequest(options: CheckoutOptions): Promise<str
 	await git(['init', '--quiet', dir], { signal });
 	await git(['remote', 'add', 'origin', options.cloneUrl], { cwd: dir, signal });
 	// `pull/N/head` also covers PRs from forks, whose head commit is not on any branch here.
+	const headRef = options.headRef ?? `refs/pull/${options.pullNumber}/head`;
 	await git(
 		[
 			'fetch',
@@ -259,7 +271,7 @@ export async function checkoutPullRequest(options: CheckoutOptions): Promise<str
 			'--filter=blob:none',
 			'origin',
 			options.baseSha,
-			`+refs/pull/${options.pullNumber}/head:refs/remotes/origin/pr`
+			`+${headRef}:refs/remotes/origin/pr`
 		],
 		{ cwd: dir, token, signal }
 	);
@@ -284,7 +296,7 @@ export async function diffSince(options: {
 	dir: string;
 	fromSha: string;
 	headSha: string;
-	token?: string;
+	token?: GitCredential;
 	signal?: AbortSignal;
 }): Promise<string | null> {
 	const { dir, fromSha, headSha, token, signal } = options;
@@ -335,7 +347,7 @@ export async function pullRequestDelta(options: {
 	baseSha: string;
 	lastHead: string;
 	headSha: string;
-	token?: string;
+	token?: GitCredential;
 	signal?: AbortSignal;
 	/** For the two PR diffs; `gitDiff`'s defaults otherwise. */
 	limits?: DiffLimits;

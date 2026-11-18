@@ -38,12 +38,17 @@ export class AppwriteResultsSink implements ResultsSink {
 	}
 
 	async listFindings(pull: PullRef, options: { limit?: number } = {}): Promise<FindingRecord[]> {
-		const { findings } = await this.api.request<{ findings: FindingRecord[] }>(
-			'GET',
-			`${pullPath(pull)}/findings`,
-			{ projectId: pull.projectId, limit: options.limit }
+		const { findings } = await this.api.request<{
+			findings: (Omit<FindingRecord, 'providerCommentId'> & {
+				providerCommentId: number | string | null;
+			})[];
+		}>('GET', `${pullPath(pull)}/findings`, { projectId: pull.projectId, limit: options.limit });
+		// GitHub's comment ids come back as numbers; the engine keys every provider's by string.
+		return findings.map((finding) =>
+			typeof finding.providerCommentId === 'number'
+				? { ...finding, providerCommentId: String(finding.providerCommentId) }
+				: (finding as FindingRecord)
 		);
-		return findings;
 	}
 
 	async updateFindings(
@@ -142,7 +147,7 @@ export class AppwriteResultsSink implements ResultsSink {
 			await this.api.request('POST', `${repositoryPath(chat)}/usage`, {
 				projectId: chat.projectId,
 				pullNumber: chat.pullNumber,
-				commentId: chat.commentId,
+				commentId: wireId(chat.commentId),
 				usage: usage.slice(0, BATCH)
 			});
 			usage.splice(0, BATCH);
@@ -150,7 +155,18 @@ export class AppwriteResultsSink implements ResultsSink {
 	}
 
 	async completeReview(review: ReviewRef, outcome: ReviewOutcome) {
-		await this.status(review, { status: 'completed', ...outcome });
+		await this.status(review, {
+			status: 'completed',
+			...outcome,
+			findings: outcome.findings.map((finding) => ({
+				...finding,
+				providerCommentId:
+					finding.providerCommentId === null ? null : wireId(finding.providerCommentId)
+			})),
+			...(outcome.providerReviewId === undefined
+				? {}
+				: { providerReviewId: wireId(outcome.providerReviewId) })
+		});
 	}
 
 	async skipReview(review: ReviewRef, reason: string, headSha?: string) {
@@ -174,6 +190,14 @@ export class AppwriteResultsSink implements ResultsSink {
 			throw error;
 		}
 	}
+}
+
+/**
+ * A provider id as Appwrite stores it. GitHub's ids are numbers, and an Appwrite from before other
+ * providers takes only numbers; Origin's are strings like `cmt_…`.
+ */
+function wireId(id: string): number | string {
+	return /^[1-9][0-9]*$/.test(id) && Number.isSafeInteger(Number(id)) ? Number(id) : id;
 }
 
 function path(review: ReviewRef): string {

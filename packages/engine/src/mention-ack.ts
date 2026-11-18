@@ -100,7 +100,7 @@ export function configuredSkipSummary(reason: ConfiguredSkip, baseRef: string): 
 /** The comment to react on, when this job was started by a mention. */
 export function reviewMentionComment(
 	job: Pick<ReviewJob, 'trigger'>
-): { id: number; kind: 'issue' | 'review' } | null {
+): { id: string; kind: 'issue' | 'review' } | null {
 	return job.trigger.kind === 'mention' ? job.trigger.comment : null;
 }
 

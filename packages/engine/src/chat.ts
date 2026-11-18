@@ -24,7 +24,7 @@ export interface ThreadMessage {
 
 export interface ChatInput {
 	repoDir: string;
-	/** `owner/name`. File permalinks in the reply use this repository. */
+	/** The repository's web page. File permalinks in the reply use this repository. */
 	repository: string;
 	/** Commit the reply is about. File permalinks point at this SHA. */
 	headSha: string;

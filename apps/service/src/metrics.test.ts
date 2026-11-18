@@ -52,6 +52,7 @@ describe('Metrics', () => {
 		const repository = {
 			projectId: 'p',
 			projectInternalId: '1',
+			provider: 'github' as const,
 			repositoryId: 'r',
 			installationId: 'i',
 			providerInstallationId: '2',

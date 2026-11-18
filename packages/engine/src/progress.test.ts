@@ -74,7 +74,7 @@ const silent = { warn: () => {} } as unknown as Log;
 
 function fakeGitHub(initial: string | null) {
 	const state = {
-		comment: initial === null ? null : { id: 1, body: initial },
+		comment: initial === null ? null : { id: '1', body: initial },
 		checkRun: [] as string[],
 		writes: 0
 	};
@@ -88,7 +88,7 @@ function fakeGitHub(initial: string | null) {
 		readSummary: async () => state.comment,
 		writeSummary: async (id, body) => {
 			state.writes++;
-			state.comment = { id: id ?? 2, body };
+			state.comment = { id: id ?? '2', body };
 		}
 	};
 	return { state, target };

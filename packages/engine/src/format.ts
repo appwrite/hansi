@@ -55,7 +55,7 @@ function cell(text: string) {
 	return text.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 }
 
-/** `owner/name` plus the commit file links should point at. */
+/** The repository's web page (`https://github.com/<owner>/<name>`) and the commit file links point at. */
 export interface FilePermalink {
 	repository: string;
 	headSha: string;
@@ -215,7 +215,7 @@ function repoFileUrl(href: string, repository: string, sha: string): string | nu
 	}
 
 	const encoded = segments.map(encodePathSegment).join('/');
-	return `https://github.com/${repository}/blob/${sha}/${encoded}${query}${hash}`;
+	return `${repository}/${sha}/${encoded}${query}${hash}`;
 }
 
 /** `encodeURIComponent` leaves parentheses, which would close the markdown link. */
@@ -494,7 +494,7 @@ export function formatSummaryComment(input: SummaryInput): string {
 		walkthrough: input.walkthrough.map((row) => ({ ...row, change: link(row.change) }))
 	};
 	const lineLink = (path: string, start: number, end = start) =>
-		`[\`${path}:${start}\`](https://github.com/${input.repository}/blob/${input.headSha}/${path}#L${start}${end > start ? `-L${end}` : ''})`;
+		`[\`${path}:${start}\`](${input.repository}/${input.headSha}/${path}#L${start}${end > start ? `-L${end}` : ''})`;
 
 	const parts = [
 		SUMMARY_MARKER,

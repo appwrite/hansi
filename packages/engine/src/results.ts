@@ -50,7 +50,7 @@ export interface FindingRecord {
 	status: FindingStatus;
 	dropReason: string | null;
 	/** The GitHub comment it was posted as: the root of its thread. Null when it has none. */
-	providerCommentId: number | null;
+	providerCommentId: string | null;
 	/** ISO 8601. */
 	createdAt: string;
 }
@@ -67,7 +67,7 @@ export interface FindingOutcome {
 	suggestion: string | null;
 	status: 'posted' | 'dropped';
 	dropReason: string | null;
-	providerCommentId: number | null;
+	providerCommentId: string | null;
 }
 
 /** One model call, for internal cost and usage metering. */
@@ -97,7 +97,7 @@ export interface ReviewOutcome {
 	summary: string;
 	walkthrough: WalkthroughEntry[];
 	findings: FindingOutcome[];
-	providerReviewId?: number;
+	providerReviewId?: string;
 }
 
 /** A review document. Review data lives in the owning project's database, so both are needed. */
@@ -115,7 +115,7 @@ export interface PullRef {
 
 /** The comment a chat job answered. Chat has no review document, so usage is keyed on this. */
 export interface ChatRef extends PullRef {
-	commentId: number;
+	commentId: string;
 }
 
 export interface ResultsSink {

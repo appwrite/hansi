@@ -10,7 +10,7 @@ export interface ChatFindingRow {
 /** The finding a review-thread reply is about, or nothing when the comment is not on one. */
 export function chatFinding(
 	findings: readonly FindingRecord[],
-	rootCommentId: number | undefined
+	rootCommentId: string | undefined
 ): ChatFindingRow | undefined {
 	if (!rootCommentId) return undefined;
 	const finding = findings.find((f) => f.providerCommentId === rootCommentId);

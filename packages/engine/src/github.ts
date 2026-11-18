@@ -1,3 +1,6 @@
+import type { GitCredential } from './git';
+import type { Provider } from './jobs';
+
 // What the engine needs from GitHub, for one repository. Appwrite owns the GitHub App and mints
 // installation tokens; the client authenticates with them and never sees the app key. The calls
 // match hansi.codes' GitHub helpers one for one, so both post the same thing.
@@ -17,6 +20,8 @@ export interface PullRequest {
 	baseRef: string;
 	baseSha: string;
 	headSha: string;
+	/** The ref git fetches the head from. Absent on GitHub, which serves `refs/pull/<n>/head`. */
+	headRef?: string;
 	cloneUrl: string;
 }
 
@@ -32,14 +37,14 @@ export interface ReviewComment {
 
 /** A comment GitHub created for a review. */
 export interface PostedReviewComment {
-	id: number;
+	id: string;
 	path: string;
 	line?: number | null;
 	body: string;
 }
 
 export interface ThreadComment {
-	id: number;
+	id: string;
 	author: string;
 	body: string;
 	isBot: boolean;
@@ -54,7 +59,7 @@ export interface ReviewThread {
 	/** Who resolved the thread, when it is resolved and GitHub still knows the account. */
 	resolvedBy: string | null;
 	/** Database id of the thread's first comment, which is how findings are linked. */
-	rootCommentId: number | undefined;
+	rootCommentId: string | undefined;
 }
 
 export interface LinkedIssueRef {
@@ -74,7 +79,7 @@ export type CheckConclusion = 'success' | 'neutral' | 'failure' | 'skipped' | 'c
 
 export interface GitHubClient {
 	/** A short-lived installation token for git. Ask again for each checkout. */
-	getInstallationToken(): Promise<string>;
+	getInstallationToken(): Promise<GitCredential>;
 	getPullRequest(pullNumber: number): Promise<PullRequest>;
 	/**
 	 * Whether the PR author can write to the repository: the author association first, then the
@@ -97,17 +102,17 @@ export interface GitHubClient {
 		body: string;
 		comments: ReviewComment[];
 		event: ReviewEvent;
-	}): Promise<{ id: number }>;
+	}): Promise<{ id: string }>;
 	/** Comments on a whole file. Returns the comment id, the root of a thread. */
 	createFileComment(input: {
 		pullNumber: number;
 		commitId: string;
 		path: string;
 		body: string;
-	}): Promise<number>;
+	}): Promise<string>;
 	/** The pull request's files as GitHub shows them; `patch` is missing where GitHub shows none. */
 	listPullRequestPatches(pullNumber: number): Promise<{ path: string; patch?: string }[]>;
-	listReviewComments(pullNumber: number, reviewId: number): Promise<PostedReviewComment[]>;
+	listReviewComments(pullNumber: number, reviewId: string): Promise<PostedReviewComment[]>;
 	/**
 	 * Dismisses the bot's own "changes requested" reviews. With `only`, just those whose body it
 	 * accepts. Returns how many it dismissed.
@@ -118,23 +123,26 @@ export interface GitHubClient {
 	): Promise<number>;
 
 	createIssueComment(issueNumber: number, body: string): Promise<void>;
-	updateIssueComment(commentId: number, body: string): Promise<void>;
+	updateIssueComment(commentId: string, body: string): Promise<void>;
 	/** The bot's marked comment on an issue, if one exists. */
 	getMarkedComment(
 		issueNumber: number,
 		marker: string
-	): Promise<{ id: number; url: string; body: string } | null>;
+	): Promise<{ id: string; url: string; body: string } | null>;
 	/** Creates the marked comment on first use and edits it afterwards. */
 	upsertMarkedComment(
 		issueNumber: number,
 		marker: string,
 		body: string
-	): Promise<{ id: number; url: string }>;
-	/** Acknowledges a comment with 👀. */
-	acknowledgeComment(comment: { id: number; kind: 'issue' | 'review' }): Promise<void>;
+	): Promise<{ id: string; url: string }>;
+	/** Acknowledges a comment on a pull request with 👀, where the provider has reactions. */
+	acknowledgeComment(
+		pullNumber: number,
+		comment: { id: string; kind: 'issue' | 'review' }
+	): Promise<void>;
 
 	/** A review comment thread: the root comment and its replies, oldest first. */
-	getReviewThread(pullNumber: number, rootCommentId: number): Promise<ThreadComment[]>;
+	getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]>;
 	/**
 	 * The most recent conversation comments, oldest first. With `untilId`, the most recent ones up
 	 * to and including that comment.
@@ -142,12 +150,12 @@ export interface GitHubClient {
 	getRecentIssueComments(
 		issueNumber: number,
 		limit?: number,
-		untilId?: number
+		untilId?: string
 	): Promise<ThreadComment[]>;
-	replyToReviewComment(pullNumber: number, commentId: number, body: string): Promise<void>;
+	replyToReviewComment(pullNumber: number, commentId: string, body: string): Promise<void>;
 	listReviewThreads(pullNumber: number): Promise<ReviewThread[]>;
 	/** Resolves the threads that start with these comments. Returns how many it resolved. */
-	resolveReviewThreads(pullNumber: number, rootCommentIds: number[]): Promise<number>;
+	resolveReviewThreads(pullNumber: number, rootCommentIds: string[]): Promise<number>;
 
 	/** Issues the pull request resolves, from the same repository only. */
 	getLinkedIssues(pullNumber: number): Promise<LinkedIssueRef[]>;
@@ -165,10 +173,10 @@ export interface GitHubClient {
 		ownAppId?: string;
 		externalId?: string;
 		output?: { title: string; summary: string };
-	}): Promise<number>;
-	updateCheckRun(checkRunId: number, output: { title: string; summary: string }): Promise<void>;
+	}): Promise<string>;
+	updateCheckRun(checkRunId: string, output: { title: string; summary: string }): Promise<void>;
 	completeCheckRun(
-		checkRunId: number,
+		checkRunId: string,
 		input: { conclusion: CheckConclusion; title: string; summary: string }
 	): Promise<void>;
 }
@@ -184,6 +192,11 @@ export interface GitHubApp {
 export interface GitHubConnection {
 	github: GitHubClient;
 	app: GitHubApp;
+	/**
+	 * Where file links hang off, as `<filesUrl>/<sha>/<path>`: each host has its own path for a
+	 * file at a commit. Absent on GitHub: `https://github.com/<owner>/<name>/blob`.
+	 */
+	filesUrl?: string;
 }
 
 /** Opens a client for one repository, with tokens scoped to it. */
@@ -191,17 +204,30 @@ export interface GitHubClientFactory {
 	forRepository(repository: {
 		projectId: string;
 		repositoryId: string;
+		/** Absent means GitHub. */
+		provider?: Provider;
+		providerRepositoryId?: string;
 		owner: string;
 		name: string;
 	}): Promise<GitHubConnection>;
 }
 
-/** Whether GitHub refused a request as unprocessable, e.g. a comment on a line it has no diff for. */
-export function isUnprocessable(error: unknown): boolean {
+/** Where file links point: what `repository` means in the engine's links, `<it>/<sha>/<path>`. */
+export function filesUrl(
+	connection: Pick<GitHubConnection, 'filesUrl'>,
+	repository: { owner: string; name: string }
+): string {
 	return (
-		typeof error === 'object' &&
-		error !== null &&
-		'status' in error &&
-		(error as { status: unknown }).status === 422
-	);
+		connection.filesUrl ?? `https://github.com/${repository.owner}/${repository.name}/blob`
+	).replace(/\/+$/, '');
+}
+
+/**
+ * Whether the provider refused a request as unprocessable, e.g. a comment on a line it has no diff
+ * for. GitHub answers 422; a client for another provider marks its own error `unprocessable`.
+ */
+export function isUnprocessable(error: unknown): boolean {
+	if (typeof error !== 'object' || error === null) return false;
+	const { status, unprocessable } = error as { status?: unknown; unprocessable?: unknown };
+	return status === 422 || unprocessable === true;
 }
