@@ -1,0 +1,30 @@
+{
+	"description": "Planted: two bugs in the sandbox client next to the unpack fix. A request timeout in seconds where milliseconds are due, and the capability URL written into an error message.",
+	"source": "https://github.com/appwrite/hansi/commit/6b4a72d477fcb61261d77592a9c251bd97d25d3f plus inject.patch",
+	"repo": "appwrite/hansi",
+	"base": "fb22b909fdb21a3231084652ead26d7c013fbe33",
+	"head": "6b4a72d477fcb61261d77592a9c251bd97d25d3f",
+	"pullRequest": {
+		"title": "fix(sandbox): keep a tracked file at the workspace archive's path",
+		"body": "The unpack removed the archive after extracting it, so a pull request that\ntracks a root .hansi-workspace.tar.gz lost that file. The archive is now\nunlinked once open on tar's stdin, and the tracked file is extracted in its\nplace."
+	},
+	"expected": {
+		"verdict": "request_changes",
+		"findings": [
+			{
+				"id": "timeout-units",
+				"path": "packages/sandbox/src/orchestrator.ts",
+				"lines": [135, 135],
+				"severity": "major",
+				"issue": "AbortSignal.timeout takes milliseconds, but `timeoutSeconds + REQUEST_GRACE_MS` adds seconds to the 10,000 ms grace. Every command request is aborted after about 10 seconds whatever its timeout, so long commands are reported as timed out."
+			},
+			{
+				"id": "url-in-error",
+				"path": "packages/sandbox/src/orchestrator.ts",
+				"lines": [144, 144],
+				"severity": "major",
+				"issue": "The sandbox URL is a capability (anyone holding it can run commands, and the class says never to log it), but the error message now includes it. SandboxError messages reach logs and the review trace, leaking the capability."
+			}
+		]
+	}
+}

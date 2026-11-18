@@ -7,3 +7,4 @@
 *.md
 **/vendor
 apps/consumer/tests
+apps/eval

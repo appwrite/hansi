@@ -1,0 +1,22 @@
+diff --git a/packages/sandbox/src/orchestrator.ts b/packages/sandbox/src/orchestrator.ts
+index 301ea88..5cba46c 100644
+--- a/packages/sandbox/src/orchestrator.ts
++++ b/packages/sandbox/src/orchestrator.ts
+@@ -132,7 +132,7 @@ class OrchestratorSandbox implements Sandbox {
+ 				method: 'POST',
+ 				headers: { 'content-type': 'application/json' },
+ 				body: JSON.stringify({ command, timeoutSeconds }),
+-				signal: AbortSignal.timeout(timeoutSeconds * 1000 + REQUEST_GRACE_MS)
++				signal: AbortSignal.timeout(timeoutSeconds + REQUEST_GRACE_MS)
+ 			});
+ 		} catch (error) {
+ 			if (error instanceof DOMException && error.name === 'TimeoutError') {
+@@ -141,7 +141,7 @@ class OrchestratorSandbox implements Sandbox {
+ 			throw error;
+ 		}
+ 		if (!response.ok) {
+-			throw new SandboxError(`sandbox ${this.id} execute: ${response.status}`);
++			throw new SandboxError(`sandbox ${this.id} execute at ${this.url}: ${response.status}`);
+ 		}
+ 
+ 		const result = (await response.json()) as ExecuteResponse;

@@ -250,9 +250,10 @@ bun run check    # type-check every workspace
 bun run lint     # Prettier and ESLint
 bun run format   # apply Prettier
 bun run dev      # run the service with reload
+bun run eval     # score real reviews against known problems (apps/eval)
 ```
 
-Tests use in-memory fakes and a scripted model from `@hansi/engine/testing`, and never call a real model, GitHub or Appwrite.
+Tests use in-memory fakes and a scripted model from `@hansi/engine/testing`, and never call a real model, GitHub or Appwrite. The eval is the opposite: it reviews pull requests with known problems using real models, and reports recall, false alarms, verdicts and cost. Run it before and after changing a model or a prompt; [apps/eval](apps/eval/README.md) says how, and how to add a case.
 
 The consumer runs on PHP 8.5 with Swoole. Without a local PHP 8.5, run its tests in the image it ships on:
 

@@ -1,0 +1,15 @@
+{
+	"description": "Clean: the fix for the background sandbox close. A good review approves it.",
+	"source": "https://github.com/appwrite/hansi/commit/40a6a63bc4c320e8f83d257cdd83d2a33f6281cb",
+	"repo": "appwrite/hansi",
+	"base": "ce18b201051950955d680acd3e7dc3b767c47051",
+	"head": "40a6a63bc4c320e8f83d257cdd83d2a33f6281cb",
+	"pullRequest": {
+		"title": "fix(engine): don't wait for a starting sandbox when the review closes it",
+		"body": "A review that runs no command closed its background sandbox by awaiting\nthe create, so it still sat through the whole start. Close now returns\nat once and the sandbox is closed once it is up."
+	},
+	"expected": {
+		"verdict": "approve",
+		"findings": []
+	}
+}

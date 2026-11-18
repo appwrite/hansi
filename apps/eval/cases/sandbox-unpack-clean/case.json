@@ -1,0 +1,15 @@
+{
+	"description": "Clean: the fix that keeps a tracked file at the workspace archive's path. A good review approves it.",
+	"source": "https://github.com/appwrite/hansi/commit/6b4a72d477fcb61261d77592a9c251bd97d25d3f",
+	"repo": "appwrite/hansi",
+	"base": "fb22b909fdb21a3231084652ead26d7c013fbe33",
+	"head": "6b4a72d477fcb61261d77592a9c251bd97d25d3f",
+	"pullRequest": {
+		"title": "fix(sandbox): keep a tracked file at the workspace archive's path",
+		"body": "The unpack removed the archive after extracting it, so a pull request that\ntracks a root .hansi-workspace.tar.gz lost that file. The archive is now\nunlinked once open on tar's stdin, and the tracked file is extracted in its\nplace."
+	},
+	"expected": {
+		"verdict": "approve",
+		"findings": []
+	}
+}
