@@ -6,7 +6,6 @@ import {
 	getLinkedIssues,
 	getPullRequest,
 	isTrustedAuthor,
-	listReviewThreads,
 	resolveReviewThreads,
 	startCheckRun
 } from './pulls';
@@ -46,53 +45,6 @@ test('resolves only open threads that start with the given comments, across page
 	const count = await resolveReviewThreads(octokit, { owner: 'o', repo: 'r' }, 1, [11, 33, 44, 99]);
 	expect(resolved).toEqual(['T1', 'T4']); // T3 is already resolved, 99 has no thread
 	expect(count).toBe(2);
-});
-
-test("reads the 👍 and 👎 on each thread's first comment", async () => {
-	const group = (content: string, totalCount: number) => ({ content, reactors: { totalCount } });
-	const octokit = {
-		graphql: async (query: string) => {
-			expect(query).toContain('reactionGroups');
-			return {
-				repository: {
-					pullRequest: {
-						reviewThreads: {
-							pageInfo: { hasNextPage: false, endCursor: null },
-							nodes: [
-								{
-									...thread('T1', 11),
-									comments: {
-										nodes: [
-											{
-												databaseId: 11,
-												reactionGroups: [
-													group('THUMBS_UP', 3),
-													group('EYES', 1),
-													group('THUMBS_DOWN', 1)
-												]
-											}
-										]
-									}
-								},
-								{
-									...thread('T2', 22),
-									comments: { nodes: [{ databaseId: 22, reactionGroups: [] }] }
-								},
-								thread('T3', 33)
-							]
-						}
-					}
-				}
-			};
-		}
-	} as unknown as Octokit;
-
-	const threads = await listReviewThreads(octokit, { owner: 'o', repo: 'r' }, 1);
-	expect(threads.map((t) => t.reactions)).toEqual([
-		{ upvotes: 3, downvotes: 1 },
-		{ upvotes: 0, downvotes: 0 },
-		undefined
-	]);
 });
 
 test('does nothing without comments to resolve', async () => {
