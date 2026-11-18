@@ -72,12 +72,13 @@ export function cloneUrl(repo: string): string {
 }
 
 /**
- * Whether a clone URL is on github.com. Only those get `GITHUB_TOKEN`: git sends a token as a
- * header to whatever host it fetches from, and a case may name any host.
+ * Whether a clone URL is https on github.com. Only those get `GITHUB_TOKEN`: git sends a token as
+ * a header to whatever host it fetches from, in the clear over http, and a case may name any URL.
  */
 export function isGitHubUrl(url: string): boolean {
 	try {
-		return new URL(url).hostname === 'github.com';
+		const parsed = new URL(url);
+		return parsed.protocol === 'https:' && parsed.hostname === 'github.com';
 	} catch {
 		return false;
 	}
