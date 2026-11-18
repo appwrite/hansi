@@ -77,6 +77,18 @@ describe('parseJob', () => {
 		expect(job.type).toBe('chat');
 	});
 
+	test('reads the host of the status images, which an older Appwrite does not send', () => {
+		expect(parseJob(review).repository.imagesUrl).toBeUndefined();
+		const withImages = {
+			...review,
+			repository: { ...repository, imagesUrl: 'https://cloud.appwrite.io' }
+		};
+		expect(parseJob(withImages).repository.imagesUrl).toBe('https://cloud.appwrite.io');
+		expect(() =>
+			parseJob({ ...review, repository: { ...repository, imagesUrl: 'cloud' } })
+		).toThrow();
+	});
+
 	test('reviews on GitHub when Appwrite names no provider', () => {
 		expect(parseJob(review).repository.provider).toBe('github');
 		expect(() => parseJob({ ...review, repository: { ...repository, provider: 'azure' } })).toThrow(

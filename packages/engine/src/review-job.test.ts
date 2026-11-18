@@ -105,7 +105,8 @@ const repository = {
 	providerRepositoryId: '3',
 	owner: 'acme',
 	name: 'math',
-	consoleUrl: 'https://cloud.appwrite.io/console'
+	consoleUrl: 'https://cloud.appwrite.io/console',
+	imagesUrl: 'https://cloud.appwrite.io'
 };
 const job = (overrides: Partial<ReviewJob> = {}): ReviewJob => ({
 	type: 'review',

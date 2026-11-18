@@ -24,6 +24,11 @@ export interface Repository {
 	name: string;
 	/** The Console's root, for links to a review. Absent when Appwrite has none to give. */
 	consoleUrl?: string;
+	/**
+	 * The Appwrite host that serves the status images of its Sites and Functions comments
+	 * (`https://cloud.appwrite.io`). On Cloud it is not the Console's host. Absent: the status is text.
+	 */
+	imagesUrl?: string;
 }
 
 /** Git hosts the service reviews on. Each has its own client behind the same contract. */
