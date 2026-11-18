@@ -35,6 +35,19 @@ export interface ReviewRecord {
  */
 export type FindingStatus = 'posted' | 'dropped' | 'resolved' | 'dismissed';
 
+/**
+ * What settled a finding: a later `commit` that fixed it, the `chat` in its thread (the author
+ * said it is fixed, or it was declined), or a maintainer resolving its `thread` without a change.
+ * Together with the status this is the finding's outcome, which tells whether it was useful.
+ */
+export type FindingSettlement = 'commit' | 'chat' | 'thread';
+
+/** 👍 and 👎 on the comment a finding was posted as. */
+export interface FindingReactions {
+	upvotes: number;
+	downvotes: number;
+}
+
 /** A finding of a completed review of the pull request, as stored. */
 export interface FindingRecord {
 	id: string;
@@ -51,6 +64,11 @@ export interface FindingRecord {
 	dropReason: string | null;
 	/** The GitHub comment it was posted as: the root of its thread. Null when it has none. */
 	providerCommentId: string | null;
+	/** What settled it. Absent while open, and on findings settled before it was recorded. */
+	settlement?: FindingSettlement | null;
+	/** Reactions on its comment when last read. Absent on an Appwrite that does not keep them. */
+	upvotes?: number;
+	downvotes?: number;
 	/** ISO 8601. */
 	createdAt: string;
 }
@@ -130,8 +148,15 @@ export interface ResultsSink {
 	updateFindings(
 		pull: PullRef,
 		ids: string[],
-		update: { status: FindingStatus; reason: string; from?: FindingStatus }
+		update: {
+			status: FindingStatus;
+			reason: string;
+			from?: FindingStatus;
+			settlement?: FindingSettlement;
+		}
 	): Promise<void>;
+	/** Stores the reactions on findings' comments, by finding id. */
+	updateReactions(pull: PullRef, reactions: ({ id: string } & FindingReactions)[]): Promise<void>;
 	/** Team preferences remembered from conversations, oldest first. */
 	listLearnings(repository: { projectId: string; repositoryId: string }): Promise<string[]>;
 	createLearning(

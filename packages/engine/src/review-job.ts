@@ -42,7 +42,7 @@ import {
 } from './mention-ack';
 import { checkRunProgress, createReviewProgress } from './progress';
 import { REVIEW_FAILURE_SUMMARY } from './public-failure';
-import { dismissFindingsResolvedOnGitHub } from './resolved-threads';
+import { syncFindingsWithThreads } from './resolved-threads';
 import { scopeToRepository } from './scope';
 import type {
 	FindingOutcome,
@@ -308,7 +308,8 @@ async function executeReview(
 			// On a push, review only what this pull request itself changed since the last review.
 			// A merge of the base branch is not that: its files belong to main, not to the PR.
 			// A thread a maintainer resolved on GitHub settles its finding before the history is read.
-			await dismissFindingsResolvedOnGitHub(
+			// Reactions on the findings' comments are stored on the way.
+			await syncFindingsWithThreads(
 				results,
 				connection,
 				pull,
@@ -452,7 +453,8 @@ async function executeReview(
 			if (result.resolved.length) {
 				await results.updateFindings(pull, result.resolved, {
 					status: 'resolved',
-					reason: `Fixed by ${pr.headSha.slice(0, 7)}`
+					reason: `Fixed by ${pr.headSha.slice(0, 7)}`,
+					settlement: 'commit'
 				});
 				const fixed = history.rows.filter((f) => result.resolved.includes(f.id));
 				// Close their threads on GitHub too. Quietly: the summary lists what was fixed.

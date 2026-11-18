@@ -15,6 +15,7 @@ import { filesUrl } from './github';
 import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
+import { recordFindingReactions } from './resolved-threads';
 import { lazySandbox, openSandbox } from './review-sandbox';
 import { scopeToRepository } from './scope';
 import { modelUsage, statusImagesOrigin, withWorkdir } from './shared';
@@ -213,7 +214,11 @@ export async function runChatJob(
 				},
 				onMarkFinding: finding
 					? async (status, reason) => {
-							await results.updateFindings(pull, findingIds, { status, reason });
+							await results.updateFindings(pull, findingIds, {
+								status,
+								reason,
+								settlement: 'chat'
+							});
 							settled = true;
 						}
 					: undefined,
@@ -243,6 +248,8 @@ export async function runChatJob(
 				log.warn('could not refresh summary after settlement', { err: error })
 			);
 		}
+		// Someone answering a finding has often reacted to it as well.
+		await recordFindingReactions(results, github, pull, findings, log);
 		log.info('chat reply posted');
 	} catch (error) {
 		// Tell the person the answer failed, once retries are exhausted. The reply is fixed:

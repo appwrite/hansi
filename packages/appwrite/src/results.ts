@@ -1,6 +1,8 @@
 import type {
 	ChatRef,
+	FindingReactions,
 	FindingRecord,
+	FindingSettlement,
 	FindingStatus,
 	ModelUsage,
 	PullRef,
@@ -39,22 +41,30 @@ export class AppwriteResultsSink implements ResultsSink {
 
 	async listFindings(pull: PullRef, options: { limit?: number } = {}): Promise<FindingRecord[]> {
 		const { findings } = await this.api.request<{
-			findings: (Omit<FindingRecord, 'providerCommentId'> & {
+			findings: (Omit<FindingRecord, 'providerCommentId' | 'settlement'> & {
 				providerCommentId: number | string | null;
+				settlement?: FindingSettlement | '' | null;
 			})[];
 		}>('GET', `${pullPath(pull)}/findings`, { projectId: pull.projectId, limit: options.limit });
-		// GitHub's comment ids come back as numbers; the engine keys every provider's by string.
-		return findings.map((finding) =>
-			typeof finding.providerCommentId === 'number'
-				? { ...finding, providerCommentId: String(finding.providerCommentId) }
-				: (finding as FindingRecord)
-		);
+		return findings.map(({ providerCommentId, settlement, ...finding }) => ({
+			...finding,
+			// GitHub's comment ids come back as numbers; the engine keys every provider's by string.
+			providerCommentId:
+				typeof providerCommentId === 'number' ? String(providerCommentId) : providerCommentId,
+			// Appwrite keeps an open finding's settlement empty; one from before has none.
+			...(settlement === undefined ? {} : { settlement: settlement || null })
+		}));
 	}
 
 	async updateFindings(
 		pull: PullRef,
 		ids: string[],
-		update: { status: FindingStatus; reason: string; from?: FindingStatus }
+		update: {
+			status: FindingStatus;
+			reason: string;
+			from?: FindingStatus;
+			settlement?: FindingSettlement;
+		}
 	) {
 		if (ids.length === 0) return;
 		await this.api.request('PATCH', `${pullPath(pull)}/findings/status`, {
@@ -62,6 +72,17 @@ export class AppwriteResultsSink implements ResultsSink {
 			findingIds: ids,
 			...update
 		});
+	}
+
+	async updateReactions(pull: PullRef, reactions: ({ id: string } & FindingReactions)[]) {
+		for (let start = 0; start < reactions.length; start += BATCH) {
+			await this.api.request('PATCH', `${pullPath(pull)}/findings/reactions`, {
+				projectId: pull.projectId,
+				reactions: reactions
+					.slice(start, start + BATCH)
+					.map(({ id, upvotes, downvotes }) => ({ findingId: id, upvotes, downvotes }))
+			});
+		}
 	}
 
 	async listLearnings(repository: { projectId: string; repositoryId: string }) {

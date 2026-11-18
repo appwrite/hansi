@@ -193,7 +193,7 @@ describe('runChatJob', () => {
 				sourceUrl: 'https://github.test/pull/7#discussion_r501'
 			}
 		]);
-		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(results.findings[0]).toMatchObject({ status: 'dismissed', settlement: 'chat' });
 		expect(github.resolved.has(rootId)).toBe(true);
 		// The summary is rebuilt without the finding, and the change request withdrawn.
 		expect(github.summary()).toContain('Divides.');
