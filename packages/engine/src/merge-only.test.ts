@@ -131,9 +131,10 @@ describe('carried summary', () => {
 
 		const body = formatSummaryComment(input);
 		// The carried grade stays, including when posted findings would grade the PR lower.
-		expect(body).toContain('## 🟢 Tier S');
+		expect(body).toContain('🟢 **S** · Ready to merge');
 		expect(body).not.toContain('Tier B');
-		expect(body).toContain('| ✅ Approved | 1 | 0 | 0 |');
+		expect(body).toContain('| ✅ Approved |');
+		expect(body).toContain('<summary>Findings (1)</summary>');
 		expect(body).toContain('Stops redelivering function events.');
 		expect(body).toContain('**Latest changes:** Skips duplicate deliveries.');
 		expect(body).toContain('| `src/functions.ts` | Skips duplicate deliveries. |');

@@ -9,6 +9,8 @@ import {
 	formatFindingComment,
 	formatReviewBody,
 	formatSummaryComment,
+	latestChangesFromBody,
+	statusCell,
 	SUMMARY_MARKER,
 	type SummaryInput
 } from './format';
@@ -53,20 +55,45 @@ const base: SummaryInput = {
 describe('formatSummaryComment', () => {
 	const body = formatSummaryComment(base);
 
-	test('starts with the marker and the tier', () => {
-		expect(body).toStartWith(`${SUMMARY_MARKER}\n\n## 🟡 Tier B · Needs changes before merging`);
-		expect(body).toContain('> Limited by an open major finding: Off by one');
+	test('starts with the head row of the Sites and Functions comments', () => {
+		expect(body).toStartWith(
+			[
+				SUMMARY_MARKER,
+				'',
+				'## Code review',
+				'',
+				'| Commit | Status | Tier | Verdict | Details |',
+				'| :- | :- | :- | :- | :- |',
+				'| `abcdef1` | _Reviewed_ | 🟡 **B** · Needs changes before merging | 🛑 Changes requested | [View review](https://hans.example/app/acme/reviews/1) |',
+				'',
+				'> Limited by an open major finding: Off by one'
+			].join('\n')
+		);
 	});
 
-	test('shows the verdict and counts, and links findings to their lines', () => {
-		expect(body).toContain('| 🛑 Changes requested | 1 | 1 | 0 |');
+	test('shows the status image from the Console when there is one', () => {
+		const body = formatSummaryComment({ ...base, images: 'https://cloud.appwrite.io' });
+		expect(body).toContain(
+			'| `abcdef1` | <picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-ready-dark.png"><img alt="Reviewed" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-ready-light.png"></picture> _Reviewed_ |'
+		);
+	});
+
+	test('leaves out the details column without a link', () => {
+		const body = formatSummaryComment({ ...base, detailsUrl: undefined });
+		expect(body).toContain('| Commit | Status | Tier | Verdict |\n| :- | :- | :- | :- |\n');
+	});
+
+	test('counts the findings on their sections and links them to their lines', () => {
+		expect(body).toContain('<details open>\n<summary>Findings (1)</summary>');
+		expect(body).toContain('<summary>Fixed since the last review (1)</summary>');
 		expect(body).toContain(
 			'| 🟠 | Off by one \\| skips the first page | [`src/paginate.ts:3`](https://github.com/acme/api/blob/abcdef1234567890/src/paginate.ts#L3-L4) |'
 		);
 	});
 
 	test('collapses the walkthrough, fixed and filtered findings', () => {
-		expect(body).toContain('<summary><b>📂 Walkthrough</b> · 1</summary>');
+		expect(body).toContain('<details>\n<summary>Walkthrough (1)</summary>');
+		expect(body).toContain('<details>\n<summary>Filtered out (1)</summary>');
 		expect(body).toContain('| `src/paginate.ts` | Switches to 1-based pages. Adds pageCount. |');
 		expect(body).toContain('- ~~Missing await~~ · `src/a.ts:9`');
 		expect(body).toContain('| Naming | Below minSeverity (minor) |');
@@ -104,7 +131,7 @@ describe('formatSummaryComment', () => {
 				}
 			]
 		});
-		const section = body.slice(body.indexOf("### Couldn't attach to a line"));
+		const section = body.slice(body.indexOf("<summary>Couldn't attach to a line"));
 		expect(section).toContain(
 			'These findings could not be placed on a changed line, so they were not posted as inline comments.'
 		);
@@ -168,9 +195,36 @@ describe('formatSummaryComment', () => {
 		expect(body).toContain('Reviewed <code>410aa75</code>');
 	});
 
-	test('ends with how to interact', () => {
-		expect(body).toContain('Reviewed <code>abcdef1</code>');
-		expect(body).toContain('<code>@hans-review review</code> to re-run');
+	test('ends with how to interact, in a tip', () => {
+		expect(body).toContain('<sub>Reviewed <code>abcdef1</code></sub>');
+		expect(body).toEndWith(
+			'> [!TIP]\n> Comment <code>@hans-review review</code> to re-run, or mention <code>@hans-review</code> with a question.'
+		);
+	});
+
+	test('the latest changes read back out, however many lines they span', () => {
+		const latestChanges = 'Adds a cursor.\n\nDrops the offset.';
+		expect(latestChangesFromBody(formatSummaryComment({ ...base, latestChanges }))).toBe(
+			latestChanges
+		);
+		// Summaries written before the restyle ended the paragraph at the verdict table.
+		expect(
+			latestChangesFromBody('**Latest changes:** Adds a cursor.\n\n| Verdict | New comments |')
+		).toBe('Adds a cursor.');
+		expect(latestChangesFromBody(body)).toBeNull();
+	});
+});
+
+describe('statusCell', () => {
+	test('is the label alone without images, as for providers that cannot show them', () => {
+		expect(statusCell('building', 'Reviewing 2 files')).toBe('_Reviewing 2 files_');
+		expect(statusCell(null, 'Skipped', 'https://cloud.appwrite.io')).toBe('_Skipped_');
+	});
+
+	test('animates the running state and keeps the label', () => {
+		expect(statusCell('building', 'Reviewing', 'https://cloud.appwrite.io')).toBe(
+			'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Reviewing" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Reviewing_'
+		);
 	});
 });
 

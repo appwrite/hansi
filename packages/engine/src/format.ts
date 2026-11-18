@@ -474,6 +474,56 @@ export interface SummaryInput {
 	detailsUrl?: string;
 	/** The bot's handle, e.g. `@hansi-codes`. */
 	mention: string;
+	/** The Console's origin, where the status images are served. Absent: the status is text. */
+	images?: string;
+}
+
+/**
+ * The state images Appwrite's Sites and Functions comments show, served by the Appwrite Console
+ * under `/images/vcs/`: queued, running (animated), finished and failed.
+ */
+export type StatusImage = 'waiting' | 'building' | 'ready' | 'failed';
+
+/**
+ * A status cell in the style of Appwrite's deployment comments: the state image (light and dark)
+ * and the label in italics. `images` is the Console's origin; without it, or with no image for
+ * this state, the cell is the label alone, as Appwrite writes it for providers that cannot show
+ * images from another host.
+ */
+export function statusCell(image: StatusImage | null, label: string, images?: string): string {
+	const text = `_${label}_`;
+	if (!image || !images) return text;
+	const extension = image === 'building' ? 'gif' : 'png';
+	const src = (theme: 'light' | 'dark') =>
+		`${images}/images/vcs/status-${image}-${theme}.${extension}`;
+	const alt = label.replace(/"/g, '&quot;');
+	return `<picture><source media="(prefers-color-scheme: dark)" srcset="${src('dark')}"><img alt="${alt}" width="85" align="center" src="${src('light')}"></picture> ${text}`;
+}
+
+/** A collapsible section, as Appwrite's deployment comments group Sites and Functions. */
+export function detailsSection(title: string, count: number, body: string, open = false): string {
+	return `<details${open ? ' open' : ''}>\n<summary>${title} (${count})</summary>\n\n<br>\n\n${body}\n\n</details>`;
+}
+
+/** The closing tip: how to ask for another review or a question. */
+export function interactionTip(mention: string): string {
+	return `> [!TIP]\n> Comment <code>${mention} review</code> to re-run, or mention <code>${mention}</code> with a question.`;
+}
+
+/**
+ * Ends the latest-changes paragraph, which can span lines, so a settlement rebuild can read it back
+ * whatever follows it.
+ */
+const LATEST_CHANGES_END = `<!-- /${MARKER_NAMESPACE}:latest-changes -->`;
+
+/** Reads the latest-changes paragraph back out of a summary comment. */
+export function latestChangesFromBody(body: string): string | null {
+	const current = body.match(
+		new RegExp(`\\*\\*Latest changes:\\*\\* ([\\s\\S]*?)\\n${LATEST_CHANGES_END}`)
+	)?.[1];
+	if (current !== undefined) return current;
+	// Summaries written before the restyle ended the paragraph at the verdict table.
+	return body.match(/\*\*Latest changes:\*\* ([\s\S]*?)\n\n\| Verdict \|/)?.[1] ?? null;
 }
 
 /** The summary comment Hansi keeps up to date on every pull request. */
@@ -496,9 +546,28 @@ export function formatSummaryComment(input: SummaryInput): string {
 	const lineLink = (path: string, start: number, end = start) =>
 		`[\`${path}:${start}\`](${input.repository}/${input.headSha}/${path}#L${start}${end > start ? `-L${end}` : ''})`;
 
+	// The head row, laid out like a deployment row in Appwrite's Sites and Functions comments.
+	// The sections below carry the finding counts.
+	const columns = ['Commit', 'Status', 'Tier', 'Verdict'];
+	const row = [
+		`\`${input.headSha.slice(0, 7)}\``,
+		statusCell('ready', 'Reviewed', input.images),
+		`${tierIcon[input.tier]} **${input.tier}** · ${tierMeaning[input.tier]}`,
+		verdictText[input.verdict]
+	];
+	if (input.detailsUrl) {
+		columns.push('Details');
+		row.push(`[View review](${input.detailsUrl})`);
+	}
+
 	const parts = [
 		SUMMARY_MARKER,
-		`## ${tierIcon[input.tier]} Tier ${input.tier} · ${tierMeaning[input.tier]}`
+		'## Code review',
+		[
+			`| ${columns.join(' | ')} |`,
+			`| ${columns.map(() => ':-').join(' | ')} |`,
+			`| ${row.join(' | ')} |`
+		].join('\n')
 	];
 	if (input.tierReason) parts.push(`> ${cell(input.tierReason)}`);
 	parts.push(input.summary);
@@ -506,15 +575,9 @@ export function formatSummaryComment(input: SummaryInput): string {
 	if (omitted && omitted.omitted > 0) {
 		parts.push(filesTooLargeSentence(omitted.omitted, omitted.total));
 	}
-	if (input.latestChanges) parts.push(`**Latest changes:** ${input.latestChanges}`);
-
-	parts.push(
-		[
-			'| Verdict | New comments | Fixed | Still open |',
-			'| :-- | :-: | :-: | :-: |',
-			`| ${verdictText[input.verdict]} | ${input.posted.length} | ${input.resolved.length} | ${input.stillOpen.length} |`
-		].join('\n')
-	);
+	if (input.latestChanges) {
+		parts.push(`**Latest changes:** ${input.latestChanges}\n${LATEST_CHANGES_END}`);
+	}
 
 	if (input.staleHead) {
 		parts.push(`> [!NOTE]\n> ${STALE_HEAD_NOTE_MARK} ${cell(input.staleHead)}`);
@@ -523,30 +586,38 @@ export function formatSummaryComment(input: SummaryInput): string {
 
 	if (input.posted.length) {
 		parts.push(
-			[
-				'| | Finding | Where |',
-				'| :-: | :-- | :-- |',
-				...input.posted.map(
-					(f) =>
-						`| ${severityIcon[f.severity]} | ${cell(f.title)} | ${lineLink(f.path, f.startLine, f.endLine)} |`
-				)
-			].join('\n')
+			detailsSection(
+				'Findings',
+				input.posted.length,
+				[
+					'| | Finding | Where |',
+					'| :-: | :- | :- |',
+					...input.posted.map(
+						(f) =>
+							`| ${severityIcon[f.severity]} | ${cell(f.title)} | ${lineLink(f.path, f.startLine, f.endLine)} |`
+					)
+				].join('\n'),
+				true
+			)
 		);
 	}
 
 	const unattached = input.dropped.filter((f) => isUnattachedDrop(f.dropReason));
 	if (unattached.length) {
 		parts.push(
-			[
-				"### Couldn't attach to a line",
-				'',
-				'These findings could not be placed on a changed line, so they were not posted as inline comments.',
-				'',
-				...unattached.map(
-					(f) =>
-						`- ${cell(f.title)} · ${lineLink(f.path, f.startLine, f.endLine)} · ${cell(f.dropReason)}`
-				)
-			].join('\n')
+			detailsSection(
+				"Couldn't attach to a line",
+				unattached.length,
+				[
+					'These findings could not be placed on a changed line, so they were not posted as inline comments.',
+					'',
+					...unattached.map(
+						(f) =>
+							`- ${cell(f.title)} · ${lineLink(f.path, f.startLine, f.endLine)} · ${cell(f.dropReason)}`
+					)
+				].join('\n'),
+				true
+			)
 		);
 	}
 
@@ -565,17 +636,14 @@ export function formatSummaryComment(input: SummaryInput): string {
 		parts.push(agentPromptBlock('Fix with agent prompt', summaryAgentPrompt(openIssues)));
 	}
 
-	const section = (title: string, count: number, body: string) =>
-		`<details>\n<summary><b>${title}</b> · ${count}</summary>\n\n${body}\n\n</details>`;
-
 	if (input.walkthrough.length) {
 		parts.push(
-			section(
-				'📂 Walkthrough',
+			detailsSection(
+				'Walkthrough',
 				input.walkthrough.length,
 				[
 					'| File | Change |',
-					'| :-- | :-- |',
+					'| :- | :- |',
 					...input.walkthrough.map((w) => `| \`${cell(w.path)}\` | ${cell(w.change)} |`)
 				].join('\n')
 			)
@@ -583,8 +651,8 @@ export function formatSummaryComment(input: SummaryInput): string {
 	}
 	if (input.stillOpen.length) {
 		parts.push(
-			section(
-				'⏳ Still open from earlier reviews',
+			detailsSection(
+				'Still open from earlier reviews',
 				input.stillOpen.length,
 				input.stillOpen
 					.map((f) => `- ${severityIcon[f.severity]} ${f.title} · ${lineLink(f.path, f.startLine)}`)
@@ -594,8 +662,8 @@ export function formatSummaryComment(input: SummaryInput): string {
 	}
 	if (input.resolved.length) {
 		parts.push(
-			section(
-				'✅ Fixed since the last review',
+			detailsSection(
+				'Fixed since the last review',
 				input.resolved.length,
 				input.resolved.map((f) => `- ~~${f.title}~~ · \`${f.path}:${f.startLine}\``).join('\n')
 			)
@@ -604,14 +672,14 @@ export function formatSummaryComment(input: SummaryInput): string {
 	const filtered = input.dropped.filter((f) => !isUnattachedDrop(f.dropReason));
 	if (filtered.length) {
 		parts.push(
-			section(
-				'🔇 Filtered out',
+			detailsSection(
+				'Filtered out',
 				filtered.length,
 				[
 					'Findings Hansi considered but did not post.',
 					'',
 					'| Finding | Why |',
-					'| :-- | :-- |',
+					'| :- | :- |',
 					...filtered.map((f) => `| ${cell(f.title)} | ${cell(f.dropReason)} |`)
 				].join('\n')
 			)
@@ -623,10 +691,7 @@ export function formatSummaryComment(input: SummaryInput): string {
 		: input.incrementalFrom
 			? `Reviewed the commits since <code>${input.incrementalFrom.slice(0, 7)}</code>`
 			: `Reviewed <code>${input.headSha.slice(0, 7)}</code>`;
-	const details = input.detailsUrl ? ` · <a href="${input.detailsUrl}">Details</a>` : '';
-	parts.push(
-		`---\n<sub>${reviewed}${details} · Comment <code>${input.mention} review</code> to re-run, or mention <code>${input.mention}</code> with a question.</sub>`
-	);
+	parts.push(`<br>\n\n<sub>${reviewed}</sub>`, interactionTip(input.mention));
 	return parts.join('\n\n');
 }
 

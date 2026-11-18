@@ -17,7 +17,7 @@ import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
 import { lazySandbox, openSandbox } from './review-sandbox';
 import { scopeToRepository } from './scope';
-import { modelUsage, withWorkdir } from './shared';
+import { modelUsage, statusImagesOrigin, withWorkdir } from './shared';
 import { refreshSummaryAfterSettlement } from './summary';
 
 // One answer to a comment on a pull request. It follows hansi.codes' worker step for step;
@@ -236,6 +236,7 @@ export async function runChatJob(
 				pull,
 				repository,
 				consoleUrl: job.repository.consoleUrl,
+				images: statusImagesOrigin(job.repository),
 				blockingSeverity: changeRequestSeverity(config),
 				log
 			}).catch((error: unknown) =>

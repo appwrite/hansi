@@ -143,6 +143,7 @@ export function carriedSummaryInput(input: {
 	repository: string;
 	mention: string;
 	detailsUrl?: string;
+	images?: string;
 	scope: string;
 	review: CarriedReview;
 	findings: Parameters<typeof summaryAfterSettlement>[0]['findings'];
@@ -158,6 +159,7 @@ export function carriedSummaryInput(input: {
 		findings: input.findings,
 		detailsUrl: input.detailsUrl,
 		mention: input.mention,
+		images: input.images,
 		...input.extras,
 		scope: input.scope
 	});

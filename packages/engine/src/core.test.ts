@@ -1702,11 +1702,11 @@ ${upstream}`;
 			mention: '@hansi-codes'
 		});
 		const title = 'Require mutation permission before changing video children';
-		const attachAt = body.indexOf("### Couldn't attach to a line");
+		const attachAt = body.indexOf("<summary>Couldn't attach to a line");
 		expect(attachAt).toBeGreaterThan(0);
 		// The unattached list sits above the collapsed sections. It is not the headline.
 		const headline = body.slice(0, attachAt);
-		expect(headline).toContain('Tier B');
+		expect(headline).toContain('🟡 **B**');
 		expect(headline).toContain('Division by zero');
 		expect(headline.toLowerCase()).not.toContain('bypass');
 		expect(headline).not.toContain('Require mutation permission');
@@ -1757,10 +1757,10 @@ ${upstream}`;
 			walkthrough: [],
 			mention: '@hansi-codes'
 		});
-		const attachAt = body.indexOf("### Couldn't attach to a line");
+		const attachAt = body.indexOf("<summary>Couldn't attach to a line");
 		expect(attachAt).toBeGreaterThan(0);
 		const headline = body.slice(0, attachAt);
-		expect(headline).toContain('Tier S');
+		expect(headline).toContain('🟢 **S**');
 		expect(headline.toLowerCase()).not.toContain('bypass');
 		expect(headline).not.toContain(title);
 		expect(body.slice(attachAt)).toContain(title);
