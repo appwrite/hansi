@@ -1,0 +1,21 @@
+{
+	"name": "@hansi/eval",
+	"license": "BSD-3-Clause",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"eval": "bun src/index.ts",
+		"check": "tsc -p ."
+	},
+	"dependencies": {
+		"@hansi/engine": "workspace:*",
+		"@hansi/sandbox": "workspace:*",
+		"@hansi/service": "workspace:*",
+		"ai": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@types/bun": "catalog:",
+		"typescript": "catalog:"
+	}
+}

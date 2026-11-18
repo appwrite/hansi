@@ -1,0 +1,23 @@
+{
+	"description": "Planted: the same fix with the catch on the deferred close removed, so a sandbox that fails to start after the review closed it rejects with no handler.",
+	"source": "https://github.com/appwrite/hansi/commit/40a6a63bc4c320e8f83d257cdd83d2a33f6281cb plus inject.patch",
+	"repo": "appwrite/hansi",
+	"base": "ce18b201051950955d680acd3e7dc3b767c47051",
+	"head": "40a6a63bc4c320e8f83d257cdd83d2a33f6281cb",
+	"pullRequest": {
+		"title": "fix(engine): don't wait for a starting sandbox when the review closes it",
+		"body": "A review that runs no command closed its background sandbox by awaiting\nthe create, so it still sat through the whole start. Close now returns\nat once and the sandbox is closed once it is up."
+	},
+	"expected": {
+		"verdict": "request_changes",
+		"findings": [
+			{
+				"id": "unhandled-rejection",
+				"path": "packages/engine/src/review-sandbox.ts",
+				"lines": [115, 115],
+				"severity": "minor",
+				"issue": "`void opening.then((sandbox) => sandbox.close())` has no catch. When the sandbox fails to start, or its close fails, after the review already closed it, the promise rejects with no handler: an unhandled rejection that can take down the service process with every other job in it."
+			}
+		]
+	}
+}

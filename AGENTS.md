@@ -17,6 +17,7 @@ The engine, the review and chat jobs and the GitHub helpers started as a port of
 | `bun run check`   | Type-check every workspace (`tsc`) |
 | `bun run lint`    | Prettier check + ESLint            |
 | `bun run format`  | Apply Prettier                     |
+| `bun run eval`    | Score reviews against `apps/eval`  |
 
 Run `bun run format`, `bun run lint`, `bun run check` and `bun run test` before pushing; CI runs the last three.
 
@@ -26,6 +27,7 @@ The queue consumer is PHP (`apps/consumer`), on PHP 8.5 with Swoole as in `appwr
 
 - **apps/service** -- the process: env, logger, health server, the jobs port the consumer hands deliveries to, the worker that runs them and decides retries, job handlers. It starts the consumer as its child, so the container runs and stops as one
 - **apps/consumer** -- the queue consumer, in PHP on Appwrite's own utopia-php/queue: `Broker\Nats` on Cloud (adopting the queue Appwrite provisioned, with its attempts and backoff read from the work consumer), `Broker\Redis` on a self-hosted Appwrite (where it runs the attempts itself). Each delivery is one `POST /v1/jobs` to the service on loopback, settled by the outcome it answers with
+- **apps/eval** -- replays pull requests with known problems (`cases/`) through a real review with the service's models and scores recall, false alarms, verdicts and cost. `bun run eval`; see its README. Run it before and after a model or prompt change
 - **packages/engine** -- the engine and the contracts it works against (`GitHubClient`, `SandboxClient`, `ResultsSink`, job types). Also the review itself: the agent loop on the Vercel AI SDK, its read-only tools over a local checkout (`git`, `rg`), the prompts, and the code that places, verifies and grades findings. In-memory fakes and a scripted model in `@hansi/engine/testing`. `runReviewJob` and `runChatJob` take a job from the pull request to what is posted on GitHub: the summary comment, the review, the check run, thread resolution and replies. Their only I/O of its own is git, for the checkout; everything else goes through the contracts
 - **packages/appwrite** -- Appwrite adapters: results sink and installation tokens (internal API), job payload parsing
 - **packages/github** -- GitHub client on octokit: the helpers ported from hansi.codes (`pulls.ts`), authenticated with installation tokens from Appwrite, renewed before they expire

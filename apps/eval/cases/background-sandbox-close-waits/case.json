@@ -1,0 +1,21 @@
+{
+	"description": "Real bug: closing a background sandbox awaits its start, so a review that ran no command still waits the whole cold start. Fixed later in 40a6a63.",
+	"source": "https://github.com/appwrite/hansi/commit/ce18b201051950955d680acd3e7dc3b767c47051 (PR #25), fixed by 40a6a63",
+	"repo": "appwrite/hansi",
+	"base": "45e7a1aabb28dc194fab49e94d0bbf5e1ea1a470",
+	"head": "ce18b201051950955d680acd3e7dc3b767c47051",
+	"pullRequest": {
+		"title": "feat(engine): start the review sandbox in the background",
+		"body": "A cold sandbox takes 30 to 60 seconds on production: about 7s to start\nthe pod, then the pull request archive is downloaded and unpacked before\nthe orchestrator answers. The review waited for all of it before the\nmodel saw the diff.\n\nThe sandbox now starts while the review runs, and only the first command\nwaits for it. A sandbox that cannot start is still logged and recorded,\nand every command then fails with the reason. The 'Starting the sandbox'\nprogress phase goes away, since the review no longer stops there."
+	},
+	"expected": {
+		"findings": [
+			{
+				"id": "close-awaits-start",
+				"path": "packages/engine/src/review-sandbox.ts",
+				"lines": [100, 127],
+				"issue": "backgroundSandbox passes `() => opening` as `started`, so close() awaits the sandbox's creation before closing it. A review that ran no command still blocks at the end for the whole 30 to 60 second cold start the change meant to take off the critical path."
+			}
+		]
+	}
+}

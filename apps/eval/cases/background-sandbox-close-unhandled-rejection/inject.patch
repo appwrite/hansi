@@ -1,0 +1,13 @@
+diff --git a/packages/engine/src/review-sandbox.ts b/packages/engine/src/review-sandbox.ts
+index edcc4fc..f1bf854 100644
+--- a/packages/engine/src/review-sandbox.ts
++++ b/packages/engine/src/review-sandbox.ts
+@@ -112,7 +112,7 @@ export function backgroundSandbox(open: () => Promise<ReviewSandbox>): ReviewSan
+ 		// once it is up.
+ 		close: async () => {
+ 			if (opened) return opened.close();
+-			void opening.then((sandbox) => sandbox.close()).catch(() => undefined);
++			void opening.then((sandbox) => sandbox.close());
+ 		}
+ 	};
+ }

@@ -15,6 +15,20 @@
         "typescript-eslint": "^8.60.1",
       },
     },
+    "apps/eval": {
+      "name": "@hansi/eval",
+      "dependencies": {
+        "@hansi/engine": "workspace:*",
+        "@hansi/sandbox": "workspace:*",
+        "@hansi/service": "workspace:*",
+        "ai": "catalog:",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "apps/service": {
       "name": "@hansi/service",
       "dependencies": {
@@ -237,6 +251,8 @@
     "@hansi/bitbucket": ["@hansi/bitbucket@workspace:packages/bitbucket"],
 
     "@hansi/engine": ["@hansi/engine@workspace:packages/engine"],
+
+    "@hansi/eval": ["@hansi/eval@workspace:apps/eval"],
 
     "@hansi/gitea": ["@hansi/gitea@workspace:packages/gitea"],
 

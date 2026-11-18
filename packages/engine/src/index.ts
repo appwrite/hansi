@@ -12,6 +12,7 @@ export * from './model-call';
 export * from './present';
 export * from './review';
 export * from './review-job';
+export { openSandbox, type ReviewSandbox } from './review-sandbox';
 export * from './sandbox';
 export * from './shared';
 export * from './suggestions';

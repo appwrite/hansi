@@ -20,7 +20,8 @@
 		"check": "bun run --filter '*' check",
 		"test": "bun test",
 		"lint": "prettier --check . && eslint .",
-		"format": "prettier --write ."
+		"format": "prettier --write .",
+		"eval": "bun run --cwd apps/eval eval"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

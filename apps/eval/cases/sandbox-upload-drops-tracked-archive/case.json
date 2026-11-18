@@ -1,0 +1,21 @@
+{
+	"description": "Real bug: unpacking the uploaded workspace deletes a tracked file at the archive's path. Fixed later in 6b4a72d.",
+	"source": "https://github.com/appwrite/hansi/commit/fb22b909fdb21a3231084652ead26d7c013fbe33 (PR #27), fixed by 6b4a72d",
+	"repo": "appwrite/hansi",
+	"base": "4014f6a0569e07775833730753d895fd37fa0dce",
+	"head": "fb22b909fdb21a3231084652ead26d7c013fbe33",
+	"pullRequest": {
+		"title": "perf(sandbox): upload the checkout instead of downloading a tarball",
+		"body": "The sandbox used to download GitHub's tarball of the pull request head and\nunpack it before it reported ready: for appwrite/appwrite about 420 MB,\n10 to 18 s to download and 7 to 10 s to unpack, on every review.\n\nHansi already has the checkout. openSandbox now writes it with git\narchive, without binary files (images, videos, archives) and files over\n10 MB, uploads it to the sandbox agent's /files and unpacks it there, as\nhansi.codes does with sbx. For appwrite/appwrite that is 26 MB written in\nabout 2.4 s, while the sandbox starts. The run_command description says\nwhat is left out.\n\ngetArchiveUrl has no caller left and goes."
+	},
+	"expected": {
+		"findings": [
+			{
+				"id": "rm-tracked-archive",
+				"path": "packages/sandbox/src/orchestrator.ts",
+				"lines": [171, 171],
+				"issue": "The unpack runs `tar -xzf .hansi-workspace.tar.gz && rm -f .hansi-workspace.tar.gz` in the workspace. A repository that tracks a file at that same root path gets it extracted by tar and then deleted by the rm, so the sandbox's checkout is missing a tracked file."
+			}
+		]
+	}
+}

@@ -14,6 +14,22 @@ import {
 } from '@hansi/engine';
 import type { Env } from './env';
 
+/** The variables models are built from, so tools outside the service (the eval) can build them. */
+export type ModelEnv = Pick<
+	Env,
+	| 'HANSI_AI_SECRET'
+	| 'HANSI_AI_REGION'
+	| 'HANSI_AI_BASE_URL'
+	| 'HANSI_REVIEW_MODEL'
+	| 'HANSI_VERIFY_MODEL'
+	| 'HANSI_REVIEW_REASONING'
+	| 'HANSI_VERIFY_REASONING'
+	| 'HANSI_BASIC_REVIEW_MODEL'
+	| 'HANSI_BASIC_VERIFY_MODEL'
+	| 'HANSI_EXPERT_REVIEW_MODEL'
+	| 'HANSI_EXPERT_VERIFY_MODEL'
+>;
+
 // Model ids name their provider, as `provider:model` (`bedrock:global.anthropic.claude-…`).
 // Both models use one provider and one credential, `HANSI_AI_SECRET`, the way Appwrite will hand
 // one over once it serves model keys.
@@ -83,7 +99,11 @@ export function missingConfig(
  * The provider's model with the credential from the environment, named the way hansi.codes names
  * it: the engine reads the provider for prompt caching and the reasoning setting.
  */
-export function createReviewModel(env: Env, id: string, reasoning?: ReasoningEffort): ReviewModel {
+export function createReviewModel(
+	env: ModelEnv,
+	id: string,
+	reasoning?: ReasoningEffort
+): ReviewModel {
 	const { provider, model } = parseModelId(id);
 	return {
 		model: providerModel(env, id),
@@ -93,7 +113,7 @@ export function createReviewModel(env: Env, id: string, reasoning?: ReasoningEff
 	};
 }
 
-function providerModel(env: Env, id: string) {
+function providerModel(env: ModelEnv, id: string) {
 	const { provider, model } = parseModelId(id);
 	const apiKey = env.HANSI_AI_SECRET;
 	const baseURL = env.HANSI_AI_BASE_URL;
@@ -122,7 +142,7 @@ function providerModel(env: Env, id: string) {
 	}
 }
 
-export function createModels(env: Env): EngineContext['models'] {
+export function createModels(env: ModelEnv): EngineContext['models'] {
 	return modelsFor(env, {
 		review: env.HANSI_REVIEW_MODEL,
 		verify: env.HANSI_VERIFY_MODEL,
@@ -149,7 +169,7 @@ export interface StrengthConfig {
  * A strength without a review model of its own reviews with the normal models, so an Appwrite
  * that sends strengths works before they are configured. Every strength reasons as normal does.
  */
-export function createStrengths(env: Env): Record<Strength, StrengthConfig> {
+export function createStrengths(env: ModelEnv): Record<Strength, StrengthConfig> {
 	const normal = createModels(env);
 	const models = (review: string | undefined, verify: string | undefined) =>
 		review
@@ -177,7 +197,7 @@ export function createStrengths(env: Env): Record<Strength, StrengthConfig> {
 
 /** Without a verify model or reasoning of its own, the engine verifies with the review model. */
 function modelsFor(
-	env: Env,
+	env: ModelEnv,
 	ids: {
 		review: string;
 		verify?: string;

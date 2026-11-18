@@ -3,6 +3,10 @@
 	"license": "BSD-3-Clause",
 	"private": true,
 	"type": "module",
+	"exports": {
+		"./models": "./src/models.ts",
+		"./pricing": "./src/pricing.ts"
+	},
 	"scripts": {
 		"dev": "bun --watch src/index.ts",
 		"start": "bun src/index.ts",
