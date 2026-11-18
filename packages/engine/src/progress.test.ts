@@ -13,7 +13,7 @@ import {
 } from './progress';
 
 const sha = 'abcdef1234567890';
-const summary = `${SUMMARY_MARKER}\n\n## 🟢 Tier A · Merge after a quick look\n\n| Verdict | New comments | Fixed | Still open |`;
+const summary = `${SUMMARY_MARKER}\n\n## Code review\n\n| Commit | Status | Tier | Verdict |`;
 const block = (previous = false) =>
 	statusBlock(
 		{ kind: 'running', phase: { kind: 'reviewing', files: 3 } },
@@ -33,13 +33,17 @@ test('trace events move the review into its phases', () => {
 	expect(phaseFromEvent({ type: 'tool.read_file', data: {} })).toBeNull();
 });
 
-test('the status block says what is running and links to the live trace', () => {
+test('the status block is the progress row of the Sites and Functions comments', () => {
 	expect(block(true)).toBe(
 		[
 			'<!-- appwrite-hansi:status -->',
-			'> ⏳ **Reviewing `abcdef1`** · Reviewing 3 files…',
-			'>',
-			'> <sub>The summary below is from the previous review. · [Follow along](https://hansi.test/r/1)</sub>',
+			'',
+			'| Commit | Status | Details |',
+			'| :- | :- | :- |',
+			'| `abcdef1` | _Reviewing 3 files_ | [Follow along](https://hansi.test/r/1) |',
+			'',
+			'<sub>The summary below is from the previous review.</sub>',
+			'',
 			'<!-- /appwrite-hansi:status -->'
 		].join('\n')
 	);
@@ -47,9 +51,28 @@ test('the status block says what is running and links to the live trace', () => 
 		{ kind: 'failed' },
 		{ headSha: sha, mention: '@hansi', previous: false }
 	);
-	expect(failed).toContain('could not finish reviewing `abcdef1`');
-	expect(failed).toContain('<code>@hansi review</code>');
+	expect(failed).toContain('| `abcdef1` | _Failed_ |');
+	expect(failed).toContain('<code>@hansi review</code> to try again');
 	expect(failed).not.toContain('Follow along');
+});
+
+test('the status row shows the animated image while running, and the state images after', () => {
+	const images = 'https://cloud.appwrite.io';
+	const running = statusBlock(
+		{ kind: 'running', phase: { kind: 'verifying', findings: 2 } },
+		{ headSha: sha, mention: '@hansi', previous: false, images }
+	);
+	expect(running).toContain(
+		'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Verifying 2 possible findings" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Verifying 2 possible findings_'
+	);
+	const image = (status: Parameters<typeof statusBlock>[0]) =>
+		statusBlock(status, { headSha: sha, mention: '@hansi', previous: true, images }).match(
+			/status-(\w+)-light\.(\w+)/
+		)?.[0];
+	expect(image({ kind: 'retrying' })).toBe('status-waiting-light.png');
+	expect(image({ kind: 'failed' })).toBe('status-failed-light.png');
+	// A skip has no state image of its own.
+	expect(image({ kind: 'skipped', reason: 'Nothing to review' })).toBeUndefined();
 });
 
 test('a first review starts the summary with the status block alone', () => {
@@ -61,7 +84,7 @@ test('a first review starts the summary with the status block alone', () => {
 
 test('a later review puts the status above the previous summary and removes it cleanly', () => {
 	const body = withStatusBlock(summary, block(true));
-	expect(body.startsWith(`${SUMMARY_MARKER}\n\n${block(true)}\n\n## 🟢 Tier A`)).toBe(true);
+	expect(body.startsWith(`${SUMMARY_MARKER}\n\n${block(true)}\n\n## Code review`)).toBe(true);
 	expect(hasReviewSummary(body)).toBe(true);
 	expect(withoutStatusBlock(body)).toBe(summary);
 	// Replacing the block keeps one, not two.
@@ -110,7 +133,7 @@ test('progress follows the phases on the check run and the summary', async () =>
 		'Posting the review'
 	]);
 	expect(state.writes).toBe(3);
-	expect(state.comment?.body).toContain('Verifying 1 possible finding…');
+	expect(state.comment?.body).toContain('_Verifying 1 possible finding_');
 	expect(state.comment?.body).toContain('The summary below is from the previous review.');
 	// Nothing lands after close, so the final summary cannot be overwritten.
 	progress.phase({ kind: 'reviewing', files: 9 });
@@ -123,8 +146,9 @@ test('a failed review never leaves the summary saying it is running', async () =
 	const progress = createReviewProgress(target);
 	progress.phase({ kind: 'reviewing', files: 2 });
 	await progress.settle({ kind: 'failed' });
-	expect(state.comment?.body).not.toContain('⏳');
-	expect(state.comment?.body).toContain('could not finish reviewing');
+	expect(state.comment?.body).not.toContain('_Reviewing 2 files_');
+	expect(state.comment?.body).toContain('_Failed_');
+	expect(state.comment?.body).toContain('could not finish this review');
 	expect(withoutStatusBlock(state.comment!.body)).toBe(summary);
 });
 
@@ -141,7 +165,8 @@ test('a retry clears the status an earlier attempt left behind', async () => {
 	const progress = createReviewProgress(target);
 	await progress.settle({ kind: 'retrying' });
 	expect(state.comment?.body).toContain('was interrupted');
-	expect(state.comment?.body).not.toContain('⏳');
+	expect(state.comment?.body).toContain('_Interrupted, retrying_');
+	expect(state.comment?.body).not.toContain('_Reviewing 3 files_');
 });
 
 test('a skip removes the status, or explains itself when there is no earlier summary', async () => {
@@ -155,7 +180,8 @@ test('a skip removes the status, or explains itself when there is no earlier sum
 	const two = createReviewProgress(first.target);
 	two.phase({ kind: 'reviewing', files: 1 });
 	await two.settle({ kind: 'skipped', reason: 'No reviewable changes' });
-	expect(first.state.comment?.body).toContain('Skipped `abcdef1`: No reviewable changes');
+	expect(first.state.comment?.body).toContain('| `abcdef1` | _Skipped_ |');
+	expect(first.state.comment?.body).toContain('<sub>No reviewable changes</sub>');
 });
 
 test('a GitHub error while reporting progress does not fail the review', async () => {

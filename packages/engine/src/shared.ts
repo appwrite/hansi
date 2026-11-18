@@ -3,6 +3,7 @@ import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Log } from './context';
 import type { GitHubConnection } from './github';
+import type { Repository } from './jobs';
 import type { ModelCall } from './model-call';
 import type { ModelUsage, ReviewRecord } from './results';
 
@@ -25,6 +26,22 @@ export function reviewDetailsUrl(
 	if (!consoleUrl) return undefined;
 	const base = consoleUrl.replace(/\/+$/, '');
 	return `${base}/projects/${encodeURIComponent(projectId)}/reviews/${encodeURIComponent(reviewId)}`;
+}
+
+/**
+ * Where the status images of Appwrite's Sites and Functions comments are served: the Appwrite
+ * host Appwrite names in the job, not the Console's, which differs on Cloud. Origin gets text
+ * instead, as it does in Appwrite's own comments: it cannot show images from another host.
+ */
+export function statusImagesOrigin(
+	repository: Pick<Repository, 'provider' | 'imagesUrl'>
+): string | undefined {
+	if (repository.provider === 'origin' || !repository.imagesUrl) return undefined;
+	try {
+		return new URL(repository.imagesUrl).origin;
+	} catch {
+		return undefined;
+	}
 }
 
 /** One model call as Appwrite meters it. */

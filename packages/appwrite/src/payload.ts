@@ -23,7 +23,8 @@ const repository = z.object({
 	providerRepositoryId: providerId,
 	owner: id,
 	name: id,
-	consoleUrl: z.url().optional()
+	consoleUrl: z.url().optional(),
+	imagesUrl: z.url().optional()
 });
 
 const comment = z.object({

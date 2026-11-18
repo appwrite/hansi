@@ -105,7 +105,8 @@ const repository = {
 	providerRepositoryId: '3',
 	owner: 'acme',
 	name: 'math',
-	consoleUrl: 'https://cloud.appwrite.io/console'
+	consoleUrl: 'https://cloud.appwrite.io/console',
+	imagesUrl: 'https://cloud.appwrite.io'
 };
 const job = (overrides: Partial<ReviewJob> = {}): ReviewJob => ({
 	type: 'review',
@@ -149,7 +150,11 @@ describe('runReviewJob', () => {
 		const summary = github.summary();
 		expect(summary).toStartWith(summaryMarkerFor('repo1'));
 		expect(summary).toContain('Divides for real.');
-		expect(summary).toContain('| Verdict |');
+		// The status images come from the Console, as in Appwrite's Sites and Functions comments.
+		expect(summary).toContain(
+			'srcset="https://cloud.appwrite.io/images/vcs/status-ready-dark.png"'
+		);
+		expect(summary).toContain('_Reviewed_');
 		expect(summary).toContain('<code>@hansi review</code>');
 		expect(summary).not.toContain('appwrite-hansi:status');
 
@@ -235,7 +240,7 @@ describe('runReviewJob', () => {
 		const check = github.checkRuns.at(-1);
 		expect(check?.conclusion).toBe('neutral');
 		expect(check?.title).toStartWith('Tier S: ');
-		expect(github.summary()).toContain('Tier S');
+		expect(github.summary()).toContain('🟢 **S** · Ready to merge');
 		expect(github.reviews[0]?.state).toBe('DISMISSED');
 		expect(results.review('review2')).toMatchObject({ tier: 'S', verdict: 'comment' });
 	});

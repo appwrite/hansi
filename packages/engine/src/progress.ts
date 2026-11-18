@@ -1,5 +1,5 @@
 import type { Log } from './context';
-import { MARKER_NAMESPACE, SUMMARY_MARKER } from './format';
+import { MARKER_NAMESPACE, statusCell, SUMMARY_MARKER, type StatusImage } from './format';
 import type { ReviewEvent as TraceEvent } from './tools';
 
 /**
@@ -66,37 +66,60 @@ export function checkRunProgress(phase: ReviewPhase): { title: string; summary: 
 	};
 }
 
-/** The block at the top of the summary comment, between hidden markers so it can be replaced. */
-export function statusBlock(
-	status: ReviewStatus,
-	input: { headSha: string; mention: string; previous: boolean; detailsUrl?: string }
-): string {
-	const sha = `\`${input.headSha.slice(0, 7)}\``;
-	const lines: string[] = [];
+/** The state image and label the status row shows. */
+function statusState(status: ReviewStatus): { image: StatusImage | null; label: string } {
 	switch (status.kind) {
 		case 'running':
-			lines.push(`> ⏳ **Reviewing ${sha}** · ${phaseText(status.phase)}…`);
-			break;
+			return { image: 'building', label: phaseText(status.phase) };
 		case 'retrying':
-			lines.push(`> ⚠️ **The review of ${sha} was interrupted.** Hansi will try again.`);
-			break;
+			return { image: 'waiting', label: 'Interrupted, retrying' };
 		case 'failed':
-			lines.push(
-				`> ⚠️ **Hansi could not finish reviewing ${sha}.** Comment <code>${input.mention} review</code> to try again.`
-			);
-			break;
+			return { image: 'failed', label: 'Failed' };
 		case 'skipped':
-			lines.push(`> Skipped ${sha}: ${status.reason}`);
-			break;
+			return { image: null, label: 'Skipped' };
+	}
+}
+
+/**
+ * The block at the top of the summary comment, between hidden markers so it can be replaced. It
+ * is the progress row of Appwrite's Sites and Functions comments: the commit, the animated state
+ * image while the review runs, and a link to follow it.
+ */
+export function statusBlock(
+	status: ReviewStatus,
+	input: {
+		headSha: string;
+		mention: string;
+		previous: boolean;
+		detailsUrl?: string;
+		images?: string;
+	}
+): string {
+	const { image, label } = statusState(status);
+	const columns = ['Commit', 'Status'];
+	const row = [`\`${input.headSha.slice(0, 7)}\``, statusCell(image, label, input.images)];
+	if (status.kind === 'running' && input.detailsUrl) {
+		columns.push('Details');
+		row.push(`[Follow along](${input.detailsUrl})`);
 	}
 	const notes = [
+		status.kind === 'retrying' ? 'The review was interrupted. Hansi will try again.' : '',
+		status.kind === 'failed'
+			? `Hansi could not finish this review. Comment <code>${input.mention} review</code> to try again.`
+			: '',
+		status.kind === 'skipped' ? status.reason : '',
 		input.previous && status.kind !== 'skipped'
 			? 'The summary below is from the previous review.'
-			: '',
-		status.kind === 'running' && input.detailsUrl ? `[Follow along](${input.detailsUrl})` : ''
+			: ''
 	].filter(Boolean);
-	if (notes.length) lines.push('>', `> <sub>${notes.join(' · ')}</sub>`);
-	return [STATUS_START, ...lines, STATUS_END].join('\n');
+	const lines = [
+		`| ${columns.join(' | ')} |`,
+		`| ${columns.map(() => ':-').join(' | ')} |`,
+		`| ${row.join(' | ')} |`
+	];
+	if (notes.length) lines.push('', `<sub>${notes.join(' ')}</sub>`);
+	// Blank lines keep the hidden markers apart from the table, so every provider renders it.
+	return [STATUS_START, '', ...lines, '', STATUS_END].join('\n');
 }
 
 /** The status block in a summary body, if it has one. */
@@ -134,6 +157,8 @@ export interface ProgressTarget {
 	headSha: string;
 	mention: string;
 	detailsUrl?: string;
+	/** The Console's origin, where the status images are served. Absent: the status is text. */
+	images?: string;
 	log: Log;
 	updateCheckRun: (output: { title: string; summary: string }) => Promise<void>;
 	readSummary: () => Promise<{ id: string; body: string } | null>;
@@ -184,7 +209,8 @@ export function createReviewProgress(target: ProgressTarget): ReviewProgress {
 					headSha: target.headSha,
 					mention: target.mention,
 					previous: hasReviewSummary(existing?.body ?? null),
-					detailsUrl: target.detailsUrl
+					detailsUrl: target.detailsUrl,
+					images: target.images
 				})
 			: null;
 		const body = withStatusBlock(existing?.body ?? null, block);

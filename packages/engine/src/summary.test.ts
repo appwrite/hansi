@@ -38,8 +38,9 @@ describe('summaryAfterSettlement', () => {
 		expect(input.stillOpen).toEqual([]);
 
 		const body = formatSummaryComment(input);
-		expect(body).toContain('## 🟢 Tier S');
-		expect(body).toContain('| ✅ Approved | 0 | 0 | 0 |');
+		expect(body).toContain('🟢 **S** · Ready to merge');
+		expect(body).toContain('| ✅ Approved |');
+		expect(body).not.toContain('<summary>Findings');
 		expect(body).not.toContain('Still open from earlier reviews');
 		expect(body).not.toContain('/api responses bypass');
 	});
@@ -180,7 +181,7 @@ describe('summaryExtrasFromBody', () => {
 		});
 		const body = formatSummaryComment(input);
 		expect(body).toContain('3 of 12 changed files were too large to include in full.');
-		expect(body).toContain("### Couldn't attach to a line");
+		expect(body).toContain("<summary>Couldn't attach to a line");
 		expect(body).toContain('Caption manifest mixes formats');
 		expect(body).toContain('Lines outside the changed hunks');
 		expect(body).not.toContain(

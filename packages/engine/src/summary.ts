@@ -4,6 +4,7 @@ import type { Finding } from './findings';
 import {
 	filesTooLargeFromBody,
 	formatSummaryComment,
+	latestChangesFromBody,
 	STALE_HEAD_NOTE_MARK,
 	SUMMARY_MARKER,
 	type SummaryInput
@@ -46,9 +47,7 @@ export type SummaryExtras = {
  * drop them. These are not stored on the review row.
  */
 export function summaryExtrasFromBody(body: string): SummaryExtras {
-	// latestChanges can span lines; it always sits before the verdict table.
-	const latestChanges =
-		body.match(/\*\*Latest changes:\*\* ([\s\S]*?)\n\n\| Verdict \|/)?.[1] ?? null;
+	const latestChanges = latestChangesFromBody(body);
 	const noteLines = [...body.matchAll(/> \[!NOTE\]\n> (.+)/g)].map((match) => match[1] ?? '');
 	const stalePrefix = `${STALE_HEAD_NOTE_MARK} `;
 	const staleLine = noteLines.find((line) => line.startsWith(stalePrefix));
@@ -80,6 +79,8 @@ export async function refreshSummaryAfterSettlement(input: {
 	/** Where file links hang off: `<repository>/<sha>/<path>`. */
 	repository: string;
 	consoleUrl?: string;
+	/** The Console's origin, where the status images are served. Absent: the status is text. */
+	images?: string;
 	/**
 	 * Findings at or above this severity keep a change request standing
 	 * (`reviews.requestChanges`); null when the repository never requests changes.
@@ -114,6 +115,7 @@ export async function refreshSummaryAfterSettlement(input: {
 		findings: rows,
 		detailsUrl: reviewDetailsUrl(input.consoleUrl, pull.projectId, last.id),
 		mention,
+		images: input.images,
 		...extras
 	});
 
@@ -160,6 +162,7 @@ export function summaryAfterSettlement(
 		findings: FindingRow[];
 		detailsUrl?: string;
 		mention: string;
+		images?: string;
 	} & SummaryExtras
 ): SummaryInput {
 	const toFinding = (row: FindingRow): Finding => ({
@@ -216,6 +219,7 @@ export function summaryAfterSettlement(
 		incrementalFrom: input.incrementalFrom,
 		scope: input.scope,
 		detailsUrl: input.detailsUrl,
-		mention: input.mention
+		mention: input.mention,
+		images: input.images
 	};
 }

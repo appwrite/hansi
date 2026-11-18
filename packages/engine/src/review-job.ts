@@ -64,6 +64,7 @@ import {
 	lastCompleted,
 	modelUsage,
 	reviewDetailsUrl,
+	statusImagesOrigin,
 	withdrawChangeRequests,
 	withWorkdir
 } from './shared';
@@ -244,6 +245,7 @@ async function executeReview(
 	}
 
 	const detailsUrl = reviewDetailsUrl(job.repository.consoleUrl, ref.projectId, ref.reviewId);
+	const images = statusImagesOrigin(job.repository);
 	const checkRunId = await github.startCheckRun({
 		headSha: pr.headSha,
 		name: CHECK_NAME,
@@ -256,6 +258,7 @@ async function executeReview(
 		headSha: pr.headSha,
 		mention,
 		detailsUrl,
+		images,
 		log,
 		updateCheckRun: (output) => github.updateCheckRun(checkRunId, output),
 		readSummary: () => github.getMarkedComment(pr.number, SUMMARY_MARKER),
@@ -355,6 +358,7 @@ async function executeReview(
 						consoleUrl: job.repository.consoleUrl,
 						checkRunId,
 						detailsUrl,
+						images,
 						decision,
 						blocking: changeRequestSeverity(config),
 						lastDecisiveVerdict: history.lastDecisiveVerdict,
@@ -509,7 +513,8 @@ async function executeReview(
 					staleHead: decision.note,
 					incrementalFrom,
 					detailsUrl,
-					mention
+					mention,
+					images
 				});
 
 			let submission = decide((await github.getPullRequest(pr.number)).headSha);
@@ -878,6 +883,7 @@ async function finishMergeOnly(input: {
 	consoleUrl?: string;
 	checkRunId: string;
 	detailsUrl?: string;
+	images?: string;
 	decision: Extract<IncrementalDecision, { kind: 'merge-only' }>;
 	/** Findings at or above this keep a change request standing; null when it never requests changes. */
 	blocking: Severity | null;
@@ -918,6 +924,7 @@ async function finishMergeOnly(input: {
 		repository: input.repository,
 		mention: `@${app.slug}`,
 		detailsUrl: input.detailsUrl,
+		images: input.images,
 		scope: decision.scope,
 		review: carried,
 		findings,
