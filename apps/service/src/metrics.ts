@@ -118,15 +118,18 @@ export class Metrics {
 		this.jobsActive.add(1, { type });
 	}
 
+	/** A review carries the strength it ran at, so cost per review can be read per strength. */
 	jobFinished(
 		type: string,
 		outcome: 'done' | 'failed' | 'invalid',
 		retry: boolean,
-		seconds?: number
+		seconds?: number,
+		strength?: Strength
 	): void {
 		if (outcome !== 'invalid') this.jobsActive.add(-1, { type });
-		this.jobs.add(1, { type, outcome, retry: String(retry) });
-		if (seconds !== undefined) this.jobDuration.record(seconds, { type, outcome });
+		const labels = { type, ...(strength && { strength }) };
+		this.jobs.add(1, { ...labels, outcome, retry: String(retry) });
+		if (seconds !== undefined) this.jobDuration.record(seconds, { ...labels, outcome });
 	}
 
 	/**

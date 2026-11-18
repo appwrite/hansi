@@ -82,7 +82,8 @@ export class Worker {
 				job.type,
 				outcome?.outcome ?? 'failed',
 				outcome === undefined || (outcome.outcome === 'failed' && outcome.retry),
-				(performance.now() - started) / 1000
+				(performance.now() - started) / 1000,
+				job.type === 'review' ? job.strength : undefined
 			);
 			this.running--;
 			if (this.running === 0) this.idle.splice(0).forEach((resolve) => resolve());

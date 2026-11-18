@@ -68,7 +68,8 @@ describe('Metrics', () => {
 				repository,
 				pullNumber: 1,
 				headSha: 'a'.repeat(40),
-				trigger: { kind: 'opened' }
+				trigger: { kind: 'opened' },
+				strength: 'expert'
 			},
 			attempts: 0,
 			maxAttempts: 3
@@ -93,7 +94,7 @@ describe('Metrics', () => {
 
 		const jobs = (await reader.points('hansi_jobs_total')).map((p) => [p.attributes, p.value]);
 		expect(jobs).toEqual([
-			[{ type: 'review', outcome: 'done', retry: 'false' }, 1],
+			[{ type: 'review', strength: 'expert', outcome: 'done', retry: 'false' }, 1],
 			[{ type: 'chat', outcome: 'failed', retry: 'true' }, 1],
 			[{ type: 'unknown', outcome: 'invalid', retry: 'false' }, 1]
 		]);
