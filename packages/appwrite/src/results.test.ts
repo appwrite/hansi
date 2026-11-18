@@ -155,60 +155,6 @@ describe('AppwriteResultsSink', () => {
 		]);
 	});
 
-	test('reads and records what settled a finding and its reactions', async () => {
-		const sink = new AppwriteResultsSink(
-			serve((request) =>
-				new URL(request.url).pathname.endsWith('/findings')
-					? Response.json({
-							findings: [
-								{ id: 'open', providerCommentId: 41, settlement: '', upvotes: 0, downvotes: 0 },
-								{ id: 'fixed', providerCommentId: 'cmt_1', settlement: 'commit', upvotes: 2 },
-								{ id: 'old', providerCommentId: null }
-							]
-						})
-					: new Response(null, { status: 204 })
-			)
-		);
-		const pull = { projectId: 'project-1', repositoryId: 'repo-1', pullNumber: 7 };
-
-		expect(await sink.listFindings(pull)).toEqual([
-			{ id: 'open', providerCommentId: '41', settlement: null, upvotes: 0, downvotes: 0 },
-			{ id: 'fixed', providerCommentId: 'cmt_1', settlement: 'commit', upvotes: 2 },
-			{ id: 'old', providerCommentId: null }
-		] as never);
-		await sink.updateFindings(pull, ['open'], {
-			status: 'resolved',
-			reason: 'Fixed by abc1234',
-			settlement: 'commit'
-		});
-		const reactions = Array.from({ length: 101 }, (_, i) => ({
-			id: `f${i}`,
-			upvotes: 1,
-			downvotes: i % 2
-		}));
-		await sink.updateReactions(pull, reactions);
-		await sink.updateReactions(pull, []);
-
-		expect(requests.slice(1).map((r) => `${r.method} ${r.path}`)).toEqual([
-			'PATCH /v1/reviews/repositories/repo-1/pulls/7/findings/status',
-			'PATCH /v1/reviews/repositories/repo-1/pulls/7/findings/reactions',
-			'PATCH /v1/reviews/repositories/repo-1/pulls/7/findings/reactions'
-		]);
-		expect(requests[1]?.body).toEqual({
-			projectId: 'project-1',
-			findingIds: ['open'],
-			status: 'resolved',
-			reason: 'Fixed by abc1234',
-			settlement: 'commit'
-		});
-		const sent = requests
-			.slice(2)
-			.map((r) => r.body as { projectId: string; reactions: unknown[] });
-		expect(sent.map((body) => body.reactions.length)).toEqual([100, 1]);
-		expect(sent[0]?.projectId).toBe('project-1');
-		expect(sent[0]?.reactions[1]).toEqual({ findingId: 'f1', upvotes: 1, downvotes: 1 });
-	});
-
 	test('sends events in batches Appwrite takes, with ISO times', async () => {
 		const sink = new AppwriteResultsSink(serve());
 		const at = new Date('2026-10-27T12:00:00Z');

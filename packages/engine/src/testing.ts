@@ -13,9 +13,7 @@ import type {
 } from './github';
 import type {
 	ChatRef,
-	FindingReactions,
 	FindingRecord,
-	FindingSettlement,
 	FindingStatus,
 	ModelUsage,
 	PullRef,
@@ -80,35 +78,13 @@ export class MemoryResultsSink implements ResultsSink {
 	async updateFindings(
 		_pull: PullRef,
 		ids: string[],
-		update: {
-			status: FindingStatus;
-			reason: string;
-			from?: FindingStatus;
-			settlement?: FindingSettlement;
-		}
+		update: { status: FindingStatus; reason: string; from?: FindingStatus }
 	): Promise<void> {
 		for (const finding of this.findings) {
 			if (!ids.includes(finding.id)) continue;
 			if (update.from && finding.status !== update.from) continue;
 			finding.status = update.status;
 			finding.dropReason = update.reason;
-			if (update.settlement) finding.settlement = update.settlement;
-		}
-	}
-
-	/** Every reactions write, in order, to tell an unchanged count was not written again. */
-	readonly reactionWrites: ({ id: string } & FindingReactions)[][] = [];
-
-	async updateReactions(
-		_pull: PullRef,
-		reactions: ({ id: string } & FindingReactions)[]
-	): Promise<void> {
-		this.reactionWrites.push(reactions.map((reaction) => ({ ...reaction })));
-		for (const { id, upvotes, downvotes } of reactions) {
-			const finding = this.findings.find((f) => f.id === id);
-			if (!finding) continue;
-			finding.upvotes = upvotes;
-			finding.downvotes = downvotes;
 		}
 	}
 
@@ -439,13 +415,9 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 				resolvedBy: this.resolved.has(comment.id)
 					? (this.resolvedBy.get(comment.id) ?? null)
 					: null,
-				rootCommentId: comment.id,
-				reactions: this.votes.get(comment.id) ?? { upvotes: 0, downvotes: 0 }
+				rootCommentId: comment.id
 			}));
 	}
-
-	/** 👍 and 👎 on a thread's root comment, by its id. */
-	readonly votes = new Map<string, { upvotes: number; downvotes: number }>();
 
 	/** Who resolved a thread, by its root comment, when a person did. */
 	readonly resolvedBy = new Map<string, string>();
