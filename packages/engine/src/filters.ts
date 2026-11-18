@@ -54,7 +54,8 @@ export function generatedMatcher(globs: string[] = []): (path: string) => boolea
 /**
  * Files that are almost never worth an LLM's attention. Build output, vendored code, minified
  * bundles, and media stay ignored even with a sandbox: there is nothing to run that checks them
- * which the review of their sources does not already cover.
+ * which the review of their sources does not already cover. SVG is not on the list: it is markup
+ * that can carry scripts, event handlers and external references, so it is reviewed like code.
  */
 export const defaultIgnoreGlobs = [
 	...sandboxCheckedGlobs,
@@ -65,7 +66,6 @@ export const defaultIgnoreGlobs = [
 	'**/build/**',
 	'**/vendor/**',
 	'**/node_modules/**',
-	'**/*.svg',
 	'**/*.png',
 	'**/*.jpg',
 	'**/*.gif',

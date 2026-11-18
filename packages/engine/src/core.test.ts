@@ -80,6 +80,22 @@ describe('filterFiles', () => {
 		expect(result.excluded).toEqual([{ path: 'bun.lock', reason: 'ignored by default' }]);
 	});
 
+	test('reviews SVG markup but ignores raster images', () => {
+		const assets = parseUnifiedDiff(`diff --git a/static/logo.svg b/static/logo.svg
+new file mode 100644
+--- /dev/null
++++ b/static/logo.svg
+@@ -0,0 +1 @@
++<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"></svg>
+diff --git a/static/logo.png b/static/logo.png
+new file mode 100644
+Binary files /dev/null and b/static/logo.png differ
+`);
+		const result = filterFiles(assets);
+		expect(result.included.map((f) => f.path)).toEqual(['static/logo.svg']);
+		expect(result.excluded.map((f) => f.path)).toEqual(['static/logo.png']);
+	});
+
 	test('supports allowlists and exclusions', () => {
 		expect(filterFiles(files, ['!src/**']).included).toHaveLength(0);
 		expect(filterFiles(files, ['bun.lock']).included.map((f) => f.path)).toEqual(['bun.lock']);
