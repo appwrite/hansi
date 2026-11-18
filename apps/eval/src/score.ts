@@ -43,56 +43,92 @@ export function lineDistance(expected: ExpectedFinding, finding: ReportedFinding
 /**
  * Pairs findings with expected problems, each at most once. A finding counts for a problem when
  * it is on the same file, at the problem's severity or above, and either within `tolerance`
- * lines (the nearest wins) or, with a judge, when the judge says it reports that problem. The
- * judge sees every finding on the file: a finding on the caller still reports the bug.
+ * lines or, with a judge, when the judge says it reports that problem. The judge sees every
+ * finding on the file: a finding on the caller still reports the bug.
+ *
+ * By line, the pairing catches as many problems as any pairing could, whatever order the labels
+ * are in, preferring nearer findings: one finding between two problems does not cost the other
+ * its match. A judge is asked problem by problem, in the labels' order.
  */
 export async function matchFindings(
 	expected: ExpectedFinding[],
 	findings: ReportedFinding[],
 	options: { tolerance?: number; judge?: Judge } = {}
 ): Promise<MatchResult> {
-	const tolerance = options.tolerance ?? DEFAULT_TOLERANCE;
-	const used = new Set<number>();
+	const counts = (problem: ExpectedFinding, finding: ReportedFinding) =>
+		finding.path === problem.path &&
+		(!problem.severity || severityAtLeast(finding.severity, problem.severity));
+
+	const owner = options.judge
+		? await judgeMatches(expected, findings, counts, options.judge)
+		: lineMatches(expected, findings, counts, options.tolerance ?? DEFAULT_TOLERANCE);
+
+	const matchedBy = new Map([...owner].map(([finding, problem]) => [problem, finding]));
 	const matches: Match[] = [];
 	const missed: string[] = [];
+	expected.forEach((problem, index) => {
+		const finding = matchedBy.get(index);
+		if (finding === undefined) missed.push(problem.id);
+		else matches.push({ expected: problem.id, finding });
+	});
+	const unmatched = findings.map((_, index) => index).filter((index) => !owner.has(index));
+	return { matches, missed, unmatched };
+}
 
-	for (const problem of expected) {
+type Counts = (problem: ExpectedFinding, finding: ReportedFinding) => boolean;
+
+/** Which problem each finding is matched to, by index: a maximum matching over nearby findings. */
+function lineMatches(
+	expected: ExpectedFinding[],
+	findings: ReportedFinding[],
+	counts: Counts,
+	tolerance: number
+): Map<number, number> {
+	// Each problem's candidates, nearest first, so an augmenting path tries near findings first.
+	const candidates = expected.map((problem) =>
+		findings
+			.map((finding, index) => ({ index, distance: lineDistance(problem, finding) }))
+			.filter(({ index, distance }) => distance <= tolerance && counts(problem, findings[index]!))
+			.sort((a, b) => a.distance - b.distance)
+			.map((c) => c.index)
+	);
+	const owner = new Map<number, number>();
+	const assign = (problem: number, seen: Set<number>): boolean => {
+		for (const finding of candidates[problem]!) {
+			if (seen.has(finding)) continue;
+			seen.add(finding);
+			const current = owner.get(finding);
+			if (current === undefined || assign(current, seen)) {
+				owner.set(finding, problem);
+				return true;
+			}
+		}
+		return false;
+	};
+	expected.forEach((_, problem) => assign(problem, new Set()));
+	return owner;
+}
+
+async function judgeMatches(
+	expected: ExpectedFinding[],
+	findings: ReportedFinding[],
+	counts: Counts,
+	judge: Judge
+): Promise<Map<number, number>> {
+	const owner = new Map<number, number>();
+	for (const [problem, label] of expected.entries()) {
 		const candidates = findings
 			.map((finding, index) => ({ finding, index }))
-			.filter(
-				({ finding, index }) =>
-					!used.has(index) &&
-					finding.path === problem.path &&
-					(!problem.severity || severityAtLeast(finding.severity, problem.severity))
-			);
-
-		let picked: number | null = null;
-		if (options.judge) {
-			if (candidates.length > 0) {
-				const choice = await options.judge(
-					problem,
-					candidates.map((c) => c.finding)
-				);
-				picked = choice === null ? null : (candidates[choice]?.index ?? null);
-			}
-		} else {
-			const near = candidates
-				.map((c) => ({ ...c, distance: lineDistance(problem, c.finding) }))
-				.filter((c) => c.distance <= tolerance)
-				.sort((a, b) => a.distance - b.distance);
-			picked = near[0]?.index ?? null;
-		}
-
-		if (picked === null) {
-			missed.push(problem.id);
-			continue;
-		}
-		used.add(picked);
-		matches.push({ expected: problem.id, finding: picked });
+			.filter(({ finding, index }) => !owner.has(index) && counts(label, finding));
+		if (candidates.length === 0) continue;
+		const choice = await judge(
+			label,
+			candidates.map((c) => c.finding)
+		);
+		const picked = choice === null ? undefined : candidates[choice]?.index;
+		if (picked !== undefined) owner.set(picked, problem);
 	}
-
-	const unmatched = findings.map((_, index) => index).filter((index) => !used.has(index));
-	return { matches, missed, unmatched };
+	return owner;
 }
 
 /** What one review of one case scored. */

@@ -19,7 +19,7 @@ import {
 	type SandboxClient,
 	type TraceStep
 } from '@hansi/engine';
-import { cloneUrl, type EvalCase } from './case';
+import { cloneUrl, isGitHubUrl, type EvalCase } from './case';
 import { scoreReview, type CaseScore, type Judge } from './score';
 
 /** What one review of a case runs with. */
@@ -30,7 +30,7 @@ export interface RunSettings {
 	sandboxes?: SandboxClient;
 	judge?: Judge;
 	tolerance?: number;
-	/** Token for private repositories. */
+	/** Token for private repositories on github.com; never sent to another host. */
 	token?: string;
 	log: Log;
 	signal?: AbortSignal;
@@ -58,10 +58,12 @@ export async function checkoutCase(
 	const dir = await mkdtemp(join(tmpdir(), `hansi-eval-${evalCase.id}-`));
 	const close = () => rm(dir, { recursive: true, force: true });
 	try {
-		const { token, signal } = options;
+		const { signal } = options;
+		const url = cloneUrl(evalCase.repo);
+		const token = isGitHubUrl(url) ? options.token : undefined;
 		let diff = await checkoutPullRequest({
 			dir,
-			cloneUrl: cloneUrl(evalCase.repo),
+			cloneUrl: url,
 			token,
 			pullNumber: evalCase.pull ?? 0,
 			baseSha: evalCase.base,
@@ -141,7 +143,10 @@ export async function reviewCase(
 		const input: ReviewInput = {
 			repoDir: checkout.dir,
 			diff: checkout.diff,
-			trustedSource: { ref: evalCase.base, token: settings.token },
+			trustedSource: {
+				ref: evalCase.base,
+				token: isGitHubUrl(cloneUrl(evalCase.repo)) ? settings.token : undefined
+			},
 			pullRequest: evalCase.pullRequest,
 			linkedIssues: evalCase.linkedIssues,
 			config,

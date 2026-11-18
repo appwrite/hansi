@@ -45,6 +45,20 @@ describe('matchFindings', () => {
 		expect(result.unmatched).toEqual([0]);
 	});
 
+	test('catches every problem a pairing can, whatever order the labels are in', async () => {
+		for (const labels of [
+			[expected('a', [10, 10]), expected('b', [14, 14])],
+			[expected('b', [14, 14]), expected('a', [10, 10])]
+		]) {
+			const result = await matchFindings(labels, [finding(12), finding(7)], { tolerance: 5 });
+			expect(result.missed).toEqual([]);
+			expect(Object.fromEntries(result.matches.map((m) => [m.expected, m.finding]))).toEqual({
+				a: 1,
+				b: 0
+			});
+		}
+	});
+
 	test('ignores other files, findings beyond the tolerance and lower severities', async () => {
 		const result = await matchFindings(
 			[expected('a', [10, 10], { severity: 'major' })],

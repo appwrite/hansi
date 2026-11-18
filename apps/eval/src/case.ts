@@ -71,6 +71,18 @@ export function cloneUrl(repo: string): string {
 	return repo.includes('://') || repo.startsWith('git@') ? repo : `https://github.com/${repo}.git`;
 }
 
+/**
+ * Whether a clone URL is on github.com. Only those get `GITHUB_TOKEN`: git sends a token as a
+ * header to whatever host it fetches from, and a case may name any host.
+ */
+export function isGitHubUrl(url: string): boolean {
+	try {
+		return new URL(url).hostname === 'github.com';
+	} catch {
+		return false;
+	}
+}
+
 /** Reads one case directory. Throws with the case id and every problem in its file. */
 export async function loadCase(dir: string, id: string): Promise<EvalCase> {
 	const raw = JSON.parse(await readFile(join(dir, CASE_FILE), 'utf8')) as unknown;

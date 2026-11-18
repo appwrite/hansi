@@ -81,6 +81,17 @@ export function loadEvalEnv(
 		HANSI_SANDBOX_IMAGE: read('HANSI_SANDBOX_IMAGE'),
 		HANSI_SANDBOX_RUNTIME_CLASS: runtimeClass as EvalEnv['HANSI_SANDBOX_RUNTIME_CLASS']
 	};
+	// As in the service: every model shares one HANSI_AI_SECRET, so they share the review
+	// model's provider.
+	const reviewProvider = parseModelId(env.HANSI_REVIEW_MODEL).provider;
+	for (const name of MODEL_VARIABLES) {
+		const id = read(name);
+		if (id && name !== 'HANSI_REVIEW_MODEL' && parseModelId(id).provider !== reviewProvider) {
+			problems.push(
+				`${name}: use the review model's provider, ${reviewProvider}: there is one HANSI_AI_SECRET`
+			);
+		}
+	}
 	for (const provider of providers) {
 		for (const missing of missingConfig(provider, env)) {
 			problems.push(`${missing} is required for ${provider}`);

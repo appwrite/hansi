@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { cloneUrl, loadCases } from './case';
+import { cloneUrl, isGitHubUrl, loadCases } from './case';
 
 const valid = {
 	description: 'Missing await',
@@ -76,4 +76,11 @@ describe('loadCases', () => {
 test('cloneUrl reads owner/name as GitHub and keeps URLs', () => {
 	expect(cloneUrl('appwrite/hansi')).toBe('https://github.com/appwrite/hansi.git');
 	expect(cloneUrl('file:///tmp/repo')).toBe('file:///tmp/repo');
+});
+
+test('isGitHubUrl only holds for github.com', () => {
+	expect(isGitHubUrl('https://github.com/appwrite/hansi.git')).toBe(true);
+	expect(isGitHubUrl('https://github.com.evil.example/x.git')).toBe(false);
+	expect(isGitHubUrl('https://evil.example/github.com/x.git')).toBe(false);
+	expect(isGitHubUrl('file:///tmp/repo')).toBe(false);
 });
