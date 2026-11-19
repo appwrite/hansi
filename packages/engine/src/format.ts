@@ -489,6 +489,10 @@ export type StatusImage = 'waiting' | 'building' | 'ready' | 'failed';
  * and the label in italics. `images` is the Console's origin; without it, or with no image for
  * this state, the cell is the label alone, as Appwrite writes it for providers that cannot show
  * images from another host.
+ *
+ * The image is `align="absmiddle"` (CSS `vertical-align: middle`), so the label sits on the
+ * image's centre line. Appwrite's `align="center"` maps to `-webkit-baseline-middle`, which
+ * puts the image's centre on the text baseline and leaves the label riding high.
  */
 export function statusCell(image: StatusImage | null, label: string, images?: string): string {
 	const text = `_${label}_`;
@@ -497,7 +501,7 @@ export function statusCell(image: StatusImage | null, label: string, images?: st
 	const src = (theme: 'light' | 'dark') =>
 		`${images}/images/vcs/status-${image}-${theme}.${extension}`;
 	const alt = label.replace(/"/g, '&quot;');
-	return `<picture><source media="(prefers-color-scheme: dark)" srcset="${src('dark')}"><img alt="${alt}" width="85" align="center" src="${src('light')}"></picture> ${text}`;
+	return `<picture><source media="(prefers-color-scheme: dark)" srcset="${src('dark')}"><img alt="${alt}" width="85" align="absmiddle" src="${src('light')}"></picture> ${text}`;
 }
 
 /** A collapsible section, as Appwrite's deployment comments group Sites and Functions. */
