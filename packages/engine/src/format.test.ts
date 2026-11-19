@@ -74,7 +74,7 @@ describe('formatSummaryComment', () => {
 	test('shows the status image from the Console when there is one', () => {
 		const body = formatSummaryComment({ ...base, images: 'https://cloud.appwrite.io' });
 		expect(body).toContain(
-			'| `abcdef1` | <picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-ready-dark.png"><img alt="Reviewed" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-ready-light.png"></picture> _Reviewed_ |'
+			'| `abcdef1` | <picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-ready-dark.png"><img alt="Reviewed" width="85" align="absmiddle" src="https://cloud.appwrite.io/images/vcs/status-ready-light.png"></picture> _Reviewed_ |'
 		);
 	});
 
@@ -223,7 +223,7 @@ describe('statusCell', () => {
 
 	test('animates the running state and keeps the label', () => {
 		expect(statusCell('building', 'Reviewing', 'https://cloud.appwrite.io')).toBe(
-			'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Reviewing" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Reviewing_'
+			'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Reviewing" width="85" align="absmiddle" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Reviewing_'
 		);
 	});
 });

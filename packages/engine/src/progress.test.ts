@@ -63,7 +63,7 @@ test('the status row shows the animated image while running, and the state image
 		{ headSha: sha, mention: '@hansi', previous: false, images }
 	);
 	expect(running).toContain(
-		'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Verifying 2 possible findings" width="85" align="center" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Verifying 2 possible findings_'
+		'<picture><source media="(prefers-color-scheme: dark)" srcset="https://cloud.appwrite.io/images/vcs/status-building-dark.gif"><img alt="Verifying 2 possible findings" width="85" align="absmiddle" src="https://cloud.appwrite.io/images/vcs/status-building-light.gif"></picture> _Verifying 2 possible findings_'
 	);
 	const image = (status: Parameters<typeof statusBlock>[0]) =>
 		statusBlock(status, { headSha: sha, mention: '@hansi', previous: true, images }).match(
