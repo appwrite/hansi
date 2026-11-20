@@ -13,7 +13,7 @@ RUN composer install --no-dev --no-interaction --no-progress --prefer-dist \
 FROM oven/bun:1.4.4-alpine@sha256:4cf82f5686b196504fe119db3fcd9185b191f82ece82c40680e597228ec6070a AS bun
 
 # PHP 8.5 with Swoole, Redis and igbinary: the runtime Appwrite's own workers read queues on.
-FROM appwrite/base:2.2.9@sha256:ff6285b8621dd4863c6522737727904e109bd81f05e46b46dc2ef7e86d806b86
+FROM appwrite/base:2.3.0@sha256:e9519544a2315be040f150625d07c0bb24693a043130fc9e5f628411d4dfd5a7
 
 # The review's tools run git (checkouts, history) and ripgrep (grep). Nothing from a reviewed
 # repository runs in this container: commands go to orchestrator sandboxes.
