@@ -185,6 +185,36 @@ describe('runReviewJob', () => {
 		expect(results.events.some((e) => e.type === 'review.posted')).toBe(true);
 	});
 
+	test('writes the trace while the review runs, so the Console can follow it live', async () => {
+		let seenWhileRunning: string[] = [];
+		const { github, results, context } = setup();
+		const model = new MockLanguageModelV4({
+			doGenerate: async () => {
+				seenWhileRunning = results.events.map((e) => e.type);
+				return toolCall('submit_review', {
+					summary: 'Divides for real.',
+					findings: [],
+					tier: 'A',
+					walkthrough: []
+				});
+			}
+		});
+		context.models = { review: { model, provider: 'mock', modelId: 'mock-1' } };
+		github.patches = [
+			{
+				path: 'src/math.ts',
+				patch:
+					'@@ -1,3 +1,3 @@\n export function divide(a, b) {\n-  return 0;\n+  return a / b;\n }'
+			}
+		];
+		results.queue({ id: 'review1' });
+
+		await runReviewJob(job(), context, first);
+
+		expect(seenWhileRunning).toContain('review.mode');
+		expect(results.review('review1')?.status).toBe('completed');
+	});
+
 	test('a push that changes nothing after the blocking finding settled stops blocking the PR', async () => {
 		const model = new MockLanguageModelV4({
 			doGenerate: [

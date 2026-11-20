@@ -281,8 +281,21 @@ async function executeReview(
 			.catch((error: unknown) => log.warn('could not record review usage', { err: error }));
 		return pendingWrites;
 	};
+	// Steps are written as they happen, so the Console can follow a running review. Steps
+	// recorded while a write is out wait for the next one, so a busy review sends batches,
+	// not a request per step.
+	let writeQueued = false;
+	const flushSoon = () => {
+		if (writeQueued) return;
+		writeQueued = true;
+		pendingWrites = pendingWrites.then(() => {
+			writeQueued = false;
+		});
+		void flush();
+	};
 	const record = (event: TraceStep) => {
 		events.push({ type: event.type, at: new Date(), data: event.data ?? {} });
+		flushSoon();
 		progress.onEvent(event);
 		if (event.type !== 'anchoring.suspicious') return;
 		log.warn('most findings could not be attached to a changed line', {
