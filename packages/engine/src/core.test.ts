@@ -1226,6 +1226,57 @@ ${upstream}`;
 		);
 	});
 
+	test('dismisses an open finding only when a reply in its thread shows it does not apply', async () => {
+		const finding = (id: string, replies?: { author: string; body: string }[]) => ({
+			id,
+			path: 'src/math.ts',
+			startLine: 2,
+			endLine: 2,
+			severity: 'major' as const,
+			category: 'bug',
+			title: `Finding ${id}`,
+			body: 'Explained.',
+			...(replies ? { replies } : {})
+		});
+		const submission = toolCall('submit_review', {
+			summary: 'Collector config.',
+			findings: [],
+			resolved: [],
+			dismissed: [
+				{ id: 'f-answered', reason: 'The chart sets HOSTNAME from spec.nodeName.' },
+				{ id: 'f-silent', reason: 'Looks fine now.' }
+			],
+			tier: 'S',
+			tier_reason: 'Nothing left.'
+		});
+		const result = await runReview({
+			repoDir,
+			diff,
+			openFindings: [
+				finding('f-answered', [
+					{ author: 'octocat', body: 'The chart sets HOSTNAME to the node.' }
+				]),
+				finding('f-silent')
+			],
+			pullRequest: { title: 'Collector', body: '', author: 'octocat' },
+			config: parseRepoConfig('').config,
+			models: {
+				review: {
+					model: new MockLanguageModelV4({ doGenerate: [submission] }),
+					provider: 'mock',
+					modelId: 'mock-1'
+				}
+			}
+		});
+		if (result.status !== 'completed') throw new Error('expected a completed review');
+		// A finding nobody answered is not dismissed by the model alone: it still blocks.
+		expect(result.dismissed).toEqual([
+			{ id: 'f-answered', reason: 'The chart sets HOSTNAME from spec.nodeName.' }
+		]);
+		expect(result.stillOpenBlocking).toBe(1);
+		expect(result.verdict).toBe('comment');
+	});
+
 	test('comments instead of approving when a minor bug is posted or still open', async () => {
 		const posted = await runReview({
 			repoDir,

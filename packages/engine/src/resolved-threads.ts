@@ -75,3 +75,53 @@ export async function dismissFindingsResolvedOnGitHub(
 	if (dismissed) log.info('dismissed findings whose thread was resolved on GitHub', { dismissed });
 	return dismissed;
 }
+
+/** Most replies read per finding: the latest ones, since the newest answer is what counts. */
+const MAX_REPLIES = 5;
+/** Most finding threads read per review. */
+const MAX_THREADS = 20;
+
+/**
+ * Open findings with the replies people with write access left in their threads.
+ *
+ * A reply is normally answered by a chat job, which can dismiss the finding. When that job never
+ * runs, for example because the comment was not delivered, a re-review otherwise checks only the
+ * code and reports the finding again as if nobody had answered. With the replies in hand, the
+ * review weighs them too.
+ */
+export async function withThreadReplies<F extends { providerCommentId?: string | null }>(
+	{ github, app }: GitHubConnection,
+	pull: PullRef,
+	open: readonly F[],
+	log: Log
+): Promise<(F & { replies?: { author: string; body: string }[] })[]> {
+	const bot = `${app.slug}[bot]`.toLowerCase();
+	const writers = new Map<string, boolean>();
+	const isWriter = async (login: string) => {
+		if (!writers.has(login)) writers.set(login, await github.hasWriteAccess(login));
+		return writers.get(login)!;
+	};
+	let read = 0;
+	const out: (F & { replies?: { author: string; body: string }[] })[] = [];
+	for (const finding of open) {
+		if (!finding.providerCommentId || read >= MAX_THREADS) {
+			out.push(finding);
+			continue;
+		}
+		read++;
+		try {
+			const thread = await github.getReviewThread(pull.pullNumber, finding.providerCommentId);
+			const replies: { author: string; body: string }[] = [];
+			for (const comment of thread.slice(1)) {
+				if (comment.isBot || comment.author.toLowerCase() === bot) continue;
+				if (!(await isWriter(comment.author))) continue;
+				replies.push({ author: comment.author, body: comment.body });
+			}
+			out.push(replies.length ? { ...finding, replies: replies.slice(-MAX_REPLIES) } : finding);
+		} catch (error) {
+			log.warn('could not read a finding thread', { err: error });
+			out.push(finding);
+		}
+	}
+	return out;
+}

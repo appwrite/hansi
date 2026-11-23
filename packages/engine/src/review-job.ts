@@ -42,7 +42,7 @@ import {
 } from './mention-ack';
 import { checkRunProgress, createReviewProgress } from './progress';
 import { REVIEW_FAILURE_SUMMARY } from './public-failure';
-import { dismissFindingsResolvedOnGitHub } from './resolved-threads';
+import { dismissFindingsResolvedOnGitHub, withThreadReplies } from './resolved-threads';
 import { scopeToRepository } from './scope';
 import type {
 	FindingOutcome,
@@ -329,6 +329,7 @@ async function executeReview(
 				log
 			);
 			const history = await loadReviewHistory(results, pull, job.reviewId);
+			const openFindings = await withThreadReplies(connection, pull, history.open, log);
 			let reviewDiff = diff;
 			let incrementalFrom: string | undefined;
 			if (trigger === 'synchronize' && history.lastHeadSha) {
@@ -413,7 +414,7 @@ async function executeReview(
 					pullRequestDiff: diff,
 					incrementalFrom: range.incrementalFrom,
 					previousFindings: history.findings,
-					openFindings: history.open,
+					openFindings,
 					previousSummary: history.previousSummary,
 					learnings,
 					trustedSource: { ref: pr.baseSha, token },
@@ -477,13 +478,36 @@ async function executeReview(
 					.catch((error: unknown) => log.warn('could not resolve fixed threads', { err: error }));
 			}
 
+			// Findings a reply in their thread showed do not apply: say so there and close the thread.
+			for (const { id, reason } of result.dismissed) {
+				await results.updateFindings(pull, [id], {
+					status: 'dismissed',
+					reason: `Dismissed after a reply in its thread: ${reason}`,
+					from: 'posted'
+				});
+				const root = history.rows.find((f) => f.id === id)?.providerCommentId;
+				if (!root) continue;
+				await github
+					.replyToReviewComment(pr.number, root, `Withdrawn: ${reason}`)
+					.catch((error: unknown) =>
+						log.warn('could not reply to a dismissed finding', { err: error })
+					);
+				await github
+					.resolveReviewThreads(pr.number, [root])
+					.catch((error: unknown) =>
+						log.warn('could not resolve a dismissed thread', { err: error })
+					);
+			}
+
 			// The final summary replaces the status block, so no progress write may land after it.
 			progress.phase({ kind: 'publishing' });
 			await progress.close();
 
 			// One summary comment per PR, edited in place on every review.
 			const threshold = blockingSeverity(config);
-			const stillOpen = history.open.filter((f) => !result.resolved.includes(f.id));
+			const stillOpen = history.open.filter(
+				(f) => !result.resolved.includes(f.id) && !result.dismissed.some((d) => d.id === f.id)
+			);
 			// Submit a GitHub review when there are inline comments, the approve/request-changes
 			// state changes, the pull request reaches Tier S, or someone explicitly asked for a
 			// re-review.
@@ -858,7 +882,7 @@ async function loadReviewHistory(results: ResultsSink, pull: PullRef, reviewId: 
 	const rows = (await results.listFindings(pull, { limit: 200 })).filter(
 		(f) => f.reviewId !== reviewId && f.status !== 'dropped'
 	);
-	const open: OpenFinding[] = rows
+	const open: (OpenFinding & { providerCommentId: string | null })[] = rows
 		.filter((f) => f.status === 'posted')
 		.map((f) => ({ ...f, severity: f.severity as Severity }));
 	// Resolved findings may be reported again if the problem comes back; dismissed ones may not.
