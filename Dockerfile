@@ -2,7 +2,7 @@
 # starts the queue consumer, which reads Appwrite's queue with Appwrite's own PHP queue library
 # and hands each job to the service on loopback.
 
-FROM composer:2@sha256:919efe8e62179c71dfd31fad035fd671fe7454211c6b2aa30a10af0ab4acedba AS consumer
+FROM composer:2@sha256:50ea4d33fdcde1adb0f045547295faa1548b33872e5f789dae5b02ce2fb5de93 AS consumer
 
 WORKDIR /app/apps/consumer
 COPY apps/consumer/composer.json apps/consumer/composer.lock ./
