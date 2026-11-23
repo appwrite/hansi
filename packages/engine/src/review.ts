@@ -152,6 +152,12 @@ export interface OpenFinding {
 	category: string;
 	title: string;
 	body: string;
+	/**
+	 * Replies in the finding's thread from people with write access, oldest first. Only these can
+	 * settle a finding without a code change; the chat job normally answers them, and a review
+	 * reads them so a reply that never reached it still counts.
+	 */
+	replies?: { author: string; body: string }[];
 }
 
 export type ReviewResult =
@@ -164,6 +170,8 @@ export type ReviewResult =
 			dropped: DroppedFinding[];
 			/** Ids of open findings the current code fixes. */
 			resolved: string[];
+			/** Open findings a reply in their thread showed do not apply, with why. */
+			dismissed: { id: string; reason: string }[];
 			/** Earlier blocking findings that are still unresolved. */
 			stillOpenBlocking: number;
 			verdict: Verdict;
@@ -191,6 +199,13 @@ const submissionSchema = z.object({
 		.nullish()
 		.transform((ids) => ids ?? [])
 		.describe('Ids of <open_findings> that the current code fixes'),
+	dismissed: z
+		.array(z.object({ id: z.string(), reason: z.string() }))
+		.nullish()
+		.transform((entries) => entries ?? [])
+		.describe(
+			'<open_findings> whose replies show they do not apply, each with one sentence on why'
+		),
 	tier: omittable(z.enum(tiers)).describe('Merge confidence for the whole pull request'),
 	walkthrough: z
 		.array(z.object({ path: z.string(), change: z.string() }))
@@ -432,12 +447,17 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	const findings = [...submitted.findings, ...subagentFindings];
 	const openFindings = input.openFindings ?? [];
 	const resolved = submitted.resolved.filter((id) => openFindings.some((f) => f.id === id));
+	// Only a reply settles a finding without a code change: one with none stays open.
+	const dismissed = submitted.dismissed.filter(
+		(d) => !resolved.includes(d.id) && openFindings.some((f) => f.id === d.id && f.replies?.length)
+	);
 	emit({
 		type: 'review.submitted',
 		data: {
 			findings: findings.length,
 			fromSubagents: subagentFindings.length,
 			resolved,
+			dismissed: dismissed.map((d) => d.id),
 			tier: submitted.tier ?? null
 		}
 	});
@@ -567,7 +587,9 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 	// the same call as its findings, before any of them were filtered or left unattached, so
 	// reconcile both against what was actually posted or is still open. Placement misses stay in
 	// `dropped` for that reconciliation; the summary comment lists them on their own.
-	const stillOpen = openFindings.filter((f) => !resolved.includes(f.id));
+	const stillOpen = openFindings.filter(
+		(f) => !resolved.includes(f.id) && !dismissed.some((d) => d.id === f.id)
+	);
 	const threshold = blockingSeverity(config);
 	const stillOpenBlocking = stillOpen.filter((f) => severityAtLeast(f.severity, threshold)).length;
 	let verdict = decideVerdict({ posted, stillOpen, config });
@@ -641,6 +663,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		posted,
 		dropped,
 		resolved,
+		dismissed,
 		stillOpenBlocking,
 		verdict,
 		tier: presented.tier,
