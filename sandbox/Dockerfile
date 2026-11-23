@@ -13,7 +13,7 @@ RUN apt-get update \
 		php-cli php-curl php-intl php-mbstring php-mysql php-pgsql php-sqlite3 php-xml php-zip \
 	&& rm -rf /var/lib/apt/lists/*
 
-COPY --from=composer:2@sha256:919efe8e62179c71dfd31fad035fd671fe7454211c6b2aa30a10af0ab4acedba /usr/bin/composer /usr/local/bin/composer
+COPY --from=composer:2@sha256:50ea4d33fdcde1adb0f045547295faa1548b33872e5f789dae5b02ce2fb5de93 /usr/bin/composer /usr/local/bin/composer
 COPY --from=go /usr/local/go /usr/local/go
 
 # The orchestrator runs sandboxes as an unnamed non-root user on a read-only root filesystem,
