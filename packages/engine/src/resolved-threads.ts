@@ -80,6 +80,8 @@ export async function dismissFindingsResolvedOnGitHub(
 const MAX_REPLIES = 5;
 /** Most finding threads read per review. */
 const MAX_THREADS = 20;
+/** Most distinct reply authors whose write access one review checks. */
+const MAX_AUTHORS = 20;
 
 /**
  * Open findings with the replies people with write access left in their threads.
@@ -111,13 +113,16 @@ export async function withThreadReplies<F extends { providerCommentId?: string |
 		read++;
 		try {
 			const thread = await github.getReviewThread(pull.pullNumber, finding.providerCommentId);
+			// Newest first, and only until enough are kept: each new author costs a permission check.
 			const replies: { author: string; body: string }[] = [];
-			for (const comment of thread.slice(1)) {
+			for (const comment of thread.slice(1).reverse()) {
+				if (replies.length >= MAX_REPLIES) break;
 				if (comment.isBot || comment.author.toLowerCase() === bot) continue;
+				if (!writers.has(comment.author) && writers.size >= MAX_AUTHORS) continue;
 				if (!(await isWriter(comment.author))) continue;
-				replies.push({ author: comment.author, body: comment.body });
+				replies.unshift({ author: comment.author, body: comment.body });
 			}
-			out.push(replies.length ? { ...finding, replies: replies.slice(-MAX_REPLIES) } : finding);
+			out.push(replies.length ? { ...finding, replies } : finding);
 		} catch (error) {
 			log.warn('could not read a finding thread', { err: error });
 			out.push(finding);
