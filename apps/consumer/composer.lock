@@ -1987,16 +1987,16 @@
         },
         {
             "name": "utopia-php/nats",
-            "version": "1.6.0",
+            "version": "1.7.0",
             "source": {
                 "type": "git",
                 "url": "https://github.com/utopia-php/nats.git",
-                "reference": "22cd14f3cf7d0dc107088fb957cea99c275544c0"
+                "reference": "7d5693e1526b78c6cbb05e2e6fc3e06d4d5a1778"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/utopia-php/nats/zipball/22cd14f3cf7d0dc107088fb957cea99c275544c0",
-                "reference": "22cd14f3cf7d0dc107088fb957cea99c275544c0",
+                "url": "https://api.github.com/repos/utopia-php/nats/zipball/7d5693e1526b78c6cbb05e2e6fc3e06d4d5a1778",
+                "reference": "7d5693e1526b78c6cbb05e2e6fc3e06d4d5a1778",
                 "shasum": ""
             },
             "require": {
@@ -2004,6 +2004,7 @@
                 "php": ">=8.3"
             },
             "suggest": {
+                "ext-sockets": "Lets the transports tell a reset connection from an idle one before a request",
                 "ext-sodium": "Required for NKey and JWT credential authentication",
                 "ext-swoole": "Required for the coroutine-native SwooleTransport"
             },
@@ -2027,10 +2028,10 @@
             ],
             "support": {
                 "issues": "https://github.com/utopia-php/nats/issues",
-                "source": "https://github.com/utopia-php/nats/tree/1.6.0"
+                "source": "https://github.com/utopia-php/nats/tree/1.7.0"
             },
-            "time": "2026-10-30T10:00:27+00:00",
-            "published-time": "2026-11-02T14:32:21+00:00"
+            "time": "2026-11-19T11:32:25+00:00",
+            "published-time": "2026-11-24T12:25:21+00:00"
         },
         {
             "name": "utopia-php/pools",
