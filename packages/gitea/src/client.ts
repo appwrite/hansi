@@ -31,6 +31,11 @@ export interface InstallationToken {
 	expiresAt: Date;
 	/** The bot account: its user id, and the login people mention it by. */
 	app: { id: string; slug: string };
+	/**
+	 * The instance's API root when it is self-hosted, e.g. `https://git.example.com/api/v4`. Wins
+	 * over the configured one, since each installation names its own host.
+	 */
+	endpoint?: string;
 }
 
 /** Hands out the bot's token for one repository: the project's `repositories` row. */
@@ -71,7 +76,10 @@ export class InstallationGiteaClientFactory implements GitHubClientFactory {
 			}
 			return current.token;
 		};
-		const api = new GiteaApi(token, this.config);
+		const api = new GiteaApi(token, {
+			...this.config,
+			apiUrl: current.endpoint || this.config.apiUrl
+		});
 		// Gitea addresses a repository by owner and name only; its id finds them after a rename.
 		const found = repository.providerRepositoryId
 			? await api.request<Repository>(
@@ -429,10 +437,12 @@ export class GiteaClient implements GitHubClient {
 		const issues: LinkedIssueRef[] = [];
 		for (const number of numbers) {
 			const issue = await this.api
-				.request<{ number: number; title: string; body?: string; pull_request?: unknown }>(
-					'GET',
-					`${this.path}/issues/${number}`
-				)
+				.request<{
+					number: number;
+					title: string;
+					body?: string;
+					pull_request?: unknown;
+				}>('GET', `${this.path}/issues/${number}`)
 				.catch(() => null);
 			if (!issue || issue.pull_request) continue;
 			issues.push({

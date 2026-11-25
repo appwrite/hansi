@@ -366,3 +366,25 @@ describe('BitbucketClient', () => {
 		expect(await github.hasWriteAccess('ada')).toBe(true);
 	});
 });
+
+describe('InstallationBitbucketClientFactory', () => {
+	test('reads the workspace from a repository named by its full name', async () => {
+		const requested: string[] = [];
+		const apiUrl = serve({
+			'GET /2.0/repositories/acme/rocket': (request) => {
+				requested.push(request.path);
+				return Response.json({
+					full_name: 'acme/rocket',
+					links: { html: { href: 'https://bitbucket.org/acme/rocket' }, clone: [] }
+				});
+			}
+		});
+
+		const { filesUrl } = await new InstallationBitbucketClientFactory(source, {
+			apiUrl
+		}).forRepository({ ...repository, providerRepositoryId: 'acme/rocket', owner: 'Acme Inc' });
+
+		expect(requested).toEqual(['/2.0/repositories/acme/rocket']);
+		expect(filesUrl).toBe('https://bitbucket.org/acme/rocket/src');
+	});
+});

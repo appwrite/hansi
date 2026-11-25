@@ -344,4 +344,26 @@ describe('AppwriteInstallationTokens', () => {
 			}
 		]);
 	});
+
+	test('passes on the API root of a self-hosted provider', async () => {
+		const tokens = new AppwriteInstallationTokens(
+			serve(() =>
+				Response.json(
+					{
+						token: 'glo_x',
+						expiresAt: '2026-10-27T13:00:00Z',
+						appId: '7',
+						appSlug: 'ada',
+						provider: 'gitlab',
+						endpoint: 'https://git.example.com/api/v4'
+					},
+					{ status: 201 }
+				)
+			)
+		);
+
+		const token = await tokens.get({ projectId: 'project-1', repositoryId: 'repo-1' });
+
+		expect(token.endpoint).toBe('https://git.example.com/api/v4');
+	});
 });

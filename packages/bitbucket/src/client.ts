@@ -80,10 +80,13 @@ export class InstallationBitbucketClientFactory implements GitHubClientFactory {
 			}
 			return current.token;
 		};
-		// The repository's `{uuid}` survives a rename; its slug is the fallback.
-		const path = `/repositories/${encodeURIComponent(repository.owner)}/${encodeURIComponent(
-			repository.providerRepositoryId || repository.name
-		)}`;
+		// The repository's `{uuid}` survives a rename; its slug is the fallback. Appwrite names a
+		// repository by its full name, `workspace/slug`, which carries the workspace too.
+		const id = repository.providerRepositoryId || repository.name;
+		const [workspace, slug] = id.includes('/')
+			? [id.slice(0, id.indexOf('/')), id.slice(id.indexOf('/') + 1)]
+			: [repository.owner, id];
+		const path = `/repositories/${encodeURIComponent(workspace)}/${encodeURIComponent(slug)}`;
 		const github = new BitbucketClient(
 			new BitbucketApi(token, this.config),
 			path,

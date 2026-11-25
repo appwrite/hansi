@@ -428,3 +428,23 @@ test('contextLines maps unchanged lines to their old numbers', () => {
 		[13, 12]
 	]);
 });
+
+describe('InstallationGitLabClientFactory', () => {
+	test('speaks to the self-hosted instance the token names', async () => {
+		const endpoint = serve({
+			[`GET ${PROJECT}`]: () =>
+				Response.json({ id: 42, web_url: 'https://git.example.com/acme/platform/rocket' })
+		});
+		const selfHosted: InstallationTokens = {
+			async get() {
+				return { ...(await source.get({ projectId: '', repositoryId: '' })), endpoint };
+			}
+		};
+
+		const { filesUrl } = await new InstallationGitLabClientFactory(selfHosted, {
+			apiUrl: 'http://127.0.0.1:9/api/v4'
+		}).forRepository(repository);
+
+		expect(filesUrl).toBe('https://git.example.com/acme/platform/rocket/-/blob');
+	});
+});

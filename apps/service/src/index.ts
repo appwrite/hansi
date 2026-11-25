@@ -39,7 +39,8 @@ const tokens = new AppwriteInstallationTokens(appwrite);
 const clients: Record<Provider, GitHubClientFactory> = {
 	github: new InstallationGitHubClientFactory(tokens, { fetch: metrics.instrumentFetch('github') }),
 	origin: new InstallationOriginClientFactory(tokens, { fetch: metrics.instrumentFetch('origin') }),
-	// Not handed out by Appwrite yet: these speak to GitLab.com, Bitbucket Cloud and gitea.com.
+	// GitLab and Gitea default to GitLab.com and gitea.com; a self-hosted installation's token names
+	// its own API root.
 	gitlab: new InstallationGitLabClientFactory(tokens, { fetch: metrics.instrumentFetch('gitlab') }),
 	bitbucket: new InstallationBitbucketClientFactory(tokens, {
 		fetch: metrics.instrumentFetch('bitbucket')
