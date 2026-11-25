@@ -3,6 +3,8 @@ export interface InstallationToken {
 	expiresAt: Date;
 	/** The GitHub App the token is for. */
 	app: { id: string; slug: string };
+	/** The provider's API root, when Appwrite names one: a self-hosted GitLab or Gitea. */
+	endpoint?: string;
 }
 
 /**

@@ -33,6 +33,11 @@ export interface InstallationToken {
 	expiresAt: Date;
 	/** The bot account: its user id, and the username people mention it by. */
 	app: { id: string; slug: string };
+	/**
+	 * The instance's API root when it is self-hosted, e.g. `https://git.example.com/api/v4`. Wins
+	 * over the configured one, since each installation names its own host.
+	 */
+	endpoint?: string;
 }
 
 /** Hands out the bot's token for one repository: the project's `repositories` row. */
@@ -81,7 +86,7 @@ export class InstallationGitLabClientFactory implements GitHubClientFactory {
 			repository.providerRepositoryId || `${repository.owner}/${repository.name}`
 		);
 		const github = new GitLabClient(
-			new GitLabApi(token, this.config),
+			new GitLabApi(token, { ...this.config, apiUrl: current.endpoint || this.config.apiUrl }),
 			`/projects/${project}`,
 			token,
 			current.app

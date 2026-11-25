@@ -321,3 +321,28 @@ describe('GiteaClient', () => {
 		expect(await github.hasWriteAccess('nobody')).toBe(false);
 	});
 });
+
+describe('InstallationGiteaClientFactory', () => {
+	test('speaks to the self-hosted instance the token names', async () => {
+		const endpoint = serve({
+			[`GET ${BY_ID}`]: () =>
+				Response.json({
+					name: 'rocket',
+					owner: { id: 1, login: 'acme' },
+					html_url: 'https://git.example.com/acme/rocket',
+					clone_url: 'https://git.example.com/acme/rocket.git'
+				})
+		});
+		const selfHosted: InstallationTokens = {
+			async get() {
+				return { ...(await source.get({ projectId: '', repositoryId: '' })), endpoint };
+			}
+		};
+
+		const { filesUrl } = await new InstallationGiteaClientFactory(selfHosted, {
+			apiUrl: 'http://127.0.0.1:9/api/v1'
+		}).forRepository(repository);
+
+		expect(filesUrl).toBe('https://git.example.com/acme/rocket/src/commit');
+	});
+});
