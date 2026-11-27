@@ -14,6 +14,7 @@ import {
 	formatReviewBody,
 	formatSummaryComment,
 	latestChangesFromBody,
+	summaryVerdictFromBody,
 	STALE_HEAD_NOTE_MARK,
 	SUMMARY_MARKER,
 	type SummaryInput
@@ -121,9 +122,11 @@ export async function refreshSummaryAfterSettlement(input: {
 
 	const last = lastCompleted(await results.listReviews(pull));
 	if (!last?.summary || !last.verdict) return;
-	const reviewed = last.verdict as Verdict;
 
-	const rows = summaryFindings(await results.listFindings(pull, { limit: 200 }));
+	const listed = await results.listFindings(pull, { limit: FINDINGS_LIMIT });
+	// The list stops at the limit, so a full one may leave open findings out: never approve on it.
+	const complete = listed.length < FINDINGS_LIMIT;
+	const rows = summaryFindings(listed);
 	const open: VerdictFinding[] = rows
 		.filter((f) => f.status === 'posted')
 		.map((f) => ({ severity: f.severity as Severity, category: f.category, title: f.title }));
@@ -132,6 +135,11 @@ export async function refreshSummaryAfterSettlement(input: {
 	const existing = await github.getMarkedComment(pull.pullNumber, SUMMARY_MARKER);
 	const extras = existing ? summaryExtrasFromBody(existing.body) : {};
 	const status = existing && statusBlockOf(existing.body);
+	// An earlier settlement may have approved already; the stored review keeps its own verdict.
+	const reviewed: Verdict =
+		existing && summaryVerdictFromBody(existing.body) === 'approve'
+			? 'approve'
+			: (last.verdict as Verdict);
 	// A note that names an open defect follows the findings; any other note stays as written.
 	const withheld = extras.approvalWithheld?.startsWith(OPEN_DEFECT_NOTE)
 		? openDefectApprovalReason(open, config)
@@ -147,6 +155,7 @@ export async function refreshSummaryAfterSettlement(input: {
 	const current = status ? false : await reviewedHead();
 	const approves =
 		current &&
+		complete &&
 		settled !== 'approve' &&
 		!!extras.approvesWhenSettled &&
 		!extras.staleHead &&
@@ -176,35 +185,39 @@ export async function refreshSummaryAfterSettlement(input: {
 			withStatusBlock(formatSummaryComment(summaryInput), status)
 		);
 
-	let verdict: Verdict = approves ? 'approve' : settled;
-	let summaryInput = build(verdict);
-	const summary = await write(summaryInput);
-	// Confirm the head again right before approving: a push during the summary write takes the
-	// approval back, and the summary with it.
-	if (approves && !(await reviewedHead())) {
-		verdict = settled;
-		summaryInput = build(verdict);
-		await write(summaryInput);
+	// Approve first, so the summary never claims an approval GitHub does not have. Confirm the
+	// head right before: a push since the first read takes the approval back.
+	let verdict: Verdict = settled;
+	const tier = build('approve').tier;
+	if (approves && (await reviewedHead())) {
+		verdict = await github
+			.createReview({
+				pullNumber: pull.pullNumber,
+				commitId: last.headSha,
+				body: formatReviewBody({
+					tier,
+					verdict: 'approve',
+					blocking: 0,
+					comments: 0,
+					summaryUrl: existing?.url
+				}),
+				comments: [],
+				event: 'APPROVE'
+			})
+			.then(
+				(): Verdict => 'approve',
+				(error: unknown) => {
+					input.log.warn('could not approve after settlement', { err: error });
+					return settled;
+				}
+			);
 	}
+	const summaryInput = build(verdict);
+	await write(summaryInput);
 	await results.updateGrade(
 		{ projectId: pull.projectId, reviewId: last.id },
 		{ tier: summaryInput.tier, tierReason: summaryInput.tierReason }
 	);
-	if (verdict === 'approve' && approves) {
-		await github.createReview({
-			pullNumber: pull.pullNumber,
-			commitId: last.headSha,
-			body: formatReviewBody({
-				tier: summaryInput.tier,
-				verdict,
-				blocking: 0,
-				comments: 0,
-				summaryUrl: summary.url
-			}),
-			comments: [],
-			event: 'APPROVE'
-		});
-	}
 	// No blocking finding is left: withdraw any change request, including one an earlier review
 	// left in place. Dismissing finds nothing to do when there is none.
 	if (!blockingOpen) {
@@ -229,6 +242,9 @@ export async function refreshSummaryAfterSettlement(input: {
 		});
 	}
 }
+
+/** How many findings a settlement reads. */
+const FINDINGS_LIMIT = 200;
 
 function sameSha(a: string, b: string): boolean {
 	return a.toLowerCase() === b.toLowerCase();

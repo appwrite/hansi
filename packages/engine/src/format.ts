@@ -540,6 +540,19 @@ export function latestChangesFromBody(body: string): string | null {
 	return body.match(/\*\*Latest changes:\*\* ([\s\S]*?)\n\n\| Verdict \|/)?.[1] ?? null;
 }
 
+/** The verdict a summary comment's head row shows, or null when it shows none. */
+export function summaryVerdictFromBody(body: string): Verdict | null {
+	for (const line of body.split('\n')) {
+		if (!line.startsWith('| `')) continue;
+		const cells = (line.endsWith(' |') ? line.slice(0, -2) : line).split(' | ');
+		const found = (Object.keys(verdictText) as Verdict[]).find((verdict) =>
+			cells.includes(verdictText[verdict])
+		);
+		if (found) return found;
+	}
+	return null;
+}
+
 /** The summary comment Hansi keeps up to date on every pull request. */
 export function formatSummaryComment(input: SummaryInput): string {
 	const permalink = { repository: input.repository, headSha: input.headSha };

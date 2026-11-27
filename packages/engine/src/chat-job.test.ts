@@ -333,6 +333,91 @@ describe('runChatJob', () => {
 		]);
 	});
 
+	test('a later settlement keeps the approval without approving again', async () => {
+		const { github, results, context } = setup([dismissing(), dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		// A documentation note does not hold approval back, but its thread can still settle.
+		github.reviewComments.push(
+			{
+				id: '510',
+				author: 'hansi[bot]',
+				isBot: true,
+				body: '**Document divide**',
+				path: 'src/math.ts',
+				line: 1
+			},
+			{ id: '511', inReplyToId: '510', author: 'octocat', isBot: false, body: 'Not needed.' }
+		);
+		results.findings.push({
+			...results.findings[0]!,
+			id: 'finding2',
+			severity: 'minor',
+			category: 'documentation',
+			title: 'Document divide',
+			providerCommentId: '510'
+		});
+
+		await dismissByReply(context);
+		context.models.review.model = dismissing();
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '511',
+					kind: 'review',
+					rootCommentId: '510',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#discussion_r511'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		expect(results.findings.map((f) => f.status)).toEqual(['dismissed', 'dismissed']);
+		expect(github.summary()).toContain('✅ Approved');
+		expect(github.reviews.map((r) => r.event)).toEqual(['APPROVE']);
+		// The check run follows the grade: the open note held it at A, then nothing is open.
+		expect(github.checkRuns.map((r) => [r.conclusion, r.title])).toEqual([
+			['success', 'Tier A: Mergeable after minor fixes'],
+			['success', 'Tier S: Ready to merge']
+		]);
+	});
+
+	test('an approval GitHub refused is not claimed in the summary', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		github.createReview = async () => {
+			throw new Error('GitHub is down');
+		};
+
+		await dismissByReply(context);
+
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.summary()).toContain('💬 Commented');
+		expect(github.checkRuns.map((r) => r.conclusion)).toEqual(['neutral']);
+	});
+
+	test('a findings list cut at its limit never approves', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		const settled = {
+			...results.findings[0]!,
+			status: 'resolved' as const,
+			providerCommentId: null
+		};
+		for (let i = 0; i < 199; i++) results.findings.push({ ...settled, id: `old${i}` });
+
+		await dismissByReply(context);
+
+		expect(github.summary()).toContain('💬 Commented');
+		expect(github.reviews).toEqual([]);
+	});
+
 	test('a review that could not have approved anyway only refreshes its summary', async () => {
 		const { github, results, context } = setup([dismissing()]);
 		seedWithheldApproval(github, results, { approvesWhenSettled: false });

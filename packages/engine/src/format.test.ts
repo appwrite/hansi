@@ -12,6 +12,7 @@ import {
 	latestChangesFromBody,
 	statusCell,
 	SUMMARY_MARKER,
+	summaryVerdictFromBody,
 	type SummaryInput
 } from './format';
 
@@ -213,6 +214,13 @@ describe('formatSummaryComment', () => {
 		).toBe('Adds a cursor.');
 		expect(latestChangesFromBody(body)).toBeNull();
 	});
+});
+
+test('summaryVerdictFromBody reads the head row, with or without a details link', () => {
+	expect(summaryVerdictFromBody(formatSummaryComment(base))).toBe('request_changes');
+	const plain = formatSummaryComment({ ...base, verdict: 'approve', detailsUrl: undefined });
+	expect(summaryVerdictFromBody(plain)).toBe('approve');
+	expect(summaryVerdictFromBody(SUMMARY_MARKER)).toBeNull();
 });
 
 describe('statusCell', () => {
