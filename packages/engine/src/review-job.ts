@@ -61,6 +61,8 @@ import {
 	sameHeadSkipSummary
 } from './same-head';
 import {
+	CHECK_NAME,
+	checkConclusions,
 	lastCompleted,
 	modelUsage,
 	reviewDetailsUrl,
@@ -81,8 +83,7 @@ import type { ReviewEvent as TraceStep } from './tools';
 // Appwrite. It follows hansi.codes' worker step for step; Appwrite's Reviews API stands in for
 // hansi.codes' database.
 
-/** The check run the review reports on the commit. */
-export const CHECK_NAME = 'Hansi';
+export { CHECK_NAME } from './shared';
 
 type Outcome = { status: 'skipped'; summary: string; headSha?: string } | { status: 'completed' };
 
@@ -91,13 +92,6 @@ const reviewEvents = {
 	request_changes: 'REQUEST_CHANGES',
 	comment: 'COMMENT'
 } as const satisfies Record<Verdict, ReviewEvent>;
-
-/** The check run follows the verdict, so teams can require it for merging. */
-const checkConclusions = {
-	approve: 'success',
-	request_changes: 'failure',
-	comment: 'neutral'
-} as const;
 
 /** The trigger as hansi.codes names it, for the decisions that depend on it. */
 function triggerOf(job: ReviewJob): string {
@@ -548,6 +542,7 @@ async function executeReview(
 					approvalWithheld: result.approvalWithheld,
 					filesTooLargeForPrompt: result.filesTooLargeForPrompt,
 					staleHead: decision.note,
+					approvesWhenSettled: result.approvesWhenSettled,
 					incrementalFrom,
 					detailsUrl,
 					mention,
