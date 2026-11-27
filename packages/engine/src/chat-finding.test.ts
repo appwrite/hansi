@@ -1,6 +1,12 @@
 import { expect, test } from 'bun:test';
 import type { FindingRecord } from './results';
-import { chatFinding, chatReplyFields, findingsNamedIn, openBodyFindings } from './chat-finding';
+import {
+	chatFinding,
+	chatReplyFields,
+	findingsNamedIn,
+	openBodyFindings,
+	openFindings
+} from './chat-finding';
 
 const record = (finding: Partial<FindingRecord> & { id: string }): FindingRecord => ({
 	reviewId: 'review-1',
@@ -57,7 +63,8 @@ const rateWindow = {
 	title: 'Keep range-based rate windows above 2m',
 	path: 'dashboards/Edge/inbound-email.json',
 	startLine: 394,
-	endLine: 394
+	endLine: 394,
+	providerCommentId: null
 };
 
 test('open findings listed in the review body are the posted ones without a thread', () => {
@@ -72,6 +79,11 @@ test('open findings listed in the review body are the posted ones without a thre
 	// The inline finding has a thread and is answered there.
 	expect(openBodyFindings([inline, body, dismissed]).map((f) => f.id)).toEqual(['finding-body']);
 	expect(openBodyFindings([inline])).toEqual([]);
+	// A mention can answer either kind, so both are open; the inline one keeps its thread.
+	expect(openFindings([inline, body, dismissed]).map((f) => [f.id, f.providerCommentId])).toEqual([
+		['finding-body', null],
+		['finding-1', '4204630028']
+	]);
 });
 
 test('a conversation comment names a body finding by its title or line', () => {

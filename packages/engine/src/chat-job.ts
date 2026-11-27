@@ -5,6 +5,7 @@ import {
 	chatReplyFields,
 	findingsNamedIn,
 	openBodyFindings,
+	openFindings,
 	type ChatFindingRow
 } from './chat-finding';
 import { isBotAuthor, repliesToBot } from './chat-reply';
@@ -43,8 +44,14 @@ export async function runChatJob(
 	};
 
 	// Findings GitHub would not take inline have no thread; a conversation comment answers them.
+	// With a mention it can answer an inline finding too, which then settles in its thread.
 	const findings = await results.listFindings(pull, { limit: 200 });
-	const bodyFindings = comment.kind === 'issue' ? openBodyFindings(findings) : [];
+	const bodyFindings =
+		comment.kind !== 'issue'
+			? []
+			: job.unmentioned
+				? openBodyFindings(findings)
+				: openFindings(findings);
 	if (job.unmentioned && comment.kind === 'issue' && bodyFindings.length === 0) {
 		log.info('conversation comment without a mention and no open body findings, skipping');
 		return;
@@ -93,7 +100,8 @@ export async function runChatJob(
 		log.info("thread is on another project's finding, skipping");
 		return;
 	}
-	// The comment being answered can settle a body-listed finding by quoting its title or line.
+	// The comment being answered can settle a finding by quoting its title or line, or, with a
+	// mention, the only open one without naming it.
 	const answered = early?.find((c) => c.id === comment.id)?.body ?? '';
 	const named = findingsNamedIn(answered, bodyFindings, { mentioned: !job.unmentioned });
 	if (job.unmentioned && comment.kind === 'issue' && named.length === 0) {
@@ -222,11 +230,16 @@ export async function runChatJob(
 		});
 
 		await reply(`${answer}\n\n${marker}`);
-		// A finding settled in the conversation (fixed, or intended) closes its thread after the answer.
+		// A finding settled in the conversation (fixed, or intended) closes its thread after the
+		// answer: the one replied in, or the threads of the inline findings a conversation comment
+		// named.
 		if (settled) {
-			if (comment.rootCommentId) {
+			const threads = comment.rootCommentId
+				? [comment.rootCommentId]
+				: [...new Set(named.flatMap((f) => (f.providerCommentId ? [f.providerCommentId] : [])))];
+			if (threads.length) {
 				await github
-					.resolveReviewThreads(job.pullNumber, [comment.rootCommentId])
+					.resolveReviewThreads(job.pullNumber, threads)
 					.catch((error: unknown) => log.warn('could not resolve thread', { err: error }));
 			}
 			// Keep the PR summary's open-finding list and tier in sync with the dismissal.

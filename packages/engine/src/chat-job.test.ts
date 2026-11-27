@@ -201,6 +201,82 @@ describe('runChatJob', () => {
 		expect(results.chatUsage[0]?.usage.map((u) => u.role)).toEqual(['chat']);
 	});
 
+	test('a mention in the conversation can settle an inline finding and close its thread', async () => {
+		// appwrite-labs/application-configuration#1420: the author answered in the conversation,
+		// not in the finding's thread.
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Callers check b first' }]),
+				text('Agreed, dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.issueComments.push({
+			id: '910',
+			author: 'octocat',
+			isBot: false,
+			body: "@hansi read the comments - it's resolved"
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '910',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-910'
+				}
+			},
+			context,
+			first
+		);
+
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Division by zero');
+		expect(github.issueComments.map((c) => c.body)).toContain(
+			`Agreed, dismissing it.\n\n${replyMarker('910')}`
+		);
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.resolved.has(rootId)).toBe(true);
+		expect(results.review('review0')?.tier).toBe('S');
+	});
+
+	test('a conversation comment without a mention leaves inline findings to their threads', async () => {
+		const { github, results, context } = setup();
+		seedFinding(github, results);
+		github.issueComments.push({
+			id: '920',
+			author: 'octocat',
+			isBot: false,
+			body: 'Division by zero is fine here.'
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '920',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-920'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		expect(github.reactions).toEqual([]);
+		expect(results.findings[0]?.status).toBe('posted');
+	});
+
 	test("a thread on another project's finding is left to that project", async () => {
 		const { github, results, context } = setup();
 		const rootId = seedFinding(github, results);
