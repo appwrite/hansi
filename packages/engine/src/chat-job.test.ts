@@ -9,7 +9,6 @@ import { replyMarker, runChatJob, upTo } from './chat-job';
 import { formatSummaryComment, SUMMARY_MARKER } from './format';
 import type { ChatJob } from './jobs';
 import { summaryMarkerFor } from './scope';
-import { summaryMarkerFor } from './scope';
 import { MemoryGitHub, MemoryResultsSink } from './testing';
 
 // The chat job end to end against a local git remote, the in-memory GitHub and a scripted
