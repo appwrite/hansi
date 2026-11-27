@@ -1307,6 +1307,8 @@ ${upstream}`;
 		expect(posted.approvalWithheld).toBe(
 			'Not approving while a bug finding is open: Include nested rows in the purge'
 		);
+		// Only the finding holds approval back: settling it in its thread may approve.
+		expect(posted.approvesWhenSettled).toBe(true);
 
 		const earlier = await runReview({
 			repoDir,
@@ -1446,11 +1448,13 @@ ${upstream}`;
 		if (trusted.status !== 'completed') throw new Error('expected a completed review');
 		expect(trusted.verdict).toBe('approve');
 		expect(trusted.approvalWithheld).toBeNull();
+		expect(trusted.approvesWhenSettled).toBe(true);
 
 		const outsider = await review({ withholdApproval: 'Outside contributor.' });
 		if (outsider.status !== 'completed') throw new Error('expected a completed review');
 		expect(outsider.verdict).toBe('comment');
 		expect(outsider.approvalWithheld).toBe('Outside contributor.');
+		expect(outsider.approvesWhenSettled).toBe(false);
 
 		// A second file that does not fit in the prompt: the review is incomplete.
 		const bigger = `${diff}diff --git a/src/big.ts b/src/big.ts
@@ -1464,6 +1468,7 @@ ${upstream}`;
 		if (truncated.status !== 'completed') throw new Error('expected a completed review');
 		expect(truncated.verdict).toBe('comment');
 		expect(truncated.approvalWithheld).toContain('too large');
+		expect(truncated.approvesWhenSettled).toBe(false);
 		expect(truncated.filesTooLargeForPrompt).toEqual({ omitted: 1, total: 2 });
 		expect(trusted.filesTooLargeForPrompt).toBeNull();
 

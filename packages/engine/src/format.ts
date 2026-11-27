@@ -19,6 +19,14 @@ export const SUMMARY_MARKER = `<!-- ${MARKER_NAMESPACE}:summary -->`;
  */
 export const STALE_HEAD_NOTE_MARK = `<!-- ${MARKER_NAMESPACE}:stale-head -->`;
 
+/**
+ * Hidden marker on a summary whose review held approval back only for its open findings: the
+ * whole diff was seen and the author may be approved. Settling those findings in their threads
+ * then approves without another review. Without it (a partial diff, an outside contributor, or a
+ * summary written before the marker existed), settling never approves.
+ */
+export const APPROVES_WHEN_SETTLED_MARK = `<!-- ${MARKER_NAMESPACE}:approves-when-settled -->`;
+
 const severityIcon: Record<Severity, string> = {
 	critical: '🔴',
 	major: '🟠',
@@ -471,6 +479,8 @@ export interface SummaryInput {
 	 * change this pull request's code.
 	 */
 	scope?: string;
+	/** Only open findings keep Hansi from approving. See `APPROVES_WHEN_SETTLED_MARK`. */
+	approvesWhenSettled?: boolean;
 	detailsUrl?: string;
 	/** The bot's handle, e.g. `@hansi-codes`. */
 	mention: string;
@@ -696,6 +706,7 @@ export function formatSummaryComment(input: SummaryInput): string {
 			? `Reviewed the commits since <code>${input.incrementalFrom.slice(0, 7)}</code>`
 			: `Reviewed <code>${input.headSha.slice(0, 7)}</code>`;
 	parts.push(`<br>\n\n<sub>${reviewed}</sub>`, interactionTip(input.mention));
+	if (input.approvesWhenSettled) parts.push(APPROVES_WHEN_SETTLED_MARK);
 	return parts.join('\n\n');
 }
 

@@ -10,6 +10,16 @@ import type { ModelUsage, ReviewRecord } from './results';
 // What the review and chat jobs share: the work directory, links into the Console, the bot's
 // change requests, and model usage.
 
+/** The check run the review reports on the commit. */
+export const CHECK_NAME = 'Hansi';
+
+/** The check run follows the verdict, so teams can require it for merging. */
+export const checkConclusions = {
+	approve: 'success',
+	request_changes: 'failure',
+	comment: 'neutral'
+} as const;
+
 /** The latest completed review of a pull request, by when it finished. */
 export function lastCompleted(reviews: readonly ReviewRecord[]): ReviewRecord | undefined {
 	return reviews

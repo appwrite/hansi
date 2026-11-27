@@ -1,4 +1,4 @@
-import { changeRequestSeverity, parseRepoConfig, REPO_CONFIG_FILE } from './config';
+import { parseRepoConfig, REPO_CONFIG_FILE } from './config';
 import { runChat, type ThreadMessage } from './chat';
 import {
 	chatFinding,
@@ -229,7 +229,7 @@ export async function runChatJob(
 					.resolveReviewThreads(job.pullNumber, [comment.rootCommentId])
 					.catch((error: unknown) => log.warn('could not resolve thread', { err: error }));
 			}
-			// Keep the PR summary's open-finding list and tier in sync with the dismissal.
+			// Keep the summary, grade, check run and approval in sync with the settled finding.
 			await refreshSummaryAfterSettlement({
 				results,
 				connection,
@@ -237,7 +237,7 @@ export async function runChatJob(
 				repository,
 				consoleUrl: job.repository.consoleUrl,
 				images: statusImagesOrigin(job.repository),
-				blockingSeverity: changeRequestSeverity(config),
+				config,
 				log
 			}).catch((error: unknown) =>
 				log.warn('could not refresh summary after settlement', { err: error })

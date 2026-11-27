@@ -154,6 +154,31 @@ describe('summaryExtrasFromBody', () => {
 		expect(rebuilt).toContain('@stranger does not have write access.');
 	});
 
+	test('keeps the approves-when-settled mark through a rebuild', () => {
+		const body = formatSummaryComment(
+			summaryAfterSettlement({
+				...base,
+				verdict: 'comment',
+				findings: [],
+				approvesWhenSettled: true
+			})
+		);
+		expect(summaryExtrasFromBody(body).approvesWhenSettled).toBe(true);
+		const rebuilt = formatSummaryComment(
+			summaryAfterSettlement({
+				...base,
+				verdict: 'comment',
+				findings: [],
+				...summaryExtrasFromBody(body)
+			})
+		);
+		expect(summaryExtrasFromBody(rebuilt).approvesWhenSettled).toBe(true);
+		const without = formatSummaryComment(
+			summaryAfterSettlement({ ...base, verdict: 'comment', findings: [] })
+		);
+		expect(summaryExtrasFromBody(without).approvesWhenSettled).toBeUndefined();
+	});
+
 	test('returns nulls when those sections are absent', () => {
 		expect(
 			summaryExtrasFromBody(formatSummaryComment(summaryAfterSettlement({ ...base, findings: [] })))
