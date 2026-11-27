@@ -150,14 +150,19 @@ export async function runChatJob(
 		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
 			log.info('chat reply already posted, skipping');
 			// The attempt that answered may have settled a finding and then failed to close its
-			// thread: close it now.
+			// thread: close it now. The comment is read again, as the findings it named are no
+			// longer open. A mention that named none settled the only open one, whose title other
+			// settled findings may not share, so every settled finding's thread is closed then:
+			// each belongs closed, and closing one twice does nothing.
 			const settled = settledFindings(findings);
+			const text = posted.find((c) => c.id === comment.id)?.body ?? answered;
+			const named = findingsNamedIn(text, settled, { mentioned: false });
 			const threads =
 				comment.kind === 'review'
 					? settled.some((f) => f.providerCommentId === comment.rootCommentId)
 						? [comment.rootCommentId!]
 						: []
-					: threadsOf(findingsNamedIn(answered, settled, { mentioned: !job.unmentioned }));
+					: threadsOf(named.length || job.unmentioned ? named : settled);
 			await resolveThreads(threads);
 			await unacknowledge();
 			return;

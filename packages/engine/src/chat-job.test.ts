@@ -625,6 +625,56 @@ describe('runChatJob', () => {
 		expect(answers[0]?.body).not.toContain("couldn't answer");
 	});
 
+	test('a retry of a conversation mention closes the thread of the finding it settled', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Not tainted' }]),
+				text('Agreed, dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		// A finding settled earlier, under another title, so the retry cannot guess by title.
+		results.findings.push({
+			...results.findings[0]!,
+			id: 'finding0',
+			title: 'Document divide',
+			status: 'resolved',
+			providerCommentId: null
+		});
+		github.issueComments.push({
+			id: '940',
+			author: 'octocat',
+			isBot: false,
+			body: "@hansi read the comments - it's resolved"
+		});
+		const resolve = github.resolveReviewThreads.bind(github);
+		github.resolveReviewThreads = async () => {
+			throw new Error('GitHub is down');
+		};
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: '940',
+				kind: 'issue',
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#issuecomment-940'
+			}
+		};
+
+		await expect(runChatJob(job, context, first)).rejects.toThrow('GitHub is down');
+		expect(results.findings[0]?.status).toBe('dismissed');
+
+		github.resolveReviewThreads = resolve;
+		await runChatJob(job, context, { attempts: 2, maxAttempts: 2 });
+
+		expect(github.resolved.has(rootId)).toBe(true);
+		expect(github.issueComments.filter((c) => c.body.includes(replyMarker('940')))).toHaveLength(1);
+	});
+
 	test("only the pull request's author can settle a finding", async () => {
 		const model = new MockLanguageModelV4({
 			doGenerate: [text('That is for the author to settle.')]
