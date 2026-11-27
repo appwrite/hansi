@@ -27,6 +27,13 @@ export const STALE_HEAD_NOTE_MARK = `<!-- ${MARKER_NAMESPACE}:stale-head -->`;
  */
 export const APPROVES_WHEN_SETTLED_MARK = `<!-- ${MARKER_NAMESPACE}:approves-when-settled -->`;
 
+/**
+ * Hidden marker written once GitHub took the approval a settlement posted. The stored review
+ * keeps its own verdict, so later settlements read this to keep the approval, and to not post it
+ * again.
+ */
+export const APPROVED_ON_SETTLEMENT_MARK = `<!-- ${MARKER_NAMESPACE}:approved-on-settlement -->`;
+
 const severityIcon: Record<Severity, string> = {
 	critical: '🔴',
 	major: '🟠',
@@ -481,6 +488,8 @@ export interface SummaryInput {
 	scope?: string;
 	/** Only open findings keep Hansi from approving. See `APPROVES_WHEN_SETTLED_MARK`. */
 	approvesWhenSettled?: boolean;
+	/** A settlement approved this head. See `APPROVED_ON_SETTLEMENT_MARK`. */
+	approvedOnSettlement?: boolean;
 	detailsUrl?: string;
 	/** The bot's handle, e.g. `@hansi-codes`. */
 	mention: string;
@@ -538,19 +547,6 @@ export function latestChangesFromBody(body: string): string | null {
 	if (current !== undefined) return current;
 	// Summaries written before the restyle ended the paragraph at the verdict table.
 	return body.match(/\*\*Latest changes:\*\* ([\s\S]*?)\n\n\| Verdict \|/)?.[1] ?? null;
-}
-
-/** The verdict a summary comment's head row shows, or null when it shows none. */
-export function summaryVerdictFromBody(body: string): Verdict | null {
-	for (const line of body.split('\n')) {
-		if (!line.startsWith('| `')) continue;
-		const cells = (line.endsWith(' |') ? line.slice(0, -2) : line).split(' | ');
-		const found = (Object.keys(verdictText) as Verdict[]).find((verdict) =>
-			cells.includes(verdictText[verdict])
-		);
-		if (found) return found;
-	}
-	return null;
 }
 
 /** The summary comment Hansi keeps up to date on every pull request. */
@@ -720,6 +716,7 @@ export function formatSummaryComment(input: SummaryInput): string {
 			: `Reviewed <code>${input.headSha.slice(0, 7)}</code>`;
 	parts.push(`<br>\n\n<sub>${reviewed}</sub>`, interactionTip(input.mention));
 	if (input.approvesWhenSettled) parts.push(APPROVES_WHEN_SETTLED_MARK);
+	if (input.approvedOnSettlement) parts.push(APPROVED_ON_SETTLEMENT_MARK);
 	return parts.join('\n\n');
 }
 

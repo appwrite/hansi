@@ -402,7 +402,7 @@ describe('runChatJob', () => {
 		expect(github.checkRuns.map((r) => r.conclusion)).toEqual(['neutral']);
 	});
 
-	test('a findings list cut at its limit never approves', async () => {
+	test('a findings list cut at its limit leaves the standing as it is', async () => {
 		const { github, results, context } = setup([dismissing()]);
 		seedWithheldApproval(github, results, { approvesWhenSettled: true });
 		const settled = {
@@ -411,6 +411,23 @@ describe('runChatJob', () => {
 			providerCommentId: null
 		};
 		for (let i = 0; i < 199; i++) results.findings.push({ ...settled, id: `old${i}` });
+		const before = github.summary();
+
+		await dismissByReply(context);
+
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.summary()).toBe(before);
+		expect(results.review('review0')?.tier).toBe('A');
+		expect(github.reviews).toEqual([]);
+		expect(github.checkRuns).toEqual([]);
+	});
+
+	test('an approved summary without the settlement mark is not taken as an approval', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: false });
+		// A review's final summary is written before its GitHub review is posted.
+		const summary = github.issueComments[0]!;
+		summary.body = summary.body.replace('💬 Commented', '✅ Approved');
 
 		await dismissByReply(context);
 

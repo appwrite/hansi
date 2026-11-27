@@ -9,12 +9,12 @@ import type { Log } from './context';
 import type { Finding } from './findings';
 import {
 	absolutizeLinks,
+	APPROVED_ON_SETTLEMENT_MARK,
 	APPROVES_WHEN_SETTLED_MARK,
 	filesTooLargeFromBody,
 	formatReviewBody,
 	formatSummaryComment,
 	latestChangesFromBody,
-	summaryVerdictFromBody,
 	STALE_HEAD_NOTE_MARK,
 	SUMMARY_MARKER,
 	type SummaryInput
@@ -64,6 +64,8 @@ export type SummaryExtras = {
 	scope?: string;
 	/** Only open findings kept the review from approving. */
 	approvesWhenSettled?: boolean;
+	/** A settlement already approved this head. */
+	approvedOnSettlement?: boolean;
 };
 
 /**
@@ -87,7 +89,8 @@ export function summaryExtrasFromBody(body: string): SummaryExtras {
 		staleHead: staleLine ? staleLine.slice(stalePrefix.length) : null,
 		...(incrementalFrom ? { incrementalFrom } : {}),
 		...(scope ? { scope } : {}),
-		...(body.includes(APPROVES_WHEN_SETTLED_MARK) ? { approvesWhenSettled: true } : {})
+		...(body.includes(APPROVES_WHEN_SETTLED_MARK) ? { approvesWhenSettled: true } : {}),
+		...(body.includes(APPROVED_ON_SETTLEMENT_MARK) ? { approvedOnSettlement: true } : {})
 	};
 }
 
@@ -124,8 +127,14 @@ export async function refreshSummaryAfterSettlement(input: {
 	if (!last?.summary || !last.verdict) return;
 
 	const listed = await results.listFindings(pull, { limit: FINDINGS_LIMIT });
-	// The list stops at the limit, so a full one may leave open findings out: never approve on it.
-	const complete = listed.length < FINDINGS_LIMIT;
+	// The list stops at the limit, so a full one may leave open findings out. The grade, the
+	// change request and the approval would all rest on it: leave everything as it is.
+	if (listed.length >= FINDINGS_LIMIT) {
+		input.log.warn('too many findings to refresh the standing after settlement', {
+			limit: FINDINGS_LIMIT
+		});
+		return;
+	}
 	const rows = summaryFindings(listed);
 	const open: VerdictFinding[] = rows
 		.filter((f) => f.status === 'posted')
@@ -136,10 +145,7 @@ export async function refreshSummaryAfterSettlement(input: {
 	const extras = existing ? summaryExtrasFromBody(existing.body) : {};
 	const status = existing && statusBlockOf(existing.body);
 	// An earlier settlement may have approved already; the stored review keeps its own verdict.
-	const reviewed: Verdict =
-		existing && summaryVerdictFromBody(existing.body) === 'approve'
-			? 'approve'
-			: (last.verdict as Verdict);
+	const reviewed: Verdict = extras.approvedOnSettlement ? 'approve' : (last.verdict as Verdict);
 	// A note that names an open defect follows the findings; any other note stays as written.
 	const withheld = extras.approvalWithheld?.startsWith(OPEN_DEFECT_NOTE)
 		? openDefectApprovalReason(open, config)
@@ -155,7 +161,6 @@ export async function refreshSummaryAfterSettlement(input: {
 	const current = status ? false : await reviewedHead();
 	const approves =
 		current &&
-		complete &&
 		settled !== 'approve' &&
 		!!extras.approvesWhenSettled &&
 		!extras.staleHead &&
@@ -175,7 +180,10 @@ export async function refreshSummaryAfterSettlement(input: {
 			mention,
 			images: input.images,
 			...extras,
-			approvalWithheld: verdict === 'approve' ? null : withheld
+			approvalWithheld: verdict === 'approve' ? null : withheld,
+			// Approve here comes from the stored review, an earlier settlement, or GitHub taking
+			// this one's approval.
+			approvedOnSettlement: verdict === 'approve' && last.verdict !== 'approve'
 		});
 	// A review running right now keeps its status line above the rebuilt summary.
 	const write = (summaryInput: SummaryInput) =>
@@ -333,6 +341,7 @@ export function summaryAfterSettlement(
 		incrementalFrom: input.incrementalFrom,
 		scope: input.scope,
 		approvesWhenSettled: input.approvesWhenSettled,
+		approvedOnSettlement: input.approvedOnSettlement,
 		detailsUrl: input.detailsUrl,
 		mention: input.mention,
 		images: input.images
