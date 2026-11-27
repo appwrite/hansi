@@ -523,6 +523,40 @@ export async function acknowledgeComment(
 	}
 }
 
+/**
+ * Takes the bot's 👀 off a comment. Creating a reaction that already exists answers with the
+ * existing one, so its id is found without knowing the bot's login, then deleted.
+ */
+export async function clearAcknowledgement(
+	octokit: Octokit,
+	ref: RepoRef,
+	comment: { id: number; kind: 'issue' | 'review' }
+) {
+	if (comment.kind === 'issue') {
+		const { data } = await octokit.rest.reactions.createForIssueComment({
+			...ref,
+			comment_id: comment.id,
+			content: 'eyes'
+		});
+		await octokit.rest.reactions.deleteForIssueComment({
+			...ref,
+			comment_id: comment.id,
+			reaction_id: data.id
+		});
+	} else {
+		const { data } = await octokit.rest.reactions.createForPullRequestReviewComment({
+			...ref,
+			comment_id: comment.id,
+			content: 'eyes'
+		});
+		await octokit.rest.reactions.deleteForPullRequestComment({
+			...ref,
+			comment_id: comment.id,
+			reaction_id: data.id
+		});
+	}
+}
+
 /** The bot's marked comment on an issue, if one exists. */
 export async function getMarkedComment(
 	octokit: Octokit,

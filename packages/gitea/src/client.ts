@@ -362,6 +362,15 @@ export class GiteaClient implements GitHubClient {
 		);
 	}
 
+	async clearAcknowledgement(_pullNumber: number, comment: { id: string }): Promise<void> {
+		// Gitea removes the caller's own reaction with that content.
+		await this.api.request(
+			'DELETE',
+			`${this.path}/issues/comments/${encodeURIComponent(comment.id)}/reactions`,
+			{ body: { content: 'eyes' } }
+		);
+	}
+
 	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		const thread = (await this.threads(pullNumber)).find(
 			(comments) => String(comments[0]!.id) === rootCommentId

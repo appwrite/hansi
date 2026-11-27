@@ -368,6 +368,7 @@ describe('runReviewJob', () => {
 		);
 
 		expect(github.reactions).toEqual([{ id: '55', kind: 'issue' }]);
+		expect(github.clearedReactions).toEqual([{ id: '55', kind: 'issue' }]);
 		expect(github.issueComments.map((c) => c.body)).toEqual([
 			"This pull request is merged, so Hansi doesn't review it anymore."
 		]);

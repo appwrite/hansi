@@ -109,6 +109,12 @@ export async function runChatJob(
 		return;
 	}
 
+	// The 👀 says Hansi is on it, so it comes off once the comment is answered, or will not be.
+	const unacknowledge = () =>
+		github
+			.clearAcknowledgement(job.pullNumber, { id: comment.id, kind: comment.kind })
+			.catch((error: unknown) => log.warn('could not remove reaction', { err: error }));
+
 	// A retry after GitHub took the answer but the delivery did not settle must not answer twice.
 	const marker = replyMarker(comment.id);
 	if (attempt.attempts > 1) {
@@ -119,6 +125,7 @@ export async function runChatJob(
 					await github.getRecentIssueComments(job.pullNumber, Number.MAX_SAFE_INTEGER);
 		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
 			log.info('chat reply already posted, skipping');
+			await unacknowledge();
 			return;
 		}
 	}
@@ -230,6 +237,7 @@ export async function runChatJob(
 		});
 
 		await reply(`${answer}\n\n${marker}`);
+		await unacknowledge();
 		// A finding settled in the conversation (fixed, or intended) closes its thread after the
 		// answer: the one replied in, or the threads of the inline findings a conversation comment
 		// named.
@@ -261,7 +269,10 @@ export async function runChatJob(
 		// Tell the person the answer failed, once retries are exhausted. The reply is fixed:
 		// the error can name a provider or include request details, and it stays in the logs.
 		const notice = chatFailureReply(attempt);
-		if (notice) await reply(notice).catch(() => {});
+		if (notice) {
+			await reply(notice).catch(() => {});
+			await unacknowledge();
+		}
 		throw error;
 	} finally {
 		if (usage.length) {

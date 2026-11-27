@@ -370,6 +370,9 @@ export class OriginClient implements GitHubClient {
 		);
 	}
 
+	/** Origin has no way to take a reaction back, so the 👀 stays. */
+	async clearAcknowledgement(): Promise<void> {}
+
 	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		const comments = await this.comments(pullNumber, { threadIds: [rootCommentId] });
 		return comments.map((comment) => this.threadComment(comment));
