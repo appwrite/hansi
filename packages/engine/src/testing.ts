@@ -215,8 +215,8 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 	readonly reviews: MemoryReview[] = [];
 	readonly checkRuns: MemoryCheckRun[] = [];
 	readonly reactions: { id: string; kind: 'issue' | 'review' }[] = [];
-	/** Comments whose 👀 was taken off again, in order. */
-	readonly clearedReactions: { id: string; kind: 'issue' | 'review' }[] = [];
+	/** Comments whose 👀 was swapped for 👍, in order. */
+	readonly finishedReactions: { id: string; kind: 'issue' | 'review' }[] = [];
 	readonly resolved = new Set<string>();
 	readonly writers = new Set<string>();
 	/** Heads `getPullRequest` reports after the first read, in order, e.g. a push mid-review. */
@@ -381,11 +381,11 @@ export class MemoryGitHub implements GitHubClient, GitHubClientFactory {
 		this.reactions.push(comment);
 	}
 
-	async clearAcknowledgement(
+	async finishAcknowledgement(
 		_pullNumber: number,
 		comment: { id: string; kind: 'issue' | 'review' }
 	): Promise<void> {
-		this.clearedReactions.push(comment);
+		this.finishedReactions.push(comment);
 	}
 
 	async getReviewThread(_pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {

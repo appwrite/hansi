@@ -109,11 +109,11 @@ export async function runChatJob(
 		return;
 	}
 
-	// The 👀 says Hansi is on it, so it comes off once the comment is answered, or will not be.
+	// The 👀 says Hansi is on it, so it turns into 👍 once the comment is answered, or will not be.
 	const unacknowledge = () =>
 		github
-			.clearAcknowledgement(job.pullNumber, { id: comment.id, kind: comment.kind })
-			.catch((error: unknown) => log.warn('could not remove reaction', { err: error }));
+			.finishAcknowledgement(job.pullNumber, { id: comment.id, kind: comment.kind })
+			.catch((error: unknown) => log.warn('could not finish reaction', { err: error }));
 
 	// A retry after GitHub took the answer but the delivery did not settle must not answer twice.
 	const marker = replyMarker(comment.id);

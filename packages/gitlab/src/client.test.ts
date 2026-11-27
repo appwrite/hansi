@@ -396,8 +396,9 @@ describe('GitLabClient', () => {
 		expect(await github.getFileContent('missing.yml', 'base')).toBeNull();
 	});
 
-	test('takes only its own eyes off a comment', async () => {
+	test('swaps only its own eyes for a thumbs up', async () => {
 		const { github } = await connect({
+			[`POST ${MR}/notes/5/award_emoji`]: () => Response.json({}),
 			[`GET ${MR}/notes/5/award_emoji`]: () =>
 				Response.json([
 					{ id: 1, name: 'eyes', user: { id: 1, username: 'ada' } },
@@ -407,8 +408,9 @@ describe('GitLabClient', () => {
 			[`DELETE ${MR}/notes/5/award_emoji/3`]: () => new Response(null, { status: 204 })
 		});
 
-		await github.clearAcknowledgement(7, { id: '5', kind: 'issue' });
+		await github.finishAcknowledgement(7, { id: '5', kind: 'issue' });
 
+		expect(seen.find((s) => s.method === 'POST')?.body).toEqual({ name: 'thumbsup' });
 		expect(seen.map((s) => `${s.method} ${s.path}`).slice(-2)).toEqual([
 			`GET ${MR}/notes/5/award_emoji`,
 			`DELETE ${MR}/notes/5/award_emoji/3`

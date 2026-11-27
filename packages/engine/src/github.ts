@@ -140,8 +140,8 @@ export interface GitHubClient {
 		pullNumber: number,
 		comment: { id: string; kind: 'issue' | 'review' }
 	): Promise<void>;
-	/** Takes Hansi's 👀 off a comment again once it has been answered, where the provider can. */
-	clearAcknowledgement(
+	/** Swaps Hansi's 👀 on a comment for 👍 once it has been answered, where the provider can. */
+	finishAcknowledgement(
 		pullNumber: number,
 		comment: { id: string; kind: 'issue' | 'review' }
 	): Promise<void>;

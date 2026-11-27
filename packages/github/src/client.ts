@@ -149,8 +149,8 @@ export class OctokitGitHubClient implements GitHubClient {
 		});
 	}
 
-	clearAcknowledgement(_pullNumber: number, comment: { id: string; kind: 'issue' | 'review' }) {
-		return pulls.clearAcknowledgement(this.octokit, this.ref, {
+	finishAcknowledgement(_pullNumber: number, comment: { id: string; kind: 'issue' | 'review' }) {
+		return pulls.finishAcknowledgement(this.octokit, this.ref, {
 			id: Number(comment.id),
 			kind: comment.kind
 		});

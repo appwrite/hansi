@@ -124,18 +124,18 @@ export async function runReviewJob(
 		outcome = await executeReview(job, context, ref, pull, attempt, signal);
 	} catch (error) {
 		// A retry reviews it again, so the 👀 stays until the last attempt.
-		if (attempt.attempts >= attempt.maxAttempts) await clearMentionAcknowledgement(job, context);
+		if (attempt.attempts >= attempt.maxAttempts) await finishMentionAcknowledgement(job, context);
 		throw error;
 	}
 	if (outcome.status === 'skipped') {
 		await results.skipReview(ref, outcome.summary, outcome.headSha);
 	}
-	await clearMentionAcknowledgement(job, context);
+	await finishMentionAcknowledgement(job, context);
 	log.info('review finished', { status: outcome.status });
 }
 
-/** Takes the 👀 off the comment that asked for the review, once the review has ended. */
-async function clearMentionAcknowledgement(job: ReviewJob, context: EngineContext): Promise<void> {
+/** Swaps the 👀 on the comment that asked for the review for 👍, once the review has ended. */
+async function finishMentionAcknowledgement(job: ReviewJob, context: EngineContext): Promise<void> {
 	const asked = reviewMentionComment(job);
 	if (!asked) return;
 	try {
@@ -143,9 +143,9 @@ async function clearMentionAcknowledgement(job: ReviewJob, context: EngineContex
 			await context.github.forRepository(job.repository),
 			job.repository
 		);
-		await github.clearAcknowledgement(job.pullNumber, asked);
+		await github.finishAcknowledgement(job.pullNumber, asked);
 	} catch (error) {
-		context.log.warn('could not remove reaction', { err: error });
+		context.log.warn('could not finish reaction', { err: error });
 	}
 }
 

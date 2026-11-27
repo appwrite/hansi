@@ -404,8 +404,9 @@ export class GitLabClient implements GitHubClient {
 		);
 	}
 
-	async clearAcknowledgement(pullNumber: number, comment: { id: string }): Promise<void> {
+	async finishAcknowledgement(pullNumber: number, comment: { id: string }): Promise<void> {
 		const path = `${this.mergeRequestPath(pullNumber)}/notes/${encodeURIComponent(comment.id)}/award_emoji`;
+		await this.api.request('POST', path, { body: { name: 'thumbsup' } });
 		const awards = await this.api.request<{ id: number; name: string; user: User }[]>('GET', path);
 		for (const award of awards) {
 			if (award.name !== 'eyes' || !this.isOwn(award.user)) continue;

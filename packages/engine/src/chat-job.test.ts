@@ -296,8 +296,8 @@ describe('runChatJob', () => {
 		await runChatJob(job, context, first);
 
 		expect(github.reactions).toEqual([{ id: '501', kind: 'review' }]);
-		// The 👀 comes off once the answer is posted.
-		expect(github.clearedReactions).toEqual([{ id: '501', kind: 'review' }]);
+		// The 👀 turns into 👍 once the answer is posted.
+		expect(github.finishedReactions).toEqual([{ id: '501', kind: 'review' }]);
 		const reply = github.reviewComments.at(-1);
 		expect(reply?.inReplyToId).toBe(rootId);
 		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker('501')}`);
@@ -748,7 +748,7 @@ describe('runChatJob', () => {
 		expect(github.issueComments.map((c) => c.body)).toEqual([
 			"Sorry, I couldn't answer that right now."
 		]);
-		expect(github.clearedReactions).toEqual([{ id: '800', kind: 'issue' }]);
+		expect(github.finishedReactions).toEqual([{ id: '800', kind: 'issue' }]);
 	});
 
 	test('a failed attempt that will be retried keeps the 👀', async () => {
@@ -779,7 +779,7 @@ describe('runChatJob', () => {
 		).rejects.toThrow();
 
 		expect(github.reactions).toEqual([{ id: '810', kind: 'issue' }]);
-		expect(github.clearedReactions).toEqual([]);
+		expect(github.finishedReactions).toEqual([]);
 	});
 });
 

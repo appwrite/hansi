@@ -370,8 +370,14 @@ export class OriginClient implements GitHubClient {
 		);
 	}
 
-	/** Origin has no way to take a reaction back, so the 👀 stays. */
-	async clearAcknowledgement(): Promise<void> {}
+	/** Origin has no way to take a reaction back, so the 👍 joins the 👀. */
+	async finishAcknowledgement(_pullNumber: number, comment: { id: string }): Promise<void> {
+		await this.api.request(
+			'POST',
+			`${this.path}/pulls/comments/${encodeURIComponent(comment.id)}/reactions`,
+			{ emoji: '👍' }
+		);
+	}
 
 	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		const comments = await this.comments(pullNumber, { threadIds: [rootCommentId] });

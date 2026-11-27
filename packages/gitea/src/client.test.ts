@@ -240,13 +240,14 @@ describe('GiteaClient', () => {
 		});
 		await github.acknowledgeComment(7, { id: '5', kind: 'review' });
 		await github.replyToReviewComment(7, '5', 'Done');
-		await github.clearAcknowledgement(7, { id: '5', kind: 'review' });
+		await github.finishAcknowledgement(7, { id: '5', kind: 'review' });
 		expect(await github.resolveReviewThreads(7, ['5'])).toBe(1);
 
 		expect(seen.slice(1).map((s) => [s.method, s.path, s.body])).toEqual([
 			['PATCH', `${REPO}/issues/comments/2`, { body: '<!-- m --> new' }],
 			['POST', `${REPO}/issues/comments/5/reactions`, { content: 'eyes' }],
 			['POST', `${PULL}/comments/5/replies`, { body: 'Done' }],
+			['POST', `${REPO}/issues/comments/5/reactions`, { content: '+1' }],
 			['DELETE', `${REPO}/issues/comments/5/reactions`, { content: 'eyes' }],
 			['POST', `${REPO}/pulls/comments/5/resolve`, undefined]
 		]);
