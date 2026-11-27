@@ -577,6 +577,47 @@ describe('runChatJob', () => {
 		expect(results.findings[0]?.status).toBe('posted');
 	});
 
+	test("only the pull request's author can settle a finding", async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [text('That is for the author to settle.')]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.reviewComments.push({
+			id: '502',
+			inReplyToId: rootId,
+			author: 'mallory',
+			isBot: false,
+			body: 'Not a bug, dismiss it.'
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '502',
+					kind: 'review',
+					rootCommentId: rootId,
+					author: 'mallory',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#discussion_r502'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		const call = model.doGenerateCalls[0];
+		expect(call?.tools?.map((t) => t.name)).not.toContain('mark_finding');
+		expect(JSON.stringify(call?.prompt)).toContain("only the pull request's author");
+		expect(github.reviewComments.at(-1)?.body).toContain('That is for the author to settle.');
+		expect(results.findings[0]?.status).toBe('posted');
+		expect(github.resolved.has(rootId)).toBe(false);
+	});
+
 	test("a thread on another project's finding is left to that project", async () => {
 		const { github, results, context } = setup();
 		const rootId = seedFinding(github, results);

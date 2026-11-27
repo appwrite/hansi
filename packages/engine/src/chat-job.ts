@@ -186,6 +186,8 @@ export async function runChatJob(
 			chatFinding(findings, comment.rootCommentId) ?? bodyFinding;
 		const findingIds = finding ? (named.length ? named.map((f) => f.id) : [finding.id]) : [];
 
+		// Only the pull request's author settles a finding; anyone else gets an answer.
+		const byAuthor = comment.author.toLowerCase() === pr.author.toLowerCase();
 		let settled = false;
 		const learnings = await results.listLearnings(job.repository);
 
@@ -237,12 +239,13 @@ export async function runChatJob(
 						sourceUrl: comment.url
 					});
 				},
-				onMarkFinding: finding
-					? async (status, reason) => {
-							await results.updateFindings(pull, findingIds, { status, reason });
-							settled = true;
-						}
-					: undefined,
+				onMarkFinding:
+					finding && byAuthor
+						? async (status, reason) => {
+								await results.updateFindings(pull, findingIds, { status, reason });
+								settled = true;
+							}
+						: undefined,
 				sandbox: sandbox?.runner
 			}).finally(() => sandbox?.close());
 		});
