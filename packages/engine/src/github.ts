@@ -140,6 +140,11 @@ export interface GitHubClient {
 		pullNumber: number,
 		comment: { id: string; kind: 'issue' | 'review' }
 	): Promise<void>;
+	/** Swaps Hansi's 👀 on a comment for 👍 once it has been answered, where the provider can. */
+	finishAcknowledgement(
+		pullNumber: number,
+		comment: { id: string; kind: 'issue' | 'review' }
+	): Promise<void>;
 
 	/** A review comment thread: the root comment and its replies, oldest first. */
 	getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]>;

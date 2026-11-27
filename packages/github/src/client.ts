@@ -149,6 +149,13 @@ export class OctokitGitHubClient implements GitHubClient {
 		});
 	}
 
+	finishAcknowledgement(_pullNumber: number, comment: { id: string; kind: 'issue' | 'review' }) {
+		return pulls.finishAcknowledgement(this.octokit, this.ref, {
+			id: Number(comment.id),
+			kind: comment.kind
+		});
+	}
+
 	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		const thread = await pulls.getReviewThread(
 			this.octokit,

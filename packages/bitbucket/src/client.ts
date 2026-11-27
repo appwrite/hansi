@@ -389,6 +389,8 @@ export class BitbucketClient implements GitHubClient {
 	/** Bitbucket has no reactions to acknowledge a comment with. */
 	async acknowledgeComment(): Promise<void> {}
 
+	async finishAcknowledgement(): Promise<void> {}
+
 	async getReviewThread(pullNumber: number, rootCommentId: string): Promise<ThreadComment[]> {
 		const comments = await this.comments(pullNumber);
 		const inThread = new Set([rootCommentId]);

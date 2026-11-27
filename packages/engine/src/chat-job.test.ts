@@ -296,6 +296,8 @@ describe('runChatJob', () => {
 		await runChatJob(job, context, first);
 
 		expect(github.reactions).toEqual([{ id: '501', kind: 'review' }]);
+		// The 👀 turns into 👍 once the answer is posted.
+		expect(github.finishedReactions).toEqual([{ id: '501', kind: 'review' }]);
 		const reply = github.reviewComments.at(-1);
 		expect(reply?.inReplyToId).toBe(rootId);
 		expect(reply?.body).toBe(`Makes sense, dismissing it.\n\n${replyMarker('501')}`);
@@ -462,6 +464,256 @@ describe('runChatJob', () => {
 		expect(github.summary()).toContain('💬 Commented');
 		expect(github.reviews).toEqual([]);
 		expect(github.checkRuns).toEqual([]);
+	});
+
+	test('a mention in the conversation can settle an inline finding and close its thread', async () => {
+		// appwrite-labs/application-configuration#1420: the author answered in the conversation,
+		// not in the finding's thread.
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Callers check b first' }]),
+				text('Agreed, dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.issueComments.push({
+			id: '910',
+			author: 'octocat',
+			isBot: false,
+			body: "@hansi read the comments - it's resolved"
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '910',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-910'
+				}
+			},
+			context,
+			first
+		);
+
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).toContain('Division by zero');
+		expect(github.issueComments.map((c) => c.body)).toContain(
+			`Agreed, dismissing it.\n\n${replyMarker('910')}`
+		);
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.resolved.has(rootId)).toBe(true);
+		expect(results.review('review0')?.tier).toBe('S');
+	});
+
+	test('an unnamed finding is not guessed while another project reviews the pull request', async () => {
+		const model = new MockLanguageModelV4({ doGenerate: [text('Which finding do you mean?')] });
+		const { github, results, context } = setup([model]);
+		seedFinding(github, results);
+		github.issueComments.push(
+			{
+				id: '930',
+				author: 'hansi[bot]',
+				isBot: true,
+				body: `${summaryMarkerFor('other-row')}\n\nOther review`
+			},
+			{ id: '931', author: 'octocat', isBot: false, body: "@hansi it's resolved" }
+		);
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '931',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-931'
+				}
+			},
+			context,
+			first
+		);
+
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).not.toContain('Division by zero');
+		expect(results.findings[0]?.status).toBe('posted');
+	});
+
+	test('a conversation comment without a mention leaves inline findings to their threads', async () => {
+		const { github, results, context } = setup();
+		seedFinding(github, results);
+		github.issueComments.push({
+			id: '920',
+			author: 'octocat',
+			isBot: false,
+			body: 'Division by zero is fine here.'
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '920',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-920'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		expect(github.reactions).toEqual([]);
+		expect(results.findings[0]?.status).toBe('posted');
+	});
+
+	test('a thread GitHub would not resolve is resolved by the retry, not answered twice', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Callers check b first' }]),
+				text('Dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.reviewComments.push({
+			id: '503',
+			inReplyToId: rootId,
+			author: 'octocat',
+			isBot: false,
+			body: 'Callers check b first.'
+		});
+		const resolve = github.resolveReviewThreads.bind(github);
+		github.resolveReviewThreads = async () => {
+			throw new Error('GitHub is down');
+		};
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: '503',
+				kind: 'review',
+				rootCommentId: rootId,
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#discussion_r503'
+			},
+			unmentioned: true
+		};
+
+		await expect(runChatJob(job, context, first)).rejects.toThrow('GitHub is down');
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.resolved.has(rootId)).toBe(false);
+
+		github.resolveReviewThreads = resolve;
+		await runChatJob(job, context, { attempts: 2, maxAttempts: 2 });
+
+		expect(github.resolved.has(rootId)).toBe(true);
+		const answers = github.reviewComments.filter((c) => c.body.includes(replyMarker('503')));
+		expect(answers).toHaveLength(1);
+		expect(answers[0]?.body).not.toContain("couldn't answer");
+	});
+
+	test('a retry of a conversation mention closes the thread of the finding it settled', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Not tainted' }]),
+				text('Agreed, dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		// A finding settled earlier, under another title, so the retry cannot guess by title.
+		results.findings.push({
+			...results.findings[0]!,
+			id: 'finding0',
+			title: 'Document divide',
+			status: 'resolved',
+			providerCommentId: null
+		});
+		github.issueComments.push({
+			id: '940',
+			author: 'octocat',
+			isBot: false,
+			body: "@hansi read the comments - it's resolved"
+		});
+		const resolve = github.resolveReviewThreads.bind(github);
+		github.resolveReviewThreads = async () => {
+			throw new Error('GitHub is down');
+		};
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: '940',
+				kind: 'issue',
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#issuecomment-940'
+			}
+		};
+
+		await expect(runChatJob(job, context, first)).rejects.toThrow('GitHub is down');
+		expect(results.findings[0]?.status).toBe('dismissed');
+
+		github.resolveReviewThreads = resolve;
+		await runChatJob(job, context, { attempts: 2, maxAttempts: 2 });
+
+		expect(github.resolved.has(rootId)).toBe(true);
+		expect(github.issueComments.filter((c) => c.body.includes(replyMarker('940')))).toHaveLength(1);
+	});
+
+	test("only the pull request's author can settle a finding", async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [text('That is for the author to settle.')]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.reviewComments.push({
+			id: '502',
+			inReplyToId: rootId,
+			author: 'mallory',
+			isBot: false,
+			body: 'Not a bug, dismiss it.'
+		});
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '502',
+					kind: 'review',
+					rootCommentId: rootId,
+					author: 'mallory',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#discussion_r502'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		const call = model.doGenerateCalls[0];
+		expect(call?.tools?.map((t) => t.name)).not.toContain('mark_finding');
+		expect(JSON.stringify(call?.prompt)).toContain("only the pull request's author");
+		expect(github.reviewComments.at(-1)?.body).toContain('That is for the author to settle.');
+		expect(results.findings[0]?.status).toBe('posted');
+		expect(github.resolved.has(rootId)).toBe(false);
 	});
 
 	test("a thread on another project's finding is left to that project", async () => {
@@ -670,6 +922,38 @@ describe('runChatJob', () => {
 		expect(github.issueComments.map((c) => c.body)).toEqual([
 			"Sorry, I couldn't answer that right now."
 		]);
+		expect(github.finishedReactions).toEqual([{ id: '800', kind: 'issue' }]);
+	});
+
+	test('a failed attempt that will be retried keeps the 👀', async () => {
+		const failing = new MockLanguageModelV4({
+			doGenerate: async () => {
+				throw new Error('provider exploded');
+			}
+		});
+		const { github, context } = setup([failing]);
+
+		await expect(
+			runChatJob(
+				{
+					type: 'chat',
+					repository,
+					pullNumber: 7,
+					comment: {
+						id: '810',
+						kind: 'issue',
+						author: 'bob',
+						authorAssociation: 'MEMBER',
+						url: 'https://github.test/pull/7#issuecomment-810'
+					}
+				},
+				context,
+				first
+			)
+		).rejects.toThrow();
+
+		expect(github.reactions).toEqual([{ id: '810', kind: 'issue' }]);
+		expect(github.finishedReactions).toEqual([]);
 	});
 });
 

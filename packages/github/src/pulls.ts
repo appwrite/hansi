@@ -523,6 +523,33 @@ export async function acknowledgeComment(
 	}
 }
 
+/**
+ * Swaps the bot's 👀 on a comment for 👍: done. Creating a reaction that already exists answers
+ * with the existing one, so the 👀's id is found without knowing the bot's login.
+ */
+export async function finishAcknowledgement(
+	octokit: Octokit,
+	ref: RepoRef,
+	comment: { id: number; kind: 'issue' | 'review' }
+) {
+	const target = { ...ref, comment_id: comment.id };
+	if (comment.kind === 'issue') {
+		await octokit.rest.reactions.createForIssueComment({ ...target, content: '+1' });
+		const { data } = await octokit.rest.reactions.createForIssueComment({
+			...target,
+			content: 'eyes'
+		});
+		await octokit.rest.reactions.deleteForIssueComment({ ...target, reaction_id: data.id });
+	} else {
+		await octokit.rest.reactions.createForPullRequestReviewComment({ ...target, content: '+1' });
+		const { data } = await octokit.rest.reactions.createForPullRequestReviewComment({
+			...target,
+			content: 'eyes'
+		});
+		await octokit.rest.reactions.deleteForPullRequestComment({ ...target, reaction_id: data.id });
+	}
+}
+
 /** The bot's marked comment on an issue, if one exists. */
 export async function getMarkedComment(
 	octokit: Octokit,

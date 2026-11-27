@@ -208,7 +208,11 @@ function findingInstruction(
 	reply: ChatReplyContext | undefined,
 	policy: ChatReplyPolicy
 ): string {
-	if (!aboutFinding) return '';
+	if (!aboutFinding) {
+		return reply?.finding
+			? `\n- This conversation is about a finding you posted ("${reply.finding.title}"), but only the pull request's author can resolve or dismiss it, and the commenter is not the author. Answer them, and do not say the finding is resolved or dismissed.`
+			: '';
+	}
 	const finding = reply?.finding;
 	const association = reply?.authorAssociation;
 	if (policy.acceptReasonedDecline && finding && association) {

@@ -396,6 +396,27 @@ describe('GitLabClient', () => {
 		expect(await github.getFileContent('missing.yml', 'base')).toBeNull();
 	});
 
+	test('swaps only its own eyes for a thumbs up', async () => {
+		const { github } = await connect({
+			[`POST ${MR}/notes/5/award_emoji`]: () => Response.json({}),
+			[`GET ${MR}/notes/5/award_emoji`]: () =>
+				Response.json([
+					{ id: 1, name: 'eyes', user: { id: 1, username: 'ada' } },
+					{ id: 2, name: 'thumbsup', user: bot },
+					{ id: 3, name: 'eyes', user: bot }
+				]),
+			[`DELETE ${MR}/notes/5/award_emoji/3`]: () => new Response(null, { status: 204 })
+		});
+
+		await github.finishAcknowledgement(7, { id: '5', kind: 'issue' });
+
+		expect(seen.find((s) => s.method === 'POST')?.body).toEqual({ name: 'thumbsup' });
+		expect(seen.map((s) => `${s.method} ${s.path}`).slice(-2)).toEqual([
+			`GET ${MR}/notes/5/award_emoji`,
+			`DELETE ${MR}/notes/5/award_emoji/3`
+		]);
+	});
+
 	test('reacts with eyes and links only issues of this project', async () => {
 		const { github } = await connect({
 			[`POST ${MR}/notes/5/award_emoji`]: () => Response.json({}),

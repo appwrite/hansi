@@ -1,6 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { SUMMARY_MARKER } from './format';
-import { reviewMarkerFor, scopeToRepository, summaryMarkerFor } from './scope';
+import {
+	reviewedByAnotherRepository,
+	reviewMarkerFor,
+	scopeToRepository,
+	summaryMarkerFor
+} from './scope';
 import { MemoryGitHub } from './testing';
 
 // Two Appwrite projects reviewing one repository share the GitHub App: each sees only its own
@@ -113,4 +118,14 @@ describe('scopeToRepository', () => {
 		expect(github.issueComments[0]?.body).toBe('hello');
 		expect((await a.getPullRequest(7)).number).toBe(7);
 	});
+});
+
+test("another row's summary on the pull request means another project reviews it", () => {
+	const own = { isBot: true, body: `${summaryMarkerFor('row1')}\n\n## Code review` };
+	const other = { isBot: true, body: `${summaryMarkerFor('row2')}\n\n## Code review` };
+	const quoted = { isBot: false, body: other.body };
+	expect(reviewedByAnotherRepository([own], 'row1')).toBe(false);
+	expect(reviewedByAnotherRepository([own, quoted], 'row1')).toBe(false);
+	expect(reviewedByAnotherRepository([own, other], 'row1')).toBe(true);
+	expect(reviewedByAnotherRepository([{ isBot: true, body: SUMMARY_MARKER }], 'row1')).toBe(false);
 });

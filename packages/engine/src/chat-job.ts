@@ -5,6 +5,8 @@ import {
 	chatReplyFields,
 	findingsNamedIn,
 	openBodyFindings,
+	openFindings,
+	settledFindings,
 	type ChatFindingRow
 } from './chat-finding';
 import { isBotAuthor, repliesToBot } from './chat-reply';
@@ -16,7 +18,7 @@ import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
 import { lazySandbox, openSandbox } from './review-sandbox';
-import { scopeToRepository } from './scope';
+import { reviewedByAnotherRepository, scopeToRepository } from './scope';
 import { modelUsage, statusImagesOrigin, withWorkdir } from './shared';
 import { refreshSummaryAfterSettlement } from './summary';
 
@@ -43,8 +45,14 @@ export async function runChatJob(
 	};
 
 	// Findings GitHub would not take inline have no thread; a conversation comment answers them.
+	// With a mention it can answer an inline finding too, which then settles in its thread.
 	const findings = await results.listFindings(pull, { limit: 200 });
-	const bodyFindings = comment.kind === 'issue' ? openBodyFindings(findings) : [];
+	const bodyFindings =
+		comment.kind !== 'issue'
+			? []
+			: job.unmentioned
+				? openBodyFindings(findings)
+				: openFindings(findings);
 	if (job.unmentioned && comment.kind === 'issue' && bodyFindings.length === 0) {
 		log.info('conversation comment without a mention and no open body findings, skipping');
 		return;
@@ -93,13 +101,43 @@ export async function runChatJob(
 		log.info("thread is on another project's finding, skipping");
 		return;
 	}
-	// The comment being answered can settle a body-listed finding by quoting its title or line.
+	// The comment being answered can settle a finding by quoting its title or line, or, with a
+	// mention, the only open one without naming it. Every project reviewing the repository gets
+	// the comment, and each sees only its own findings, so that guess is made only where no other
+	// project has reviewed the pull request.
 	const answered = early?.find((c) => c.id === comment.id)?.body ?? '';
-	const named = findingsNamedIn(answered, bodyFindings, { mentioned: !job.unmentioned });
+	let named = findingsNamedIn(answered, bodyFindings, { mentioned: false });
+	if (named.length === 0 && !job.unmentioned && bodyFindings.length > 0) {
+		const conversation = await github.getRecentIssueComments(
+			job.pullNumber,
+			Number.MAX_SAFE_INTEGER
+		);
+		if (!reviewedByAnotherRepository(conversation, job.repository.repositoryId)) {
+			named = findingsNamedIn(answered, bodyFindings, { mentioned: true });
+		}
+	}
 	if (job.unmentioned && comment.kind === 'issue' && named.length === 0) {
 		log.info('conversation comment does not name an open finding, skipping');
 		return;
 	}
+
+	// The 👀 says Hansi is on it, so it turns into 👍 once the comment is answered, or will not be.
+	const unacknowledge = () =>
+		github
+			.finishAcknowledgement(job.pullNumber, { id: comment.id, kind: comment.kind })
+			.catch((error: unknown) => log.warn('could not finish reaction', { err: error }));
+
+	// A settled finding's thread is closed. A failure is retried while attempts remain, so the
+	// retry closes it; the answer is not posted twice.
+	const resolveThreads = async (threads: string[]) => {
+		if (!threads.length) return;
+		try {
+			await github.resolveReviewThreads(job.pullNumber, threads);
+		} catch (error) {
+			if (attempt.attempts < attempt.maxAttempts) throw error;
+			log.warn('could not resolve thread', { err: error });
+		}
+	};
 
 	// A retry after GitHub took the answer but the delivery did not settle must not answer twice.
 	const marker = replyMarker(comment.id);
@@ -111,6 +149,22 @@ export async function runChatJob(
 					await github.getRecentIssueComments(job.pullNumber, Number.MAX_SAFE_INTEGER);
 		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
 			log.info('chat reply already posted, skipping');
+			// The attempt that answered may have settled a finding and then failed to close its
+			// thread: close it now. The comment is read again, as the findings it named are no
+			// longer open. A mention that named none settled the only open one, whose title other
+			// settled findings may not share, so every settled finding's thread is closed then:
+			// each belongs closed, and closing one twice does nothing.
+			const settled = settledFindings(findings);
+			const text = posted.find((c) => c.id === comment.id)?.body ?? answered;
+			const named = findingsNamedIn(text, settled, { mentioned: false });
+			const threads =
+				comment.kind === 'review'
+					? settled.some((f) => f.providerCommentId === comment.rootCommentId)
+						? [comment.rootCommentId!]
+						: []
+					: threadsOf(named.length || job.unmentioned ? named : settled);
+			await resolveThreads(threads);
+			await unacknowledge();
 			return;
 		}
 	}
@@ -160,6 +214,8 @@ export async function runChatJob(
 			chatFinding(findings, comment.rootCommentId) ?? bodyFinding;
 		const findingIds = finding ? (named.length ? named.map((f) => f.id) : [finding.id]) : [];
 
+		// Only the pull request's author settles a finding; anyone else gets an answer.
+		const byAuthor = comment.author.toLowerCase() === pr.author.toLowerCase();
 		let settled = false;
 		const learnings = await results.listLearnings(job.repository);
 
@@ -211,24 +267,24 @@ export async function runChatJob(
 						sourceUrl: comment.url
 					});
 				},
-				onMarkFinding: finding
-					? async (status, reason) => {
-							await results.updateFindings(pull, findingIds, { status, reason });
-							settled = true;
-						}
-					: undefined,
+				onMarkFinding:
+					finding && byAuthor
+						? async (status, reason) => {
+								await results.updateFindings(pull, findingIds, { status, reason });
+								settled = true;
+							}
+						: undefined,
 				sandbox: sandbox?.runner
 			}).finally(() => sandbox?.close());
 		});
 
 		await reply(`${answer}\n\n${marker}`);
-		// A finding settled in the conversation (fixed, or intended) closes its thread after the answer.
+		await unacknowledge();
+		// A finding settled in the conversation (fixed, or intended) closes its thread after the
+		// answer: the one replied in, or the threads of the inline findings a conversation comment
+		// named.
 		if (settled) {
-			if (comment.rootCommentId) {
-				await github
-					.resolveReviewThreads(job.pullNumber, [comment.rootCommentId])
-					.catch((error: unknown) => log.warn('could not resolve thread', { err: error }));
-			}
+			const threads = comment.rootCommentId ? [comment.rootCommentId] : threadsOf(named);
 			// Keep the summary, grade, check run and approval in sync with the settled finding.
 			await refreshSummaryAfterSettlement({
 				results,
@@ -242,13 +298,17 @@ export async function runChatJob(
 			}).catch((error: unknown) =>
 				log.warn('could not refresh summary after settlement', { err: error })
 			);
+			await resolveThreads(threads);
 		}
 		log.info('chat reply posted');
 	} catch (error) {
 		// Tell the person the answer failed, once retries are exhausted. The reply is fixed:
 		// the error can name a provider or include request details, and it stays in the logs.
 		const notice = chatFailureReply(attempt);
-		if (notice) await reply(notice).catch(() => {});
+		if (notice) {
+			await reply(notice).catch(() => {});
+			await unacknowledge();
+		}
 		throw error;
 	} finally {
 		if (usage.length) {
@@ -257,6 +317,11 @@ export async function runChatJob(
 				.catch((error: unknown) => log.warn('could not record chat usage', { err: error }));
 		}
 	}
+}
+
+/** The threads of inline findings, each once; findings listed in a review body have none. */
+function threadsOf(findings: readonly { providerCommentId: string | null }[]): string[] {
+	return [...new Set(findings.flatMap((f) => (f.providerCommentId ? [f.providerCommentId] : [])))];
 }
 
 /**

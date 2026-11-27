@@ -52,6 +52,8 @@ export interface BodyFindingRow extends ChatFindingRow {
 	path: string;
 	startLine: number;
 	endLine: number;
+	/** The root of the finding's thread; null for one listed in a review body. */
+	providerCommentId: string | null;
 }
 
 /**
@@ -60,11 +62,34 @@ export interface BodyFindingRow extends ChatFindingRow {
  * Newest first, from the pull request's findings.
  */
 export function openBodyFindings(findings: readonly FindingRecord[]): BodyFindingRow[] {
+	return openFindings(findings.filter((f) => f.providerCommentId === null));
+}
+
+/**
+ * Every open finding on a pull request, inline or in a review body, newest first. A conversation
+ * comment that mentions Hansi can answer any of them: people often settle a finding in the
+ * conversation ("@hansi read the comments, it's resolved") instead of in its thread.
+ */
+export function openFindings(findings: readonly FindingRecord[]): BodyFindingRow[] {
+	return rows(findings.filter((f) => f.status === 'posted'));
+}
+
+/** Findings that were resolved or dismissed, newest first, as `openFindings` lists open ones. */
+export function settledFindings(findings: readonly FindingRecord[]): BodyFindingRow[] {
+	return rows(findings.filter((f) => f.status === 'resolved' || f.status === 'dismissed'));
+}
+
+function rows(findings: readonly FindingRecord[]): BodyFindingRow[] {
 	return [...findings]
 		.reverse()
-		.filter((f) => f.status === 'posted' && f.providerCommentId === null)
 		.slice(0, 50)
-		.map((f) => ({ ...pick(f), path: f.path, startLine: f.startLine, endLine: f.endLine }));
+		.map((f) => ({
+			...pick(f),
+			path: f.path,
+			startLine: f.startLine,
+			endLine: f.endLine,
+			providerCommentId: f.providerCommentId
+		}));
 }
 
 const normalize = (text: string) =>
