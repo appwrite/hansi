@@ -15,6 +15,22 @@ export function summaryMarkerFor(repositoryId: string): string {
 	return `<!-- ${MARKER_NAMESPACE}:summary:${repositoryId} -->`;
 }
 
+const SUMMARY_MARKER_PREFIX = `<!-- ${MARKER_NAMESPACE}:summary:`;
+
+/**
+ * Whether another `repositories` row has a summary on the pull request, so another project
+ * reviews it too and holds findings this one cannot see.
+ */
+export function reviewedByAnotherRepository(
+	comments: readonly { isBot: boolean; body: string }[],
+	repositoryId: string
+): boolean {
+	const own = summaryMarkerFor(repositoryId);
+	return comments.some(
+		(c) => c.isBot && c.body.includes(SUMMARY_MARKER_PREFIX) && !c.body.includes(own)
+	);
+}
+
 const REVIEW_MARKER_PREFIX = `<!-- ${MARKER_NAMESPACE}:review:`;
 
 /** Hidden in the body of every review a `repositories` row submits. */

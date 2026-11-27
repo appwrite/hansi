@@ -17,7 +17,7 @@ import type { ChatJob } from './jobs';
 import { chatFailureReply } from './public-failure';
 import type { ChatRef, ModelUsage, PullRef } from './results';
 import { lazySandbox, openSandbox } from './review-sandbox';
-import { scopeToRepository } from './scope';
+import { reviewedByAnotherRepository, scopeToRepository } from './scope';
 import { modelUsage, statusImagesOrigin, withWorkdir } from './shared';
 import { refreshSummaryAfterSettlement } from './summary';
 
@@ -101,9 +101,20 @@ export async function runChatJob(
 		return;
 	}
 	// The comment being answered can settle a finding by quoting its title or line, or, with a
-	// mention, the only open one without naming it.
+	// mention, the only open one without naming it. Every project reviewing the repository gets
+	// the comment, and each sees only its own findings, so that guess is made only where no other
+	// project has reviewed the pull request.
 	const answered = early?.find((c) => c.id === comment.id)?.body ?? '';
-	const named = findingsNamedIn(answered, bodyFindings, { mentioned: !job.unmentioned });
+	let named = findingsNamedIn(answered, bodyFindings, { mentioned: false });
+	if (named.length === 0 && !job.unmentioned && bodyFindings.length > 0) {
+		const conversation = await github.getRecentIssueComments(
+			job.pullNumber,
+			Number.MAX_SAFE_INTEGER
+		);
+		if (!reviewedByAnotherRepository(conversation, job.repository.repositoryId)) {
+			named = findingsNamedIn(answered, bodyFindings, { mentioned: true });
+		}
+	}
 	if (job.unmentioned && comment.kind === 'issue' && named.length === 0) {
 		log.info('conversation comment does not name an open finding, skipping');
 		return;

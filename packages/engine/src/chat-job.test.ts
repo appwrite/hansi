@@ -9,6 +9,7 @@ import { replyMarker, runChatJob, upTo } from './chat-job';
 import { formatSummaryComment, SUMMARY_MARKER } from './format';
 import type { ChatJob } from './jobs';
 import { summaryMarkerFor } from './scope';
+import { summaryMarkerFor } from './scope';
 import { MemoryGitHub, MemoryResultsSink } from './testing';
 
 // The chat job end to end against a local git remote, the in-memory GitHub and a scripted
@@ -508,6 +509,41 @@ describe('runChatJob', () => {
 		expect(results.findings[0]?.status).toBe('dismissed');
 		expect(github.resolved.has(rootId)).toBe(true);
 		expect(results.review('review0')?.tier).toBe('S');
+	});
+
+	test('an unnamed finding is not guessed while another project reviews the pull request', async () => {
+		const model = new MockLanguageModelV4({ doGenerate: [text('Which finding do you mean?')] });
+		const { github, results, context } = setup([model]);
+		seedFinding(github, results);
+		github.issueComments.push(
+			{
+				id: '930',
+				author: 'hansi[bot]',
+				isBot: true,
+				body: `${summaryMarkerFor('other-row')}\n\nOther review`
+			},
+			{ id: '931', author: 'octocat', isBot: false, body: "@hansi it's resolved" }
+		);
+
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '931',
+					kind: 'issue',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#issuecomment-931'
+				}
+			},
+			context,
+			first
+		);
+
+		expect(JSON.stringify(model.doGenerateCalls[0]?.prompt)).not.toContain('Division by zero');
+		expect(results.findings[0]?.status).toBe('posted');
 	});
 
 	test('a conversation comment without a mention leaves inline findings to their threads', async () => {
