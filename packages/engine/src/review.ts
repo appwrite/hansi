@@ -185,6 +185,11 @@ export type ReviewResult =
 			/** Why Hansi did not approve although it found nothing blocking. */
 			approvalWithheld: string | null;
 			/**
+			 * Only open findings keep Hansi from approving: once they settle, it may approve this
+			 * head without another review. False when it could not have approved with none open.
+			 */
+			approvesWhenSettled: boolean;
+			/**
 			 * Reviewable changed files that did not fit in the prompt, out of how many were
 			 * considered. Null when every reviewable file was included.
 			 */
@@ -626,14 +631,17 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 			stillOpen: [],
 			config
 		}) !== 'approve';
+	// What holds approval back whatever happens to the open findings.
+	const withheldRegardless =
+		input.withholdApproval ??
+		(truncated
+			? 'Part of the diff was too large to review, so Hansi did not approve.'
+			: unplacedDefects
+				? 'Hansi found problems with this deletion that it could not comment on inline, so it did not approve.'
+				: null);
 	const approvalWithheld =
 		verdict === 'approve'
-			? (input.withholdApproval ??
-				(truncated
-					? 'Part of the diff was too large to review, so Hansi did not approve.'
-					: unplacedDefects
-						? 'Hansi found problems with this deletion that it could not comment on inline, so it did not approve.'
-						: null))
+			? withheldRegardless
 			: openDefectApprovalReason([...posted, ...stillOpen], config);
 	if (verdict === 'approve' && approvalWithheld) verdict = 'comment';
 	const presented = presentReview({
@@ -675,6 +683,7 @@ export async function runReview(input: ReviewInput): Promise<ReviewResult> {
 		),
 		latestChanges: input.incrementalFrom ? (submitted.latest_changes ?? null) : null,
 		approvalWithheld,
+		approvesWhenSettled: config.reviews.approve && withheldRegardless === null,
 		filesTooLargeForPrompt:
 			shown.length < included.length
 				? { omitted: included.length - shown.length, total: included.length }

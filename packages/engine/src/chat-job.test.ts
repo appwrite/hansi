@@ -6,7 +6,9 @@ import { MockLanguageModelV4 } from 'ai/test';
 import type { EngineContext } from './context';
 import { git } from './git';
 import { replyMarker, runChatJob, upTo } from './chat-job';
+import { formatSummaryComment, SUMMARY_MARKER } from './format';
 import type { ChatJob } from './jobs';
+import { summaryMarkerFor } from './scope';
 import { MemoryGitHub, MemoryResultsSink } from './testing';
 
 // The chat job end to end against a local git remote, the in-memory GitHub and a scripted
@@ -145,6 +147,117 @@ function seedFinding(github: MemoryGitHub, results: MemoryResultsSink) {
 	return rootId;
 }
 
+/**
+ * A completed review that only commented, because its one finding, a minor bug, was open: what
+ * the summary of appwrite-labs/infrastructure#1157 looked like before the reply that dismissed it.
+ */
+function seedWithheldApproval(
+	github: MemoryGitHub,
+	results: MemoryResultsSink,
+	options: { approvesWhenSettled: boolean }
+) {
+	results.queue({
+		id: 'review0',
+		status: 'completed',
+		headSha,
+		summary: 'Divides.',
+		verdict: 'comment',
+		tier: 'A',
+		tierReason: 'Limited by an open minor finding: Division by zero',
+		completedAt: '2026-10-01T00:00:00.000Z'
+	});
+	const rootId = '500';
+	github.reviewComments.push(
+		{
+			id: rootId,
+			author: 'hansi[bot]',
+			isBot: true,
+			body: '**Division by zero**',
+			path: 'src/math.ts',
+			line: 2
+		},
+		{
+			id: '501',
+			inReplyToId: rootId,
+			author: 'octocat',
+			isBot: false,
+			body: 'Intended: callers check b first.'
+		}
+	);
+	const finding = {
+		path: 'src/math.ts',
+		startLine: 2,
+		endLine: 2,
+		severity: 'minor' as const,
+		category: 'bug' as const,
+		title: 'Division by zero',
+		body: '`b` can be 0.'
+	};
+	results.findings.push({
+		...finding,
+		id: 'finding1',
+		reviewId: 'review0',
+		suggestion: null,
+		status: 'posted',
+		dropReason: null,
+		providerCommentId: rootId,
+		createdAt: '2026-10-01T00:00:00.000Z'
+	});
+	const summary = formatSummaryComment({
+		repository: 'https://github.com/acme/math/blob',
+		headSha,
+		summary: 'Divides.',
+		tier: 'A',
+		tierReason: 'Limited by an open minor finding: Division by zero',
+		verdict: 'comment',
+		posted: [finding],
+		resolved: [],
+		stillOpen: [],
+		dropped: [],
+		walkthrough: [],
+		approvalWithheld: 'Not approving while a bug finding is open: Division by zero',
+		approvesWhenSettled: options.approvesWhenSettled,
+		mention: '@hansi'
+	});
+	github.issueComments.push({
+		id: '400',
+		author: 'hansi[bot]',
+		isBot: true,
+		body: summary.replace(SUMMARY_MARKER, summaryMarkerFor(repository.repositoryId))
+	});
+	return rootId;
+}
+
+/** The author's reply on that finding, which the model accepts as intended. */
+async function dismissByReply(context: EngineContext) {
+	await runChatJob(
+		{
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: '501',
+				kind: 'review',
+				rootCommentId: '500',
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#discussion_r501'
+			},
+			unmentioned: true
+		},
+		context,
+		first
+	);
+}
+
+const dismissing = () =>
+	new MockLanguageModelV4({
+		doGenerate: [
+			toolCalls(['mark_finding', { status: 'dismissed', reason: 'Intended policy' }]),
+			text('Intended, dismissed.')
+		]
+	});
+
 describe('runChatJob', () => {
 	test('a reply on a finding can remember a rule and dismiss the finding', async () => {
 		const model = new MockLanguageModelV4({
@@ -199,6 +312,156 @@ describe('runChatJob', () => {
 		expect(github.summary()).toContain('Divides.');
 		expect(results.review('review0')?.tier).toBe('S');
 		expect(results.chatUsage[0]?.usage.map((u) => u.role)).toEqual(['chat']);
+	});
+
+	test('dismissing the finding that held approval back approves the reviewed head', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+
+		await dismissByReply(context);
+
+		expect(results.findings[0]?.status).toBe('dismissed');
+		const summary = github.summary() ?? '';
+		expect(summary).toContain('✅ Approved');
+		expect(summary).not.toContain('Not approving');
+		expect(summary).not.toContain('Division by zero');
+		expect(results.review('review0')?.tier).toBe('S');
+		expect(github.reviews.map((r) => [r.event, r.commitId])).toEqual([['APPROVE', headSha]]);
+		expect(github.reviews[0]?.body).toContain('Looks good to merge.');
+		expect(github.checkRuns.map((r) => [r.name, r.headSha, r.conclusion, r.title])).toEqual([
+			['Hansi', headSha, 'success', 'Tier S: Ready to merge']
+		]);
+	});
+
+	test('a later settlement keeps the approval without approving again', async () => {
+		const { github, results, context } = setup([dismissing(), dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		// A documentation note does not hold approval back, but its thread can still settle.
+		github.reviewComments.push(
+			{
+				id: '510',
+				author: 'hansi[bot]',
+				isBot: true,
+				body: '**Document divide**',
+				path: 'src/math.ts',
+				line: 1
+			},
+			{ id: '511', inReplyToId: '510', author: 'octocat', isBot: false, body: 'Not needed.' }
+		);
+		results.findings.push({
+			...results.findings[0]!,
+			id: 'finding2',
+			severity: 'minor',
+			category: 'documentation',
+			title: 'Document divide',
+			providerCommentId: '510'
+		});
+
+		await dismissByReply(context);
+		context.models.review.model = dismissing();
+		await runChatJob(
+			{
+				type: 'chat',
+				repository,
+				pullNumber: 7,
+				comment: {
+					id: '511',
+					kind: 'review',
+					rootCommentId: '510',
+					author: 'octocat',
+					authorAssociation: 'MEMBER',
+					url: 'https://github.test/pull/7#discussion_r511'
+				},
+				unmentioned: true
+			},
+			context,
+			first
+		);
+
+		expect(results.findings.map((f) => f.status)).toEqual(['dismissed', 'dismissed']);
+		expect(github.summary()).toContain('✅ Approved');
+		expect(github.reviews.map((r) => r.event)).toEqual(['APPROVE']);
+		// The check run follows the grade: the open note held it at A, then nothing is open.
+		expect(github.checkRuns.map((r) => [r.conclusion, r.title])).toEqual([
+			['success', 'Tier A: Mergeable after minor fixes'],
+			['success', 'Tier S: Ready to merge']
+		]);
+	});
+
+	test('an approval GitHub refused is not claimed in the summary', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		github.createReview = async () => {
+			throw new Error('GitHub is down');
+		};
+
+		await dismissByReply(context);
+
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.summary()).toContain('💬 Commented');
+		expect(github.checkRuns.map((r) => r.conclusion)).toEqual(['neutral']);
+	});
+
+	test('a findings list cut at its limit leaves the standing as it is', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		const settled = {
+			...results.findings[0]!,
+			status: 'resolved' as const,
+			providerCommentId: null
+		};
+		for (let i = 0; i < 199; i++) results.findings.push({ ...settled, id: `old${i}` });
+		const before = github.summary();
+
+		await dismissByReply(context);
+
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.summary()).toBe(before);
+		expect(results.review('review0')?.tier).toBe('A');
+		expect(github.reviews).toEqual([]);
+		expect(github.checkRuns).toEqual([]);
+	});
+
+	test('an approved summary without the settlement mark is not taken as an approval', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: false });
+		// A review's final summary is written before its GitHub review is posted.
+		const summary = github.issueComments[0]!;
+		summary.body = summary.body.replace('💬 Commented', '✅ Approved');
+
+		await dismissByReply(context);
+
+		expect(github.summary()).toContain('💬 Commented');
+		expect(github.reviews).toEqual([]);
+	});
+
+	test('a review that could not have approved anyway only refreshes its summary', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: false });
+
+		await dismissByReply(context);
+
+		const summary = github.summary() ?? '';
+		expect(summary).toContain('💬 Commented');
+		expect(summary).not.toContain('Division by zero');
+		expect(github.reviews).toEqual([]);
+		// The grade still moves, so the check run stops showing the dismissed finding's tier.
+		expect(github.checkRuns.map((r) => [r.conclusion, r.title])).toEqual([
+			['neutral', 'Tier S: Ready to merge']
+		]);
+	});
+
+	test('a push since the review keeps the approval for the review of the new commits', async () => {
+		const { github, results, context } = setup([dismissing()]);
+		seedWithheldApproval(github, results, { approvesWhenSettled: true });
+		// The chat job reads the head first; the settlement then sees a newer one.
+		github.nextHeads.push(headSha, 'f'.repeat(40));
+
+		await dismissByReply(context);
+
+		expect(github.summary()).toContain('💬 Commented');
+		expect(github.reviews).toEqual([]);
+		expect(github.checkRuns).toEqual([]);
 	});
 
 	test("a thread on another project's finding is left to that project", async () => {

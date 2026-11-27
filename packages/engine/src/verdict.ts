@@ -83,7 +83,8 @@ export function openDefectApprovalReason(
 	const defect = findings.filter(isDefectFinding).sort(compareSeverity)[0];
 	if (!defect) return null;
 	const title = defect.title?.trim();
-	return title
-		? `Not approving while a bug finding is open: ${title}`
-		: 'Not approving while a bug finding is open.';
+	return title ? `${OPEN_DEFECT_NOTE}: ${title}` : `${OPEN_DEFECT_NOTE}.`;
 }
+
+/** How `openDefectApprovalReason` starts: the note names a finding, and follows the findings. */
+export const OPEN_DEFECT_NOTE = 'Not approving while a bug finding is open';
