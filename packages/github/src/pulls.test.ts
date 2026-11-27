@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import type { Octokit } from 'octokit';
 import {
 	dismissChangeRequests,
+	finishAcknowledgement,
 	getFailedChecks,
 	getLinkedIssues,
 	getPullRequest,
@@ -346,4 +347,43 @@ test('isTrustedAuthor does not read the commit of a bot from a fork', async () =
 	const fork = { ...botPullRequest, botOnOwnBranch: false };
 	expect(await isTrustedAuthor(octokit, { owner: 'o', repo: 'r' }, fork)).toBe(false);
 	expect(read).toBe(false);
+});
+
+test("finishAcknowledgement adds 👍 and deletes the bot's own 👀", async () => {
+	const calls: string[] = [];
+	const reaction =
+		(name: string) =>
+		async ({ comment_id, content }: { comment_id: number; content: string }) => {
+			calls.push(`${name} ${comment_id} ${content}`);
+			return { data: { id: content === 'eyes' ? 77 : 78 } };
+		};
+	const deletion =
+		(name: string) =>
+		async ({ comment_id, reaction_id }: { comment_id: number; reaction_id: number }) => {
+			calls.push(`${name} ${comment_id} ${reaction_id}`);
+			return {};
+		};
+	const octokit = {
+		rest: {
+			reactions: {
+				createForIssueComment: reaction('create-issue'),
+				deleteForIssueComment: deletion('delete-issue'),
+				createForPullRequestReviewComment: reaction('create-review'),
+				deleteForPullRequestComment: deletion('delete-review')
+			}
+		}
+	} as unknown as Octokit;
+	const ref = { owner: 'o', repo: 'r' };
+
+	await finishAcknowledgement(octokit, ref, { id: 5, kind: 'issue' });
+	await finishAcknowledgement(octokit, ref, { id: 6, kind: 'review' });
+
+	expect(calls).toEqual([
+		'create-issue 5 +1',
+		'create-issue 5 eyes',
+		'delete-issue 5 77',
+		'create-review 6 +1',
+		'create-review 6 eyes',
+		'delete-review 6 77'
+	]);
 });
