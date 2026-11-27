@@ -71,9 +71,17 @@ export function openBodyFindings(findings: readonly FindingRecord[]): BodyFindin
  * conversation ("@hansi read the comments, it's resolved") instead of in its thread.
  */
 export function openFindings(findings: readonly FindingRecord[]): BodyFindingRow[] {
+	return rows(findings.filter((f) => f.status === 'posted'));
+}
+
+/** Findings that were resolved or dismissed, newest first, as `openFindings` lists open ones. */
+export function settledFindings(findings: readonly FindingRecord[]): BodyFindingRow[] {
+	return rows(findings.filter((f) => f.status === 'resolved' || f.status === 'dismissed'));
+}
+
+function rows(findings: readonly FindingRecord[]): BodyFindingRow[] {
 	return [...findings]
 		.reverse()
-		.filter((f) => f.status === 'posted')
 		.slice(0, 50)
 		.map((f) => ({
 			...pick(f),

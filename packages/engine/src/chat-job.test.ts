@@ -577,6 +577,54 @@ describe('runChatJob', () => {
 		expect(results.findings[0]?.status).toBe('posted');
 	});
 
+	test('a thread GitHub would not resolve is resolved by the retry, not answered twice', async () => {
+		const model = new MockLanguageModelV4({
+			doGenerate: [
+				toolCalls(['mark_finding', { status: 'dismissed', reason: 'Callers check b first' }]),
+				text('Dismissing it.')
+			]
+		});
+		const { github, results, context } = setup([model]);
+		const rootId = seedFinding(github, results);
+		github.reviewComments.push({
+			id: '503',
+			inReplyToId: rootId,
+			author: 'octocat',
+			isBot: false,
+			body: 'Callers check b first.'
+		});
+		const resolve = github.resolveReviewThreads.bind(github);
+		github.resolveReviewThreads = async () => {
+			throw new Error('GitHub is down');
+		};
+		const job: ChatJob = {
+			type: 'chat',
+			repository,
+			pullNumber: 7,
+			comment: {
+				id: '503',
+				kind: 'review',
+				rootCommentId: rootId,
+				author: 'octocat',
+				authorAssociation: 'MEMBER',
+				url: 'https://github.test/pull/7#discussion_r503'
+			},
+			unmentioned: true
+		};
+
+		await expect(runChatJob(job, context, first)).rejects.toThrow('GitHub is down');
+		expect(results.findings[0]?.status).toBe('dismissed');
+		expect(github.resolved.has(rootId)).toBe(false);
+
+		github.resolveReviewThreads = resolve;
+		await runChatJob(job, context, { attempts: 2, maxAttempts: 2 });
+
+		expect(github.resolved.has(rootId)).toBe(true);
+		const answers = github.reviewComments.filter((c) => c.body.includes(replyMarker('503')));
+		expect(answers).toHaveLength(1);
+		expect(answers[0]?.body).not.toContain("couldn't answer");
+	});
+
 	test("only the pull request's author can settle a finding", async () => {
 		const model = new MockLanguageModelV4({
 			doGenerate: [text('That is for the author to settle.')]

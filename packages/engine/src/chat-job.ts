@@ -6,6 +6,7 @@ import {
 	findingsNamedIn,
 	openBodyFindings,
 	openFindings,
+	settledFindings,
 	type ChatFindingRow
 } from './chat-finding';
 import { isBotAuthor, repliesToBot } from './chat-reply';
@@ -126,6 +127,18 @@ export async function runChatJob(
 			.finishAcknowledgement(job.pullNumber, { id: comment.id, kind: comment.kind })
 			.catch((error: unknown) => log.warn('could not finish reaction', { err: error }));
 
+	// A settled finding's thread is closed. A failure is retried while attempts remain, so the
+	// retry closes it; the answer is not posted twice.
+	const resolveThreads = async (threads: string[]) => {
+		if (!threads.length) return;
+		try {
+			await github.resolveReviewThreads(job.pullNumber, threads);
+		} catch (error) {
+			if (attempt.attempts < attempt.maxAttempts) throw error;
+			log.warn('could not resolve thread', { err: error });
+		}
+	};
+
 	// A retry after GitHub took the answer but the delivery did not settle must not answer twice.
 	const marker = replyMarker(comment.id);
 	if (attempt.attempts > 1) {
@@ -136,6 +149,16 @@ export async function runChatJob(
 					await github.getRecentIssueComments(job.pullNumber, Number.MAX_SAFE_INTEGER);
 		if (posted.some((c) => c.isBot && c.body.includes(marker))) {
 			log.info('chat reply already posted, skipping');
+			// The attempt that answered may have settled a finding and then failed to close its
+			// thread: close it now.
+			const settled = settledFindings(findings);
+			const threads =
+				comment.kind === 'review'
+					? settled.some((f) => f.providerCommentId === comment.rootCommentId)
+						? [comment.rootCommentId!]
+						: []
+					: threadsOf(findingsNamedIn(answered, settled, { mentioned: !job.unmentioned }));
+			await resolveThreads(threads);
 			await unacknowledge();
 			return;
 		}
@@ -256,14 +279,7 @@ export async function runChatJob(
 		// answer: the one replied in, or the threads of the inline findings a conversation comment
 		// named.
 		if (settled) {
-			const threads = comment.rootCommentId
-				? [comment.rootCommentId]
-				: [...new Set(named.flatMap((f) => (f.providerCommentId ? [f.providerCommentId] : [])))];
-			if (threads.length) {
-				await github
-					.resolveReviewThreads(job.pullNumber, threads)
-					.catch((error: unknown) => log.warn('could not resolve thread', { err: error }));
-			}
+			const threads = comment.rootCommentId ? [comment.rootCommentId] : threadsOf(named);
 			// Keep the summary, grade, check run and approval in sync with the settled finding.
 			await refreshSummaryAfterSettlement({
 				results,
@@ -277,6 +293,7 @@ export async function runChatJob(
 			}).catch((error: unknown) =>
 				log.warn('could not refresh summary after settlement', { err: error })
 			);
+			await resolveThreads(threads);
 		}
 		log.info('chat reply posted');
 	} catch (error) {
@@ -295,6 +312,11 @@ export async function runChatJob(
 				.catch((error: unknown) => log.warn('could not record chat usage', { err: error }));
 		}
 	}
+}
+
+/** The threads of inline findings, each once; findings listed in a review body have none. */
+function threadsOf(findings: readonly { providerCommentId: string | null }[]): string[] {
+	return [...new Set(findings.flatMap((f) => (f.providerCommentId ? [f.providerCommentId] : [])))];
 }
 
 /**
